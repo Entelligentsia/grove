@@ -1,6 +1,6 @@
 {
   "name": "@entelligentsia/grove",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Structural, byte-precise, token-cheap access to a codebase for coding agents — tree-sitter over a CLI and an MCP server.",
   "homepage": "https://github.com/Entelligentsia/grove",
   "repository": {
