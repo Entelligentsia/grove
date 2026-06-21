@@ -16,7 +16,8 @@
   },
   "files": [
     "bin/grove.js",
-    "install.js"
+    "install.js",
+    "README.md"
   ],
   "engines": {
     "node": ">=16"
