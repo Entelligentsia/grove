@@ -17,6 +17,11 @@ use crate::{fetch, registry};
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";
 
+/// The key grove registers itself under in `.mcp.json`. Claude Code namespaces
+/// an MCP server's tools as `mcp__<key>__<tool>`, so this also determines the
+/// tool prefix the steering directive must use to name the real tools.
+const MCP_SERVER_KEY: &str = "grove";
+
 pub fn run(root: &Path, dry_run: bool) -> Result<()> {
     println!("grove init  scanning {}\n", root.display());
 
@@ -139,7 +144,7 @@ fn write_mcp_json(root: &Path) -> Result<String> {
         doc = json!({});
     }
     let exe = std::env::current_exe().context("locating the grove binary")?;
-    doc["mcpServers"]["grove"] = json!({
+    doc["mcpServers"][MCP_SERVER_KEY] = json!({
         "command": exe.to_string_lossy(),
         "args": ["serve"],
     });
@@ -152,7 +157,10 @@ fn write_mcp_json(root: &Path) -> Result<String> {
 /// re-running is idempotent and never disturbs the rest of the file.
 fn write_claude_md(root: &Path, langs: &[String]) -> Result<String> {
     let path = root.join("CLAUDE.md");
-    let section = claude_section(langs);
+    // Claude Code exposes the tools as `mcp__<server-key>__<tool>`; steer with
+    // those exact names. A future AGENTS.md/.cursorrules adapter passes its own.
+    let prefix = format!("mcp__{MCP_SERVER_KEY}__");
+    let section = claude_section(langs, &prefix);
     let existing = std::fs::read_to_string(&path).ok();
     let updated = match existing {
         Some(text) if text.contains(CLAUDE_START) && text.contains(CLAUDE_END) => {
@@ -167,7 +175,7 @@ fn write_claude_md(root: &Path, langs: &[String]) -> Result<String> {
     Ok("CLAUDE.md (steering — the tools get used)".to_string())
 }
 
-fn claude_section(langs: &[String]) -> String {
+fn claude_section(langs: &[String], p: &str) -> String {
     format!(
         "{CLAUDE_START}
 ## Code intelligence: use grove first
@@ -176,20 +184,20 @@ This project has the **grove** MCP server — structural code tools backed by
 tree-sitter ({langs}). For any question about *where code is, what a file
 contains, or how code connects*, prefer grove over grepping or reading whole
 files. grove returns byte-precise, token-cheap answers with stable `symbol-id`s
-you can pass between calls.
+(`<lang>:<relpath>#<name>@<row>`) you can pass between calls.
 
 | You want to… | Use |
 |---|---|
-| see what's in a file (not read all of it) | `outline` (add `kind=…` / `detail=0` on large files) |
-| find where something is defined or used | `symbols`, or `definition` for go-to-def |
-| read one function/type body | `source` (by id, or file+name) |
-| know what calls a function | `callers` |
-| confirm an edit didn't break syntax | `check` (after editing) |
+| see what's in a file (not read all of it) | `{p}outline` (add `kind=…` / `detail=0` on large files) |
+| find where something is defined or used | `{p}symbols`, or `{p}definition` for go-to-def |
+| read one function/type body | `{p}source` (by id, or file+name) |
+| know what calls a function | `{p}callers` |
+| confirm an edit didn't break syntax | `{p}check` (after editing) |
 
 The grove tools are **deferred** MCP tools — when a code question arrives, load
 their schemas with ToolSearch up front rather than defaulting to a search agent
-or grep. `callers`/`definition` are name-based (not receiver-type resolved).
+or grep. `{p}callers`/`{p}definition` are name-based (not receiver-type resolved).
 {CLAUDE_END}",
-        langs = langs.join(", ")
+        langs = langs.join(", "),
     )
 }
