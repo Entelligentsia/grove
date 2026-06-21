@@ -11,11 +11,17 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::ops;
+use crate::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_PROTOCOL: &str = "2025-06-18";
+
+/// MCP revisions grove's minimal tools surface is compatible with. On
+/// `initialize` we echo the client's version when it's one of these, otherwise
+/// we answer with our latest (`DEFAULT_PROTOCOL`) rather than parroting an
+/// unknown version back (which would falsely claim support).
+const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Run the stdio server loop until EOF on stdin.
 pub fn serve() -> Result<()> {
@@ -68,15 +74,18 @@ enum Outcome {
 fn handle(method: &str, params: &Value) -> Outcome {
     match method {
         "initialize" => {
-            let protocol = params
-                .get("protocolVersion")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_PROTOCOL)
-                .to_string();
+            // Answer with the client's version only if we support it; otherwise
+            // our latest. Never echo an unknown version (would imply support).
+            let requested = params.get("protocolVersion").and_then(Value::as_str);
+            let protocol = match requested {
+                Some(v) if SUPPORTED_PROTOCOLS.contains(&v) => v,
+                _ => DEFAULT_PROTOCOL,
+            };
             Outcome::Ok(json!({
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
+                "serverInfo": { "name": SERVER_NAME, "title": "grove", "version": SERVER_VERSION },
+                "instructions": instructions(),
             }))
         }
         "notifications/initialized" | "notifications/cancelled" => Outcome::Notify,
@@ -90,60 +99,87 @@ fn handle(method: &str, params: &Value) -> Outcome {
     }
 }
 
-/// The tool catalogue, with LLM-facing descriptions.
+/// Server-level steering, returned from `initialize`. This is the protocol-layer
+/// home for grove's adoption nudge (VISION §6.4.1) and the one place the resolved
+/// language roster lives, so tool descriptions stay generic and token-cheap.
+fn instructions() -> String {
+    let langs = registry::available();
+    let roster = if langs.is_empty() {
+        "No grammars are installed yet — run `grove fetch <lang>` (or `grove init`).".to_string()
+    } else {
+        format!("Languages available here: {}.", langs.join(", "))
+    };
+    format!(
+        "grove gives byte-precise, token-cheap structural access to this codebase. \
+Prefer these tools over grep or reading whole files: `outline` to see a file's \
+definitions, `symbols`/`definition` to locate code, `source` to read one \
+symbol's body, `callers` to find call sites, and `check` after an edit to \
+verify syntax. Every result carries a stable symbol-id \
+(`<lang>:<relpath>#<name>@<row>`) you can pass between tools. {roster}"
+    )
+}
+
+/// The tool catalogue, with LLM-facing descriptions. Descriptions are
+/// language-agnostic — grove serves every installed grammar, and the resolved
+/// language list is provided once via `initialize`'s `instructions`.
 fn tool_specs() -> Value {
     json!([
         {
             "name": "outline",
-            "description": "List the definitions in one Rust file as a compact skeleton (kind, name, signature line, position, a stable symbol-id, and the owning `parent` container — the impl type/trait/module a method belongs to, so you can group members without guessing from line numbers). Use this INSTEAD of reading a whole file. For large method-dense files, pass `kind` to narrow (e.g. kind=class for just the types) and/or a lower `detail` to stay token-cheap. Returns JSON.",
+            "description": "List the definitions in one source file as a compact skeleton (kind, name, signature line, position, a stable symbol-id, and the owning `parent` container — the type/class/trait/module a member belongs to, so you can group members without guessing from line numbers). Works on any source file in a language grove has a grammar for. Use this INSTEAD of reading a whole file. For large, definition-dense files, pass `kind` to narrow and/or a lower `detail` to stay token-cheap. Returns JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "file": { "type": "string", "description": "Path to a .rs file" },
-                    "kind": { "type": "string", "description": "Only this kind: class (struct/enum/trait), function, method, module, macro" },
-                    "detail": { "type": "integer", "description": "0 terse (kind/name/parent/row) · 1 default (adds id/signature) · 2 full (adds byte offsets). Default 1." }
+                    "file": { "type": "string", "description": "Path to a source file" },
+                    "kind": { "type": "string", "description": "Only this kind (kinds are language-dependent), e.g. class, struct, function, method, module" },
+                    "detail": { "type": "integer", "enum": [0, 1, 2], "description": "0 terse (kind/name/parent/row) · 1 default (adds id/signature) · 2 full (adds byte offsets). Default 1." }
                 },
                 "required": ["file"]
-            }
+            },
+            "annotations": { "title": "Outline a file", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "symbols",
-            "description": "Find symbols across a directory (gitignore-aware). Filter by kind (function, method, struct, enum, …) and/or a name substring. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids.",
+            "description": "Find symbols across a directory (gitignore-aware), in any language grove has a grammar for. Filter by kind (function, method, class, struct, …) and/or a name substring. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "dir": { "type": "string", "description": "Directory to search" },
-                    "kind": { "type": "string", "description": "Only this kind, e.g. function, struct, method" },
+                    "kind": { "type": "string", "description": "Only this kind, e.g. function, class, method (language-dependent)" },
                     "name": { "type": "string", "description": "Only names containing this substring (case-insensitive)" },
                     "refs": { "type": "boolean", "description": "Include references, not just definitions (default false)" }
                 },
                 "required": ["dir"]
-            }
+            },
+            "annotations": { "title": "Find symbols", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "source",
-            "description": "Return the exact full source of one symbol — by its symbol-id (from outline/symbols), or by file + name. Use this to read a single function/struct body without loading the whole file. If several definitions share the name, returns the first plus `other_candidates` (their ids) so you can disambiguate without another call. Returns JSON { id, source, other_candidates? }.",
+            "description": "Return the exact full source of one symbol — by its symbol-id (from outline/symbols), or by file + name. Use this to read a single function/class/type body without loading the whole file. If several definitions share the name, returns the first plus `other_candidates` (their ids) so you can disambiguate without another call. Returns JSON { id, source, other_candidates? }.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": { "type": "string", "description": "A symbol-id like rust:src/lib.rs#parse@41" },
-                    "file": { "type": "string", "description": "Alternatively, the .rs file" },
+                    "id": { "type": "string", "description": "A symbol-id like <lang>:<relpath>#<name>@<row> (e.g. py:app/main.py#run@41)" },
+                    "file": { "type": "string", "description": "Alternatively, the source file" },
                     "name": { "type": "string", "description": "…and the symbol name to find in it" }
-                }
-            }
+                },
+                "anyOf": [ { "required": ["id"] }, { "required": ["file", "name"] } ]
+            },
+            "annotations": { "title": "Read a symbol's source", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "check",
-            "description": "Parse a Rust file and report syntax errors (ERROR / MISSING nodes) with positions. Use this AFTER editing a file to confirm you did not break its syntax. Reports syntactic breakage only, not type or semantic errors. Returns JSON; empty array means the file is syntactically valid.",
+            "description": "Parse a source file and report syntax errors (ERROR / MISSING nodes) with positions, in any language grove has a grammar for. Use this AFTER editing a file to confirm you did not break its syntax. Reports syntactic breakage only, not type or semantic errors. Returns JSON; empty array means the file is syntactically valid.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "file": { "type": "string", "description": "Path to a .rs file" } },
+                "properties": { "file": { "type": "string", "description": "Path to a source file" } },
                 "required": ["file"]
-            }
+            },
+            "annotations": { "title": "Check syntax", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "callers",
-            "description": "Find every call site of a function/method by name across a directory, each with the enclosing function (Type::method) and source line. Use this to answer 'what calls this?'. Note: name-based — it matches calls to any function/method with this name, not resolved by receiver type. Returns JSON.",
+            "description": "Find every call site of a function/method by name across a directory, each with its enclosing function and source line. Use this to answer 'what calls this?'. Note: name-based — it matches calls to any function/method with this name, not resolved by receiver type. Returns JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -151,7 +187,8 @@ fn tool_specs() -> Value {
                     "dir": { "type": "string", "description": "Directory to search (default: current)" }
                 },
                 "required": ["name"]
-            }
+            },
+            "annotations": { "title": "Find callers", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "definition",
@@ -162,8 +199,10 @@ fn tool_specs() -> Value {
                     "name": { "type": "string", "description": "Exact symbol name to resolve" },
                     "at": { "type": "string", "description": "Usage site to resolve instead: file:row:col (0-based)" },
                     "dir": { "type": "string", "description": "Directory to search (default: current)" }
-                }
-            }
+                },
+                "anyOf": [ { "required": ["name"] }, { "required": ["at"] } ]
+            },
+            "annotations": { "title": "Go to definition", "readOnlyHint": true, "openWorldHint": false }
         }
     ])
 }
