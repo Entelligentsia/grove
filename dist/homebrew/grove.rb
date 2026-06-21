@@ -3,9 +3,11 @@
 #
 #   brew install Entelligentsia/grove/grove
 #
-# The sha256 values below are per-release. Regenerate this file after tagging
-# with: dist/homebrew/update-formula.sh v0.1.0  (fills version + hashes from the
-# release's .sha256 sidecar assets).
+# The sha256 values below are per-release placeholders. Regenerate this file
+# after tagging with:
+#   dist/homebrew/update-formula.sh <vX.Y.Z> > grove.rb
+# which fills the version + hashes from the release's .sha256 sidecar assets,
+# then copy it into the tap repo as Formula/grove.rb.
 class Grove < Formula
   desc "Structural, byte-precise, token-cheap codebase access for coding agents"
   homepage "https://github.com/Entelligentsia/grove"

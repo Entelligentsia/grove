@@ -1,10 +1,12 @@
-# grove — Phase 2: the WASM registry (multi-language)
+# grove — structural sight for coding agents
 
-Structural sight for coding agents. See [`VISION.md`](VISION.md) for the product
-vision. This crate proves the model end to end: a real engine over six tools,
-exposed through **two faces** that share one engine (a human CLI and an MCP
-server), with grammars loaded **at runtime from a WASM registry** — so new
-languages are added with no recompile and no toolchain on the consumer.
+grove gives coding agents **structural, byte-precise, token-cheap access to a
+codebase** via tree-sitter, instead of reading whole files. One engine, six
+tools, **two faces** — a human CLI (`grove <verb>`) and an MCP server
+(`grove serve`) — with grammars loaded **at runtime from a WASM registry**, so
+new languages are added with no recompile and no toolchain on the consumer.
+
+See [`VISION.md`](VISION.md) for the product vision.
 
 ## Install
 
@@ -42,24 +44,29 @@ One command makes a project one where the agent *uses* grove:
 grove init           # in your project root
 ```
 
-It detects which registered languages are present, then writes three things
-(idempotently, preserving anything already there):
+It detects the project's languages from the hosted catalog (so it sees a
+language even before its grammar is installed), **auto-fetches** the grammars the
+project needs, then writes three things (idempotently, preserving anything
+already there):
 
 - **`.mcp.json`** — registers the grove MCP server (*availability* — the tools exist).
 - **`CLAUDE.md`** — a steering directive in a marked section (*adoption* — the agent
   reaches for grove instead of grep/whole-file reads; see VISION §6.4.1).
 - **`grove.lock`** — pins the detected grammars' version + wasm sha256.
 
-`grove init --dry-run` detects without writing. Re-running only updates grove's
-own pieces.
+`grove init --dry-run` detects without writing or fetching. Re-running only
+updates grove's own pieces. Offline, it falls back to detecting from grammars
+already in the cache.
 
 ## Languages
 
-Grammars live in a local registry stub (`registry/<lang>/` with `grammar.wasm`,
-`tags.scm`, `manifest.json`) — the stand-in for the future hosted registry.
+A grammar is a `registry/<lang>/` directory holding `grammar.wasm` + `tags.scm` +
+`manifest.json`. They load at runtime — `grove init` fetches what your project
+needs, or fetch explicitly:
 
 ```bash
-grove languages      # what's available
+grove languages      # what's installed locally
+grove fetch          # install all grammars from the hosted registry
 grove lock           # write grove.lock pinning version + wasm sha256
 ```
 
@@ -87,7 +94,7 @@ module the native runtime needs).
 
 ### Where grammars live
 
-Grammars are a **cache** — reconstructible from the (future) hosted registry and
+Grammars are a **cache** — reconstructible from the hosted registry and
 content-addressed by `grove.lock` — so the standard home is the OS-native cache
 location. grove resolves the registry root by precedence (first existing wins);
 `grove registry` shows it:
@@ -192,12 +199,16 @@ actually *use* the tools rather than defaulting to grep/whole-file reads.
 Tool results are JSON inside an MCP text block; tool-level failures come back as
 `isError: true` with a message so the model can recover.
 
-## What this slice deliberately is not
+## Not yet (roadmap)
 
-- **Local registry stub, not the hosted registry.** Grammars are real wasm loaded
-  at runtime, but served from a local directory; hosting + signing is still ahead.
-- **No staleness/incremental, no `map`/`grep`/`ast` yet.** Those are next. `callers`
-  and `definition` are name-based (no receiver-type / local-scope resolution).
+- **No staleness/incremental reparse** — grove parses on demand; a file watcher +
+  `Tree::edit` is ahead.
+- **No `map` / `grep` / `ast` tools yet** — repo-orient (`map`) and scope-aware
+  `grep` are the next tools in the loop.
+- **`callers` / `definition` are name-based** — no receiver-type or local-scope
+  resolution (the tags `locals` query is a Tier-3 item).
+- **12 languages ship a minimal profile** (core tools only); css/html/json/regex
+  have no upstream `tags.scm` (they still `check`).
 
 ## Layout
 
