@@ -34,9 +34,33 @@ struct Catalog {
 struct CatEntry {
     name: String,
     version: String,
+    /// File extensions this grammar handles (schema 2+); used by `grove init`
+    /// to detect a project's languages before any grammar is fetched.
+    #[serde(default)]
+    extensions: Vec<String>,
     /// filename → where/what to fetch + its hash.
     #[serde(default)]
     files: std::collections::HashMap<String, FileRef>,
+}
+
+/// A grammar as listed in the hosted catalog: its id and the extensions it
+/// covers. `grove init` maps a project's files to languages through this — the
+/// full set, not just what's already cached.
+pub struct CatalogGrammar {
+    pub name: String,
+    pub extensions: Vec<String>,
+}
+
+/// Fetch the hosted catalog and return every grammar's id + extensions.
+pub fn catalog_grammars() -> Result<Vec<CatalogGrammar>> {
+    let host = host();
+    let catalog: Catalog = serde_json::from_slice(&get_bytes(&format!("{host}/index.json"))?)
+        .context("parsing index.json catalog")?;
+    Ok(catalog
+        .grammars
+        .into_iter()
+        .map(|g| CatalogGrammar { name: g.name, extensions: g.extensions })
+        .collect())
 }
 
 #[derive(Deserialize)]

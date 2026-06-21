@@ -293,6 +293,7 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
         let mut entry = serde_json::json!({
             "name": m.name,
             "version": m.version,
+            "extensions": m.extensions,
             "files": files,
         });
         if let Some(src) = &m.source {

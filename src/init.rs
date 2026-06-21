@@ -5,36 +5,41 @@
 //! `grove.lock` pinning the grammars the project needs. Idempotent: re-running
 //! updates the grove pieces without clobbering anything else.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
-use crate::registry;
+use crate::{fetch, registry};
 
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";
 
 pub fn run(root: &Path, dry_run: bool) -> Result<()> {
-    // 1. Detect which registered languages live in the project.
+    println!("grove init  scanning {}\n", root.display());
+
+    // 1. Build an extension→language map. Prefer the hosted catalog so we detect
+    //    languages whose grammar isn't fetched yet (otherwise a project's main
+    //    language is silently skipped); fall back to cached grammars offline.
+    let (ext_map, online) = extension_map();
+
+    // 2. Count project files per language.
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for entry in WalkBuilder::new(root).build().flatten() {
         let p = entry.path();
         if p.is_file() {
-            if let Some(lang) = registry::lang_for_path(p) {
-                *counts.entry(lang.to_string()).or_default() += 1;
+            if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                if let Some(lang) = ext_map.get(ext) {
+                    *counts.entry(lang.clone()).or_default() += 1;
+                }
             }
         }
     }
 
-    println!("grove init  scanning {}\n", root.display());
     if counts.is_empty() {
-        println!(
-            "  no files matched a registered grammar ({}).",
-            registry::available().join(", ")
-        );
+        println!("  no files matched a known grammar.");
         println!("  nothing to do.");
         return Ok(());
     }
@@ -48,7 +53,31 @@ pub fn run(root: &Path, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    // 2. Write the three artifacts.
+    // 3. Auto-fetch any detected grammar the cache doesn't have yet, so the
+    //    tools work the moment init finishes. (Checked against the filesystem,
+    //    not the in-memory registry index, which we must not build before the
+    //    fetch lands — it is cached on first access.)
+    let missing: Vec<String> = langs.iter().filter(|l| !is_cached(l)).cloned().collect();
+    if !missing.is_empty() {
+        if online {
+            println!("\n  fetching   {} grammar(s): {}\n", missing.len(), missing.join(", "));
+            fetch::run(&missing, false).context("auto-fetching detected grammars")?;
+        } else {
+            println!(
+                "\n  note       {} not cached: {}\n             offline — run `grove fetch {}` to enable them.",
+                if missing.len() == 1 { "language" } else { "languages" },
+                missing.join(", "),
+                missing.join(" "),
+            );
+        }
+    }
+
+    // 4. Write the three artifacts (only for languages now available).
+    let langs: Vec<String> = langs.into_iter().filter(|l| is_cached(l)).collect();
+    if langs.is_empty() {
+        println!("\n  no grammars available — nothing written.");
+        return Ok(());
+    }
     let mut wrote = Vec::new();
     wrote.push(write_mcp_json(root)?);
     wrote.push(write_claude_md(root, &langs)?);
@@ -64,6 +93,38 @@ pub fn run(root: &Path, dry_run: bool) -> Result<()> {
     println!("\n  try it     start a fresh Claude Code session here and ask a");
     println!("             \"where/what/who-calls\" question — it routes through grove.");
     Ok(())
+}
+
+/// Extension→language map and whether it came from the hosted catalog (`true`,
+/// covering all languages) or — when offline — the local cache (`false`).
+fn extension_map() -> (HashMap<String, String>, bool) {
+    match fetch::catalog_grammars() {
+        Ok(grammars) => {
+            let mut m = HashMap::new();
+            for g in &grammars {
+                for ext in &g.extensions {
+                    m.insert(ext.clone(), g.name.clone());
+                }
+            }
+            (m, true)
+        }
+        Err(e) => {
+            eprintln!("  note: catalog unavailable ({e}); detecting from cached grammars only.");
+            let mut m = HashMap::new();
+            for man in registry::manifests() {
+                for ext in &man.extensions {
+                    m.insert(ext.clone(), man.name.clone());
+                }
+            }
+            (m, false)
+        }
+    }
+}
+
+/// True if `lang`'s grammar is already in the OS cache. Checks the filesystem
+/// directly so it never triggers the (once-initialised) in-memory registry index.
+fn is_cached(lang: &str) -> bool {
+    registry::cache_root().is_some_and(|c| c.join(lang).join("grammar.wasm").exists())
 }
 
 /// Add (or refresh) the grove MCP server in `.mcp.json`, preserving other servers.
