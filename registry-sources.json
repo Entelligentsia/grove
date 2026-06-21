@@ -1,0 +1,40 @@
+{
+  "grammars": [
+    {
+      "name": "rust",
+      "repo": "tree-sitter/tree-sitter-rust",
+      "rev": "v0.24.0",
+      "wasm_asset": "tree-sitter-rust.wasm",
+      "extensions": ["rs"],
+      "profile": {
+        "function_kinds": ["function_item", "function_signature_item"],
+        "containers": [["impl_item", "type"], ["trait_item", "name"], ["mod_item", "name"]],
+        "identifier_kinds": ["identifier", "type_identifier", "field_identifier", "shorthand_field_identifier"]
+      }
+    },
+    {
+      "name": "python",
+      "repo": "tree-sitter/tree-sitter-python",
+      "rev": "v0.23.6",
+      "wasm_asset": "tree-sitter-python.wasm",
+      "extensions": ["py", "pyi"],
+      "profile": {
+        "function_kinds": ["function_definition"],
+        "containers": [["class_definition", "name"]],
+        "identifier_kinds": ["identifier"]
+      }
+    },
+    {
+      "name": "javascript",
+      "repo": "tree-sitter/tree-sitter-javascript",
+      "rev": "v0.23.1",
+      "wasm_asset": "tree-sitter-javascript.wasm",
+      "extensions": ["js", "mjs", "cjs"],
+      "profile": {
+        "function_kinds": ["function_declaration", "method_definition"],
+        "containers": [["class_declaration", "name"]],
+        "identifier_kinds": ["identifier", "property_identifier"]
+      }
+    }
+  ]
+}

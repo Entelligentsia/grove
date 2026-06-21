@@ -1,11 +1,37 @@
 {
+  "extensions": [
+    "rs"
+  ],
   "name": "rust",
-  "version": "0.24.0",
-  "extensions": ["rs"],
-  "source": { "repo": "tree-sitter/tree-sitter-rust", "rev": "v0.24.0" },
   "profile": {
-    "function_kinds": ["function_item", "function_signature_item"],
-    "containers": [["impl_item", "type"], ["trait_item", "name"], ["mod_item", "name"]],
-    "identifier_kinds": ["identifier", "type_identifier", "field_identifier", "shorthand_field_identifier"]
-  }
+    "containers": [
+      [
+        "impl_item",
+        "type"
+      ],
+      [
+        "trait_item",
+        "name"
+      ],
+      [
+        "mod_item",
+        "name"
+      ]
+    ],
+    "function_kinds": [
+      "function_item",
+      "function_signature_item"
+    ],
+    "identifier_kinds": [
+      "identifier",
+      "type_identifier",
+      "field_identifier",
+      "shorthand_field_identifier"
+    ]
+  },
+  "source": {
+    "repo": "tree-sitter/tree-sitter-rust",
+    "rev": "v0.24.0"
+  },
+  "version": "0.24.0"
 }

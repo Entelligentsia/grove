@@ -5,6 +5,7 @@
 
 mod engine;
 mod fetch;
+mod ingest;
 mod init;
 mod mcp;
 mod ops;
@@ -94,6 +95,17 @@ enum Cmd {
         /// Re-download even if already cached.
         #[arg(long)]
         force: bool,
+    },
+    /// Build registry artifacts from curated source specs (registry maintainer step).
+    Ingest {
+        /// Only these languages (default: all in the sources file).
+        only: Vec<String>,
+        /// Curated sources spec.
+        #[arg(long, default_value = "registry-sources.json")]
+        sources: PathBuf,
+        /// Output registry directory.
+        #[arg(long, default_value = "registry")]
+        out: PathBuf,
     },
     /// Build the hosted catalog (index.json) for a registry directory.
     Index {
@@ -200,6 +212,7 @@ fn main() -> Result<()> {
         }
         Cmd::Init { path, dry_run } => init::run(&path, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
+        Cmd::Ingest { only, sources, out } => ingest::run(&sources, &out, &only)?,
         Cmd::Index { dir, output } => {
             let dir = dir.unwrap_or_else(|| registry::root().to_path_buf());
             let out = output.unwrap_or_else(|| dir.join("index.json"));

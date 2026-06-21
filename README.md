@@ -107,9 +107,23 @@ is verified against the catalog before it's written (download-verify-then-write,
 atomically), so a corrupted or tampered artifact is rejected. Override the host
 with `GROVE_REGISTRY_URL` (self-host, fork, or a local mirror).
 
-`grove index <dir>` builds the `index.json` catalog (per language: version,
-provenance, and a content hash of every served file) — this is what the registry
-repo's CI runs to publish.
+### Building the registry (maintainer)
+
+`grove ingest` builds the registry from a curated spec (`registry-sources.json`):
+for each grammar it pulls the **official tree-sitter release wasm** + the repo's
+`tags.scm` at a pinned rev, attaches grove's curated `profile`/`extensions`, writes
+`registry/<lang>/`, and regenerates the catalog.
+
+```bash
+grove ingest                 # all grammars in registry-sources.json
+grove ingest python rust     # just these
+grove index registry         # (re)build index.json with per-file hashes
+```
+
+The spec records identity + provenance + the grove-authored profile; the wasm and
+tags come from upstream and the version/`source` are pinned. `grove index` then
+emits the `index.json` catalog (per language: version, provenance, content hash of
+every served file) — the publish step for registry CI.
 
 ## Tools (the agent loop, in miniature)
 
@@ -168,6 +182,8 @@ registry/<lang>/   grammar.wasm + tags.scm + manifest.json (the registry stub)
 src/main.rs        CLI dispatch (clap) — six verbs + init/languages/lock/serve
 src/init.rs        `grove init` — detect languages, write .mcp.json + CLAUDE.md + lock
 src/fetch.rs       `grove fetch` — download grammars from the hosted registry (GitHub/CDN)
+src/ingest.rs      `grove ingest` — build registry artifacts from official tree-sitter releases
+registry-sources.json  curated specs (repo/rev/extensions/profile) ingest builds from
 src/registry.rs    grammar resolver, extension map, lockfile — the registry spine
 src/ops.rs         the operations as a library — the shared engine both faces call
 src/mcp.rs         MCP server — newline-delimited JSON-RPC over stdio

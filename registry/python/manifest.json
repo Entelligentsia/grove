@@ -1,11 +1,26 @@
 {
+  "extensions": [
+    "py",
+    "pyi"
+  ],
   "name": "python",
-  "version": "0.23.0",
-  "extensions": ["py", "pyi"],
-  "source": { "repo": "tree-sitter/tree-sitter-python", "rev": "v0.23.6" },
   "profile": {
-    "function_kinds": ["function_definition"],
-    "containers": [["class_definition", "name"]],
-    "identifier_kinds": ["identifier"]
-  }
+    "containers": [
+      [
+        "class_definition",
+        "name"
+      ]
+    ],
+    "function_kinds": [
+      "function_definition"
+    ],
+    "identifier_kinds": [
+      "identifier"
+    ]
+  },
+  "source": {
+    "repo": "tree-sitter/tree-sitter-python",
+    "rev": "v0.23.6"
+  },
+  "version": "0.23.6"
 }

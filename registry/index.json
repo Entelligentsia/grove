@@ -2,8 +2,8 @@
   "grammars": [
     {
       "files": {
-        "grammar.wasm": "sha256:586de553e4d495402ee62719ece0b83bf5f8f91a2fa1498145335d7a902264af",
-        "manifest.json": "sha256:e6d14ab7d201eeb462eae9bc0cc4d184f4855fdd52a8a0d3b318abf1f255813a",
+        "grammar.wasm": "sha256:4a378293fe7853cbee2836023be072dafa0e53b3b5edb245920838ca834ed121",
+        "manifest.json": "sha256:891b7fbcbc37d4e8fa291b8bfa6531e5461ea9d87cfd297d56e56bd8c22c5173",
         "tags.scm": "sha256:6ef988cce5a428a15b5460e3ee96f1478705f965fc6e848a91a18bfa6c6f0212"
       },
       "name": "javascript",
@@ -11,12 +11,12 @@
         "repo": "tree-sitter/tree-sitter-javascript",
         "rev": "v0.23.1"
       },
-      "version": "0.23.0"
+      "version": "0.23.1"
     },
     {
       "files": {
-        "grammar.wasm": "sha256:d7bd65ee746f35d54d6c1bfab384149a8b0e42517718e77624d4896a3eccccde",
-        "manifest.json": "sha256:d6564aed50921931a64b593cf6d8f9ba3371a2d7ee1548f3d2c881bb5e4abd76",
+        "grammar.wasm": "sha256:8c93692fb368e288a5824cee55773c9b3602804f513bda48c97661e52e9c2da2",
+        "manifest.json": "sha256:cf2e52101bb5b6c4a46f2d5194e5716c8ea3d2b178728c7f1be301efef532242",
         "tags.scm": "sha256:d0f3e577878167bfabc30e526e497bce58d1699b9bcabf8ab3a50698efb5ca3e"
       },
       "name": "python",
@@ -24,12 +24,12 @@
         "repo": "tree-sitter/tree-sitter-python",
         "rev": "v0.23.6"
       },
-      "version": "0.23.0"
+      "version": "0.23.6"
     },
     {
       "files": {
-        "grammar.wasm": "sha256:58bc39c9daabac4b4a5608da8fc3aca2fd54bc85f3aa722aecec158c142553a3",
-        "manifest.json": "sha256:9f879f80a797b0b29d56241bccbff0ab849af731b7cf1a328b1cc70e62f41d6a",
+        "grammar.wasm": "sha256:44b8d1a2e307ee8933d7c0bcb6b0f30d56bc999999fd1d2d9608a7dcf6e8ce56",
+        "manifest.json": "sha256:06197b3fe2b4cdc6e399c239b74a6dea9e0fe25996a147bee583d5c69d89a4bd",
         "tags.scm": "sha256:f22867fdebde5cb091861c08d34690dc2540f4318068bf81be9f6b0d348ab8c1"
       },
       "name": "rust",

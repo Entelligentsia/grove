@@ -38,7 +38,7 @@ fn host() -> String {
         .to_string()
 }
 
-fn get_bytes(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn get_bytes(url: &str) -> Result<Vec<u8>> {
     let resp = ureq::get(url)
         .call()
         .map_err(|e| anyhow!("GET {url}: {e}"))?;

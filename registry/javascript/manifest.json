@@ -1,11 +1,29 @@
 {
+  "extensions": [
+    "js",
+    "mjs",
+    "cjs"
+  ],
   "name": "javascript",
-  "version": "0.23.0",
-  "extensions": ["js", "mjs", "cjs"],
-  "source": { "repo": "tree-sitter/tree-sitter-javascript", "rev": "v0.23.1" },
   "profile": {
-    "function_kinds": ["function_declaration", "method_definition"],
-    "containers": [["class_declaration", "name"]],
-    "identifier_kinds": ["identifier", "property_identifier"]
-  }
+    "containers": [
+      [
+        "class_declaration",
+        "name"
+      ]
+    ],
+    "function_kinds": [
+      "function_declaration",
+      "method_definition"
+    ],
+    "identifier_kinds": [
+      "identifier",
+      "property_identifier"
+    ]
+  },
+  "source": {
+    "repo": "tree-sitter/tree-sitter-javascript",
+    "rev": "v0.23.1"
+  },
+  "version": "0.23.1"
 }
