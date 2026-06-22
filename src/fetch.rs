@@ -96,6 +96,25 @@ fn sha256(bytes: &[u8]) -> String {
     format!("sha256:{:x}", h.finalize())
 }
 
+/// Reject any catalog-supplied name that isn't a single, safe path component.
+///
+/// The catalog (`index.json`) is fetched over the network and may be hostile or
+/// MITM'd. A grammar `name` or filename containing `..`, a path separator, or an
+/// absolute prefix would escape the cache directory once joined (path traversal,
+/// arbitrary file write). We only ever write `<cache>/<lang>/<file>`, so every
+/// such segment must be a plain file name — exactly one `Normal` path component
+/// with no separator of either platform.
+fn safe_segment(s: &str) -> Result<()> {
+    use std::path::{Component, Path};
+    let mut comps = Path::new(s).components();
+    let single_normal =
+        matches!(comps.next(), Some(Component::Normal(_))) && comps.next().is_none();
+    if s.is_empty() || s.contains('/') || s.contains('\\') || !single_normal {
+        bail!("catalog path segment `{s}` is not a plain file name (possible path traversal)");
+    }
+    Ok(())
+}
+
 /// Fetch the named languages (or all in the catalog) into the OS cache.
 pub fn run(langs: &[String], force: bool) -> Result<()> {
     let host = host();
@@ -122,6 +141,7 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
     let cache = registry::cache_root().context("no OS cache directory available")?;
     let mut fetched = 0;
     for e in targets {
+        safe_segment(&e.name)?;
         let dir = cache.join(&e.name);
         if dir.join("grammar.wasm").exists() && !force {
             println!("  {:<12} {} · cached", e.name, e.version);
@@ -135,6 +155,7 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
         names.sort();
         let mut blobs = Vec::new();
         for fname in names {
+            safe_segment(fname)?;
             let fref = &e.files[fname];
             let url = match &fref.asset {
                 Some(asset) => {
@@ -167,4 +188,51 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
     }
     println!("\n{fetched} fetched · cache: {}", cache.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_segment;
+
+    #[test]
+    fn accepts_plain_file_names() {
+        for ok in ["rust", "javascript", "c_sharp", "grammar.wasm", "tags.scm", "manifest.json"] {
+            assert!(safe_segment(ok).is_ok(), "{ok} should be accepted");
+        }
+    }
+
+    #[test]
+    fn rejects_traversal_and_separators() {
+        // Parent-dir escapes, absolute paths, nested paths, separators, and the
+        // empty / dot segments must all be refused before they reach a join.
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../etc",
+            "../../.bashrc",
+            "/etc/passwd",
+            "a/b",
+            "a\\b",
+            "..\\..\\foo",
+            "foo/",
+            "./foo",
+        ] {
+            assert!(safe_segment(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn traversal_segment_does_not_escape_cache() {
+        // The concrete property the guard protects: a rejected segment never gets
+        // joined onto the cache root, so no write can land outside it.
+        let cache = std::path::Path::new("/home/user/.cache/grove/grammars");
+        let hostile = "../../../.bashrc";
+        assert!(safe_segment(hostile).is_err());
+        // Demonstrate why the guard matters: the unchecked join *would* escape.
+        let joined = cache.join(hostile);
+        assert!(!joined.starts_with(cache) || joined.components().any(|c| {
+            matches!(c, std::path::Component::ParentDir)
+        }));
+    }
 }
