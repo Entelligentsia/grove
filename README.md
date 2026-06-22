@@ -27,6 +27,19 @@ npm install -g @entelligentsia/grove
 cargo install --git https://github.com/Entelligentsia/grove
 ```
 
+**As an agent skill** (cross-harness — Claude Code, Cursor, Codex, Cline, …),
+via the [agent-skills tool](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add Entelligentsia/grove
+```
+
+The skill steers your agent to grove's MCP tools when present, else the `grove`
+CLI — and **self-installs the binary on first use** if it's missing (`npm i -g
+@entelligentsia/grove`, then `grove init --as skill` to fetch grammars). So this
+one command is enough to get grove working in a fresh repo. See
+[Setup](#setup--grove-init) for `grove init --as mcp|skill|both`.
+
 ## Build
 
 ```bash
