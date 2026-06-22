@@ -32,6 +32,13 @@ struct Spec {
     /// Path to the tags query in the repo at `rev`.
     #[serde(default = "default_tags")]
     tags_path: String,
+    /// Curated query patterns appended after the upstream `tags.scm`. Lets grove
+    /// fill gaps in an upstream query (e.g. C ships no rule for file-scope
+    /// variable/array definitions) without forking the whole file. Patterns are
+    /// appended verbatim, so they must use the same `@definition.*`/`@name`
+    /// captures the engine interprets.
+    #[serde(default)]
+    extra_tags: String,
     extensions: Vec<String>,
     profile: Value,
 }
@@ -60,10 +67,20 @@ fn ingest_one(s: &Spec, out: &Path) -> Result<(usize, bool)> {
         "https://raw.githubusercontent.com/{}/{}/{}",
         s.repo, s.rev, s.tags_path
     );
-    let (tags, has_tags) = match fetch::get_bytes(&tags_url) {
+    let (mut tags, has_tags) = match fetch::get_bytes(&tags_url) {
         Ok(t) => (t, true),
         Err(_) => (b"; no upstream tags query for this grammar\n".to_vec(), false),
     };
+    if !s.extra_tags.is_empty() {
+        if !tags.ends_with(b"\n") {
+            tags.push(b'\n');
+        }
+        tags.extend_from_slice(b"\n; --- grove curated additions ---\n");
+        tags.extend_from_slice(s.extra_tags.as_bytes());
+        if !s.extra_tags.ends_with('\n') {
+            tags.push(b'\n');
+        }
+    }
 
     let manifest = serde_json::json!({
         "name": s.name,
@@ -159,6 +176,18 @@ mod tests {
         let g = &s.grammars[0];
         assert_eq!(g.name, "python");
         assert_eq!(g.tags_path, "queries/tags.scm", "tags_path defaults when omitted");
+        assert!(g.extra_tags.is_empty(), "extra_tags defaults to empty when omitted");
+    }
+
+    #[test]
+    fn extra_tags_deserializes_when_present() {
+        let json = r#"{ "grammars": [
+            { "name": "c", "repo": "tree-sitter/tree-sitter-c", "rev": "v0.24.2",
+              "wasm_asset": "tree-sitter-c.wasm", "extensions": ["c"], "profile": {},
+              "extra_tags": "(translation_unit (declaration declarator: (identifier) @name) @definition.variable)\n" }
+        ] }"#;
+        let s: Sources = serde_json::from_str(json).unwrap();
+        assert!(s.grammars[0].extra_tags.contains("@definition.variable"));
     }
 
     #[test]
