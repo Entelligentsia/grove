@@ -27,6 +27,19 @@ npm install -g @entelligentsia/grove
 cargo install --git https://github.com/Entelligentsia/grove
 ```
 
+**As an agent skill** (cross-harness — Claude Code, Cursor, Codex, Cline, …),
+via the [agent-skills tool](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add Entelligentsia/grove
+```
+
+The skill steers your agent to grove's MCP tools when present, else the `grove`
+CLI — and **self-installs the binary on first use** if it's missing (`npm i -g
+@entelligentsia/grove`, then `grove init --as skill` to fetch grammars). So this
+one command is enough to get grove working in a fresh repo. See
+[Setup](#setup--grove-init) for `grove init --as mcp|skill|both`.
+
 ## Build
 
 ```bash
@@ -57,6 +70,31 @@ already there):
 `grove init --dry-run` detects without writing or fetching. Re-running only
 updates grove's own pieces. Offline, it falls back to detecting from grammars
 already in the cache.
+
+### MCP, skill, or both — `grove init --as`
+
+grove has one engine behind three faces: the CLI, the MCP server, and a
+**cross-harness skill**. `--as` selects which integration `init` wires up
+(grammar provisioning + `grove.lock` happens for every target):
+
+```bash
+grove init --as mcp     # default — .mcp.json + CLAUDE.md + grove.lock
+grove init --as skill   # grammars + grove.lock only; install the skill below
+grove init --as both    # MCP wiring and grammars, for skill + MCP side by side
+```
+
+The skill is distributed through the [agent-skills tool](https://github.com/vercel-labs/skills),
+which works across 70+ harnesses (Claude Code, Cursor, Codex, Cline, …):
+
+```bash
+npx skills add Entelligentsia/grove
+```
+
+The skill **prefers grove's MCP tools when the host exposes them and falls back
+to the `grove` CLI otherwise** — so MCP and the skill are equal partners over the
+same engine. On first CLI use it self-bootstraps: if `grove` isn't on `PATH` it
+installs the npm package globally, then runs `grove init --as skill` to fetch the
+repo's grammars.
 
 ## Languages
 
@@ -214,8 +252,9 @@ Tool results are JSON inside an MCP text block; tool-level failures come back as
 
 ```
 registry/<lang>/   grammar.wasm + tags.scm + manifest.json (the registry stub)
+skills/grove/      SKILL.md — the cross-harness skill (npx skills add Entelligentsia/grove)
 src/main.rs        CLI dispatch (clap) — six verbs + init/languages/lock/serve
-src/init.rs        `grove init` — detect languages, write .mcp.json + CLAUDE.md + lock
+src/init.rs        `grove init [--as mcp|skill|both]` — detect langs, provision grammars + harness glue
 src/fetch.rs       `grove fetch` — download grammars from the hosted registry (GitHub/CDN)
 src/ingest.rs      `grove ingest` — build registry artifacts from official tree-sitter releases
 registry-sources.json  curated specs (repo/rev/extensions/profile) ingest builds from
