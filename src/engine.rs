@@ -111,6 +111,34 @@ fn with_loaded<R>(g: &Grammar, f: impl FnOnce(&mut Loaded) -> Result<R>) -> Resu
 
 // ---- extraction ----
 
+/// Parse `source` with `parser` — the single choke point for parsing, so cost
+/// (and, in tests, the parse count) lives in one place.
+fn parse_source(parser: &mut Parser, source: &[u8]) -> Result<tree_sitter::Tree> {
+    #[cfg(test)]
+    parse_counter::bump();
+    parser.parse(source, None).context("parse produced no tree")
+}
+
+/// Test-only parse counter, used to prove `callers` parses each file once.
+/// Thread-local so it counts only the parses on the calling test's thread —
+/// immune to other tests parsing in parallel.
+#[cfg(test)]
+pub mod parse_counter {
+    use std::cell::Cell;
+    thread_local! {
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+    pub(super) fn bump() {
+        COUNT.with(|c| c.set(c.get() + 1));
+    }
+    pub fn reset() {
+        COUNT.with(|c| c.set(0));
+    }
+    pub fn get() -> usize {
+        COUNT.with(Cell::get)
+    }
+}
+
 fn symbol_id(lang: &str, rel: &str, name: &str, row: usize) -> String {
     format!("{lang}:{rel}#{name}@{row}")
 }
@@ -130,8 +158,19 @@ fn line_text(source: &[u8], byte: usize) -> String {
 
 /// Extract all tags (definitions + references) from one file's source.
 pub fn extract(grammar: &Grammar, rel: &str, source: &[u8]) -> Result<Vec<Symbol>> {
+    extract_with_tree(grammar, rel, source).map(|(syms, _)| syms)
+}
+
+/// Like [`extract`], but also returns the parsed tree so a caller that needs a
+/// second pass (e.g. `callers`' enclosing-function lookup) can reuse it instead
+/// of re-parsing the identical bytes. Parsing dominates tree-sitter cost.
+pub fn extract_with_tree(
+    grammar: &Grammar,
+    rel: &str,
+    source: &[u8],
+) -> Result<(Vec<Symbol>, tree_sitter::Tree)> {
     with_loaded(grammar, |lg| {
-        let tree = lg.parser.parse(source, None).context("parse produced no tree")?;
+        let tree = parse_source(&mut lg.parser, source)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&lg.tags_query, tree.root_node(), source);
 
@@ -189,7 +228,7 @@ pub fn extract(grammar: &Grammar, rel: &str, source: &[u8]) -> Result<Vec<Symbol
                 .and_then(|def| def.parent())
                 .and_then(|p| nearest_container(p, source, &grammar.profile));
         }
-        Ok(out)
+        Ok((out, tree))
     })
 }
 
@@ -201,7 +240,7 @@ pub fn slice<'a>(source: &'a [u8], sym: &Symbol) -> &'a str {
 /// Parse a file and report every ERROR / MISSING node.
 pub fn check(grammar: &Grammar, source: &[u8]) -> Result<Vec<Defect>> {
     with_loaded(grammar, |lg| {
-        let tree = lg.parser.parse(source, None).context("parse produced no tree")?;
+        let tree = parse_source(&mut lg.parser, source)?;
         let mut defects = Vec::new();
         collect_defects(tree.root_node(), source, &mut defects);
         Ok(defects)
@@ -258,7 +297,7 @@ pub fn with_tree<R>(
     f: impl FnOnce(Node, &Profile) -> R,
 ) -> Result<R> {
     with_loaded(grammar, |lg| {
-        let tree = lg.parser.parse(source, None).context("parse produced no tree")?;
+        let tree = parse_source(&mut lg.parser, source)?;
         Ok(f(tree.root_node(), &grammar.profile))
     })
 }
