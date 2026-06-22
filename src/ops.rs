@@ -200,7 +200,9 @@ pub struct CallSite {
 pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
     let mut out = Vec::new();
     for_each_source(dir, |grammar, relpath, src| {
-        let syms = engine::extract(grammar, relpath, src)?;
+        // Reuse the parse tree from extraction for the enclosing-function pass —
+        // parsing dominates cost, so re-parsing here would double the work.
+        let (syms, tree) = engine::extract_with_tree(grammar, relpath, src)?;
         let calls: Vec<&Symbol> = syms
             .iter()
             .filter(|s| !s.is_definition && grammar.profile.is_call_kind(&s.kind) && s.name == name)
@@ -208,17 +210,16 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
         if calls.is_empty() {
             return Ok(());
         }
-        engine::with_tree(grammar, src, |root, profile| {
-            for s in &calls {
-                out.push(CallSite {
-                    in_function: engine::enclosing_function_at(root, s.start_byte, src, profile),
-                    file: s.file.clone(),
-                    row: s.row,
-                    col: s.col,
-                    line: s.signature.clone(),
-                });
-            }
-        })?;
+        let root = tree.root_node();
+        for s in &calls {
+            out.push(CallSite {
+                in_function: engine::enclosing_function_at(root, s.start_byte, src, &grammar.profile),
+                file: s.file.clone(),
+                row: s.row,
+                col: s.col,
+                line: s.signature.clone(),
+            });
+        }
         Ok(())
     })?;
     Ok(out)
@@ -315,6 +316,28 @@ mod tests {
         let sites = callers(&dir, "helper").unwrap();
         assert_eq!(sites.len(), 1, "exactly one call to helper, got {sites:?}");
         assert_eq!(sites[0].in_function.as_deref(), Some("main"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_parses_each_file_once() {
+        // #13: `callers` used to parse every matched file twice (extract +
+        // with_tree). It must now parse each source file exactly once.
+        let dir = std::env::temp_dir().join(format!("grove_parse_once_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Three files; two contain a call to `helper`, one does not. All three
+        // are still parsed once each by the single extraction pass.
+        std::fs::write(dir.join("a.rs"), "fn main() {\n    helper();\n}\n").unwrap();
+        std::fs::write(dir.join("b.rs"), "fn run() {\n    helper();\n}\n").unwrap();
+        std::fs::write(dir.join("c.rs"), "fn unrelated() {}\n").unwrap();
+
+        engine::parse_counter::reset();
+        let sites = callers(&dir, "helper").unwrap();
+        let parses = engine::parse_counter::get();
+
+        assert_eq!(sites.len(), 2, "two call sites, got {sites:?}");
+        assert_eq!(parses, 3, "expected one parse per source file (3), got {parses}");
 
         std::fs::remove_dir_all(&dir).ok();
     }

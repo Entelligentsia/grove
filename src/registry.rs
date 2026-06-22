@@ -82,9 +82,7 @@ pub struct Grammar {
 impl Grammar {
     /// sha256 of the wasm bytes — the lockfile's integrity field.
     pub fn wasm_sha256(&self) -> String {
-        let mut h = Sha256::new();
-        h.update(self.wasm.as_slice());
-        format!("sha256:{:x}", h.finalize())
+        sha256(self.wasm.as_slice())
     }
 }
 
@@ -267,7 +265,11 @@ pub fn manifests() -> Vec<Manifest> {
     v
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+/// The canonical content hash for grove artifacts: `sha256:<hex>`. The single
+/// source of truth — the lockfile, the index, and `grove fetch`'s verification
+/// all go through here, so the format can never drift between producer and
+/// verifier.
+pub fn sha256(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
     format!("sha256:{:x}", h.finalize())
@@ -302,7 +304,7 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
         for fname in ["grammar.wasm", "tags.scm", "manifest.json"] {
             let bytes = std::fs::read(dir.join(fname))
                 .with_context(|| format!("hashing {}/{fname}", m.name))?;
-            let mut fref = serde_json::json!({ "sha256": sha256_hex(&bytes) });
+            let mut fref = serde_json::json!({ "sha256": sha256(&bytes) });
             if fname == "grammar.wasm" && release_base.is_some() {
                 fref["asset"] = serde_json::json!(format!("{}.wasm", m.name));
             }
@@ -324,6 +326,24 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
         catalog["release_base"] = serde_json::json!(base);
     }
     Ok(catalog)
+}
+
+/// Build the registry catalog and write it as JSON. `dir` defaults to the
+/// resolved registry root; `output` defaults to `<dir>/index.json`. Returns the
+/// path written and the grammar count, for the caller to report. Keeps path
+/// resolution and file I/O out of `main`, alongside its sibling verbs.
+pub fn write_index(
+    dir: Option<PathBuf>,
+    output: Option<PathBuf>,
+    release_base: Option<&str>,
+) -> Result<(PathBuf, usize)> {
+    let dir = dir.unwrap_or_else(|| root().to_path_buf());
+    let out = output.unwrap_or_else(|| dir.join("index.json"));
+    let catalog = build_index(&dir, release_base)?;
+    std::fs::write(&out, format!("{}\n", serde_json::to_string_pretty(&catalog)?))
+        .with_context(|| format!("writing {}", out.display()))?;
+    let n = catalog["grammars"].as_array().map_or(0, |a| a.len());
+    Ok((out, n))
 }
 
 /// Write a lockfile pinning every registry grammar's version + wasm hash.
@@ -374,5 +394,68 @@ mod tests {
         assert!(p.is_call_kind("send"));
         assert!(p.is_call_kind("invocation"));
         assert!(!p.is_call_kind("call"));
+    }
+
+    /// A minimal one-grammar registry dir that `build_index` can hash.
+    fn toy_registry(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("grove_index_test_{}_{tag}", std::process::id()));
+        let lang = dir.join("toy");
+        std::fs::create_dir_all(&lang).unwrap();
+        std::fs::write(lang.join("grammar.wasm"), b"\0asm-toy-bytes").unwrap();
+        std::fs::write(lang.join("tags.scm"), "; tags").unwrap();
+        std::fs::write(lang.join("manifest.json"), r#"{"name":"toy","version":"1.2.3","extensions":["toy"]}"#).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_index_writes_catalog_and_returns_count() {
+        let dir = toy_registry("explicit");
+        let out = dir.join("custom.json");
+
+        let (written, n) = write_index(Some(dir.clone()), Some(out.clone()), None).unwrap();
+        assert_eq!(written, out, "returns the path it wrote");
+        assert_eq!(n, 1, "one grammar in the toy registry");
+
+        let catalog: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(catalog["schema"], serde_json::json!(2));
+        assert_eq!(catalog["grammars"][0]["name"], serde_json::json!("toy"));
+        assert!(catalog["grammars"][0]["files"]["grammar.wasm"]["sha256"]
+            .as_str().unwrap().starts_with("sha256:"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sha256_has_canonical_format() {
+        // Known-answer vector for the empty input, pinning the `sha256:` prefix
+        // and lowercase hex — the format every producer and verifier shares.
+        assert_eq!(
+            sha256(b""),
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn wasm_sha256_delegates_to_sha256() {
+        let bytes = b"\0asm-some-grammar".to_vec();
+        let g = Grammar {
+            name: "toy".into(),
+            version: "0.0.0".into(),
+            wasm: Arc::new(bytes.clone()),
+            tags_query: Arc::new(String::new()),
+            profile: Arc::new(Profile::default()),
+        };
+        // The lockfile field and the index/fetch helper must agree byte-for-byte.
+        assert_eq!(g.wasm_sha256(), sha256(&bytes));
+    }
+
+    #[test]
+    fn write_index_defaults_output_to_dir_index_json() {
+        let dir = toy_registry("default");
+        let (written, _) = write_index(Some(dir.clone()), None, None).unwrap();
+        assert_eq!(written, dir.join("index.json"), "default output is <dir>/index.json");
+        assert!(written.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

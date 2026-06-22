@@ -217,11 +217,7 @@ fn main() -> Result<()> {
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
         Cmd::Ingest { only, sources, out } => ingest::run(&sources, &out, &only)?,
         Cmd::Index { dir, output, release_base } => {
-            let dir = dir.unwrap_or_else(|| registry::root().to_path_buf());
-            let out = output.unwrap_or_else(|| dir.join("index.json"));
-            let catalog = registry::build_index(&dir, release_base.as_deref())?;
-            std::fs::write(&out, format!("{}\n", serde_json::to_string_pretty(&catalog)?))?;
-            let n = catalog["grammars"].as_array().map_or(0, |a| a.len());
+            let (out, n) = registry::write_index(dir, output, release_base.as_deref())?;
             println!("wrote {} ({n} grammars)", out.display());
         }
         Cmd::Registry => {
