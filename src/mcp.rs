@@ -122,6 +122,14 @@ verify syntax. Every result carries a stable symbol-id \
 /// The tool catalogue, with LLM-facing descriptions. Descriptions are
 /// language-agnostic — grove serves every installed grammar, and the resolved
 /// language list is provided once via `initialize`'s `instructions`.
+///
+/// Every `inputSchema` is a plain `{type: object, properties, required?}`. Do
+/// **not** use a top-level `anyOf`/`oneOf` to express "one arg form or the
+/// other": some MCP clients can't normalize that and silently drop the tool
+/// from the registered set (it was why `source`/`definition` once went missing
+/// while the four flat-schema tools registered fine). For mutually-exclusive
+/// argument forms, leave the alternatives optional here and enforce the choice
+/// in `call_tool`, which returns a clear `isError` when neither is supplied.
 fn tool_specs() -> Value {
     json!([
         {
@@ -160,10 +168,9 @@ fn tool_specs() -> Value {
                 "type": "object",
                 "properties": {
                     "id": { "type": "string", "description": "A symbol-id like <lang>:<relpath>#<name>@<row> (e.g. py:app/main.py#run@41)" },
-                    "file": { "type": "string", "description": "Alternatively, the source file" },
+                    "file": { "type": "string", "description": "Alternatively, the source file (with `name`)" },
                     "name": { "type": "string", "description": "…and the symbol name to find in it" }
-                },
-                "anyOf": [ { "required": ["id"] }, { "required": ["file", "name"] } ]
+                }
             },
             "annotations": { "title": "Read a symbol's source", "readOnlyHint": true, "openWorldHint": false }
         },
@@ -196,11 +203,10 @@ fn tool_specs() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": { "type": "string", "description": "Exact symbol name to resolve" },
+                    "name": { "type": "string", "description": "Exact symbol name to resolve (provide this or `at`)" },
                     "at": { "type": "string", "description": "Usage site to resolve instead: file:row:col (0-based)" },
                     "dir": { "type": "string", "description": "Directory to search (default: current)" }
-                },
-                "anyOf": [ { "required": ["name"] }, { "required": ["at"] } ]
+                }
             },
             "annotations": { "title": "Go to definition", "readOnlyHint": true, "openWorldHint": false }
         }
@@ -456,6 +462,32 @@ mod tests {
 
         assert!(matches!(handle("notifications/initialized", &Value::Null), Outcome::Notify));
         assert!(matches!(handle("notifications/cancelled", &Value::Null), Outcome::Notify));
+    }
+
+    #[test]
+    fn every_tool_schema_is_client_registerable() {
+        // Regression guard: a top-level `anyOf`/`oneOf` in an inputSchema makes
+        // some MCP clients silently drop the tool (source/definition once went
+        // missing this way). Every schema must be a plain object.
+        let tools = tool_specs();
+        let arr = tools.as_array().unwrap();
+        assert_eq!(arr.len(), 6, "all six tools advertised");
+        for t in arr {
+            let name = t["name"].as_str().unwrap();
+            let schema = &t["inputSchema"];
+            assert_eq!(schema["type"], json!("object"), "{name}: schema must be type object");
+            assert!(schema["properties"].is_object(), "{name}: schema needs properties");
+            assert!(schema.get("anyOf").is_none(), "{name}: no top-level anyOf (clients drop it)");
+            assert!(schema.get("oneOf").is_none(), "{name}: no top-level oneOf");
+        }
+    }
+
+    #[test]
+    fn source_and_definition_still_enforce_their_arg_choice() {
+        // The schema no longer encodes the XOR, so the runtime must: calling
+        // with no recognized args is a clean tool error, not a panic/success.
+        assert!(tool_error_msg(call("source", json!({}))).contains("provide either `id`"));
+        assert!(tool_error_msg(call("definition", json!({}))).contains("provide either `name` or `at`"));
     }
 
     #[test]
