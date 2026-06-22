@@ -19,7 +19,8 @@ src/engine.rs    wasm load + Query-based tag extraction + check + position helpe
 src/registry.rs  grammar resolver, cache-location precedence, catalog/index, lockfile
 src/fetch.rs     `grove fetch` — install grammars from the hosted registry
 src/ingest.rs    `grove ingest` — build registry artifacts from upstream releases
-src/init.rs      `grove init` — wire grove into a project (.mcp.json + CLAUDE.md + lock)
+src/init.rs      `grove init [--as mcp|skill|both]` — provision grammars + harness glue
+skills/grove/    SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 ```
 
 Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
@@ -82,7 +83,7 @@ grove definition <name> [-d <dir>] | --at <file:row:col>
 grove serve                         # MCP server over stdio
 
 # setup / registry
-grove init [path] [--dry-run]       # write .mcp.json + CLAUDE.md + grove.lock
+grove init [path] [--as mcp|skill|both] [--dry-run]  # provision grammars + chosen harness glue
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order

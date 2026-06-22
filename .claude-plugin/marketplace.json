@@ -1,0 +1,15 @@
+{
+  "name": "grove",
+  "metadata": {
+    "description": "Structural, byte-precise, token-cheap codebase access for coding agents — tree-sitter over a CLI and an MCP server.",
+    "pluginRoot": "."
+  },
+  "plugins": [
+    {
+      "name": "grove",
+      "source": ".",
+      "description": "Code-navigation skill: outline, symbols, source, callers, definition, check. Steers to grove's MCP tools when present, else the grove CLI.",
+      "skills": ["./skills/grove"]
+    }
+  ]
+}
