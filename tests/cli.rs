@@ -115,6 +115,9 @@ fn callers_finds_call_sites() {
     let out = grove(&dir, &["callers", "helper", "-d", "."]);
     assert!(out.status.success());
     assert!(stdout(&out).contains("caller"), "enclosing fn shown: {}", stdout(&out));
+    // Each row leads with the file path so directory-wide queries are usable
+    // without a grep fallback (#29).
+    assert!(stdout(&out).contains("lib.rs:2:"), "file path shown: {}", stdout(&out));
     std::fs::remove_dir_all(&dir).ok();
 }
 

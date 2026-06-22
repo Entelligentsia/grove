@@ -191,7 +191,9 @@ fn main() -> Result<()> {
             } else {
                 for s in &sites {
                     let inf = s.in_function.as_deref().unwrap_or("<top-level>");
-                    println!("{}:{:<4} {:<32} {}", s.row, s.col, inf, s.line);
+                    // Lead with `path:row:col` so the row is greppable and, for a
+                    // directory-wide query, you can tell which file it's in (#29).
+                    println!("{}:{}:{}   {:<28} {}", s.file, s.row, s.col, inf, s.line);
                 }
                 eprintln!("\n{} call site(s) of `{}`", sites.len(), name);
             }
