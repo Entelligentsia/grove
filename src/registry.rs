@@ -326,6 +326,24 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
     Ok(catalog)
 }
 
+/// Build the registry catalog and write it as JSON. `dir` defaults to the
+/// resolved registry root; `output` defaults to `<dir>/index.json`. Returns the
+/// path written and the grammar count, for the caller to report. Keeps path
+/// resolution and file I/O out of `main`, alongside its sibling verbs.
+pub fn write_index(
+    dir: Option<PathBuf>,
+    output: Option<PathBuf>,
+    release_base: Option<&str>,
+) -> Result<(PathBuf, usize)> {
+    let dir = dir.unwrap_or_else(|| root().to_path_buf());
+    let out = output.unwrap_or_else(|| dir.join("index.json"));
+    let catalog = build_index(&dir, release_base)?;
+    std::fs::write(&out, format!("{}\n", serde_json::to_string_pretty(&catalog)?))
+        .with_context(|| format!("writing {}", out.display()))?;
+    let n = catalog["grammars"].as_array().map_or(0, |a| a.len());
+    Ok((out, n))
+}
+
 /// Write a lockfile pinning every registry grammar's version + wasm hash.
 pub fn write_lock(path: &Path) -> Result<usize> {
     write_lock_for(&available(), path)
@@ -374,5 +392,44 @@ mod tests {
         assert!(p.is_call_kind("send"));
         assert!(p.is_call_kind("invocation"));
         assert!(!p.is_call_kind("call"));
+    }
+
+    /// A minimal one-grammar registry dir that `build_index` can hash.
+    fn toy_registry(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("grove_index_test_{}_{tag}", std::process::id()));
+        let lang = dir.join("toy");
+        std::fs::create_dir_all(&lang).unwrap();
+        std::fs::write(lang.join("grammar.wasm"), b"\0asm-toy-bytes").unwrap();
+        std::fs::write(lang.join("tags.scm"), "; tags").unwrap();
+        std::fs::write(lang.join("manifest.json"), r#"{"name":"toy","version":"1.2.3","extensions":["toy"]}"#).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_index_writes_catalog_and_returns_count() {
+        let dir = toy_registry("explicit");
+        let out = dir.join("custom.json");
+
+        let (written, n) = write_index(Some(dir.clone()), Some(out.clone()), None).unwrap();
+        assert_eq!(written, out, "returns the path it wrote");
+        assert_eq!(n, 1, "one grammar in the toy registry");
+
+        let catalog: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(catalog["schema"], serde_json::json!(2));
+        assert_eq!(catalog["grammars"][0]["name"], serde_json::json!("toy"));
+        assert!(catalog["grammars"][0]["files"]["grammar.wasm"]["sha256"]
+            .as_str().unwrap().starts_with("sha256:"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_index_defaults_output_to_dir_index_json() {
+        let dir = toy_registry("default");
+        let (written, _) = write_index(Some(dir.clone()), None, None).unwrap();
+        assert_eq!(written, dir.join("index.json"), "default output is <dir>/index.json");
+        assert!(written.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
