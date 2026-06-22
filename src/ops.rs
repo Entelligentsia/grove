@@ -45,12 +45,23 @@ fn for_each_source(dir: &Path, mut f: impl FnMut(&Grammar, &str, &[u8]) -> Resul
     Ok(())
 }
 
+/// Whether a symbol of `sym_kind` satisfies a `--kind filter`. Exact match,
+/// plus synonyms so a natural term finds the umbrella kind grove actually emits:
+/// every grammar tags struct/class-likes as `class` (C/Rust structs, C unions),
+/// so `--kind struct`/`--kind union` still find them. The aliases map onto
+/// `class` only — no grammar emits `struct`/`union` as a kind — so this can only
+/// widen a match, never hide one.
+fn kind_matches(sym_kind: &str, filter: &str) -> bool {
+    sym_kind == filter
+        || (matches!(filter, "struct" | "union" | "record") && sym_kind == "class")
+}
+
 /// `outline` — the definitions in one file, optionally filtered by kind.
 pub fn outline(file: &Path, kind: Option<&str>) -> Result<Vec<Symbol>> {
     let grammar = registry::for_path(file)?;
     let src = read(file)?;
     let mut syms = engine::extract(&grammar, &rel(file), &src)?;
-    syms.retain(|s| s.is_definition && kind.is_none_or(|k| s.kind == k));
+    syms.retain(|s| s.is_definition && kind.is_none_or(|k| kind_matches(&s.kind, k)));
     Ok(syms)
 }
 
@@ -99,7 +110,7 @@ pub fn symbols(
             if !refs && !s.is_definition {
                 continue;
             }
-            if kind.is_some_and(|k| s.kind != k) {
+            if kind.is_some_and(|k| !kind_matches(&s.kind, k)) {
                 continue;
             }
             if name_lc
@@ -416,7 +427,22 @@ mod tests {
         assert!(classes.iter().any(|s| s.name == "S"));
         assert!(!classes.iter().any(|s| s.name == "f"), "kind filter excludes fns");
 
+        // `--kind struct` is a synonym for `class` so a natural term still finds it.
+        let structs = outline(&file, Some("struct")).unwrap();
+        assert!(structs.iter().any(|s| s.name == "S"), "struct aliases to class");
+        assert!(!structs.iter().any(|s| s.name == "f"));
+
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn kind_matches_exact_and_struct_synonyms() {
+        assert!(kind_matches("class", "class"));
+        assert!(kind_matches("class", "struct"), "struct → class");
+        assert!(kind_matches("class", "union"), "union → class");
+        assert!(kind_matches("function", "function"));
+        assert!(!kind_matches("function", "struct"), "synonyms only widen onto class");
+        assert!(!kind_matches("variable", "class"));
     }
 
     #[test]
