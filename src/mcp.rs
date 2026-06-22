@@ -341,8 +341,10 @@ mod tests {
         }
     }
 
-    fn fixture() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("grove_mcp_def_test_{}", std::process::id()));
+    /// A unique fixture dir per test (`tag`), so parallel tests never share or
+    /// delete each other's files.
+    fn fixture(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("grove_mcp_test_{}_{tag}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("lib.rs"), "fn helper() {}\nfn main() {\n    helper();\n}\n").unwrap();
         dir
@@ -350,7 +352,7 @@ mod tests {
 
     #[test]
     fn both_modes_return_resolved_and_definitions() {
-        let dir = fixture();
+        let dir = fixture("both_modes");
 
         // name mode — previously a bare array.
         let by_name = definition(json!({ "name": "helper", "dir": dir.to_str().unwrap() }));
@@ -403,5 +405,162 @@ mod tests {
             }
             _ => panic!("expected Outcome::Ok with isError=true"),
         }
+    }
+
+    // ---- helpers ----
+
+    fn ok(o: Outcome) -> Value {
+        match o {
+            Outcome::Ok(v) => v,
+            Outcome::Err { message, .. } => panic!("expected Ok, got Err: {message}"),
+            Outcome::Notify => panic!("expected Ok, got Notify"),
+        }
+    }
+
+    /// Parse the JSON payload out of a successful (non-error) tool result.
+    fn tool_payload(o: Outcome) -> Value {
+        let v = ok(o);
+        assert_eq!(v["isError"], json!(false), "tool errored: {v}");
+        serde_json::from_str(v["content"][0]["text"].as_str().expect("text")).expect("json")
+    }
+
+    fn tool_error_msg(o: Outcome) -> String {
+        let v = ok(o);
+        assert_eq!(v["isError"], json!(true), "expected a tool error: {v}");
+        v["content"][0]["text"].as_str().unwrap_or("").to_string()
+    }
+
+    // ---- protocol layer (handle) ----
+
+    #[test]
+    fn initialize_echoes_supported_version_else_default() {
+        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" })));
+        assert_eq!(v["protocolVersion"], json!("2024-11-05"), "echo a supported version");
+        assert_eq!(v["serverInfo"]["name"], json!("grove"));
+        assert!(v["instructions"].as_str().unwrap().contains("symbol-id"));
+
+        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" })));
+        assert_eq!(v2["protocolVersion"], json!(DEFAULT_PROTOCOL), "unknown -> our latest");
+    }
+
+    #[test]
+    fn ping_and_tools_list_and_notifications() {
+        assert_eq!(ok(handle("ping", &Value::Null)), json!({}));
+
+        let v = ok(handle("tools/list", &Value::Null));
+        let names: Vec<&str> = v["tools"].as_array().unwrap().iter()
+            .map(|t| t["name"].as_str().unwrap()).collect();
+        for expected in ["outline", "symbols", "source", "check", "callers", "definition"] {
+            assert!(names.contains(&expected), "tools/list missing {expected}");
+        }
+
+        assert!(matches!(handle("notifications/initialized", &Value::Null), Outcome::Notify));
+        assert!(matches!(handle("notifications/cancelled", &Value::Null), Outcome::Notify));
+    }
+
+    #[test]
+    fn unknown_method_is_method_not_found() {
+        match handle("does/not/exist", &Value::Null) {
+            Outcome::Err { code, message } => {
+                assert_eq!(code, -32601);
+                assert!(message.contains("method not found"));
+            }
+            _ => panic!("expected an Err outcome"),
+        }
+    }
+
+    fn call(name: &str, args: Value) -> Outcome {
+        call_tool(&json!({ "name": name, "arguments": args }))
+    }
+
+    // ---- tool dispatch (call_tool) ----
+
+    #[test]
+    fn outline_tool_returns_definitions() {
+        let dir = fixture("outline");
+        let payload = tool_payload(call("outline", json!({ "file": dir.join("lib.rs").to_str().unwrap() })));
+        let names: Vec<&str> = payload.as_array().unwrap().iter()
+            .map(|s| s["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"helper") && names.contains(&"main"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn outline_tool_missing_file_is_error() {
+        let msg = tool_error_msg(call("outline", json!({})));
+        assert!(msg.contains("missing required argument: file"), "got: {msg}");
+    }
+
+    #[test]
+    fn symbols_tool_lists_definitions() {
+        let dir = fixture("symbols");
+        let payload = tool_payload(call("symbols", json!({ "dir": dir.to_str().unwrap() })));
+        assert!(payload.as_array().unwrap().iter().any(|s| s["name"] == json!("helper")));
+        assert!(matches!(call("symbols", json!({})),
+            Outcome::Ok(v) if v["isError"] == json!(true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn source_tool_by_file_name_and_by_id_and_neither() {
+        let dir = fixture("source");
+        let file = dir.join("lib.rs");
+
+        let by_fn = tool_payload(call("source", json!({ "file": file.to_str().unwrap(), "name": "helper" })));
+        assert!(by_fn["source"].as_str().unwrap().contains("fn helper"));
+
+        let id = by_fn["id"].as_str().unwrap().to_string();
+        let by_id = tool_payload(call("source", json!({ "id": id })));
+        assert!(by_id["source"].as_str().unwrap().contains("fn helper"));
+
+        let msg = tool_error_msg(call("source", json!({})));
+        assert!(msg.contains("provide either `id`"), "got: {msg}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn check_tool_reports_ok_and_missing_arg() {
+        let dir = fixture("check");
+        let payload = tool_payload(call("check", json!({ "file": dir.join("lib.rs").to_str().unwrap() })));
+        assert_eq!(payload.as_array().unwrap().len(), 0, "clean file -> no defects");
+        assert!(tool_error_msg(call("check", json!({}))).contains("missing required argument: file"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_tool_finds_sites_and_requires_name() {
+        let dir = fixture("callers");
+        let payload = tool_payload(call("callers", json!({ "name": "helper", "dir": dir.to_str().unwrap() })));
+        assert_eq!(payload.as_array().unwrap().len(), 1);
+        assert!(tool_error_msg(call("callers", json!({}))).contains("missing required argument: name"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn definition_tool_requires_name_or_at() {
+        let msg = tool_error_msg(call("definition", json!({})));
+        assert!(msg.contains("provide either `name` or `at`"), "got: {msg}");
+    }
+
+    #[test]
+    fn unknown_tool_is_invalid_params() {
+        match call("nope", json!({})) {
+            Outcome::Err { code, message } => {
+                assert_eq!(code, -32602);
+                assert!(message.contains("unknown tool"));
+            }
+            _ => panic!("expected an Err outcome"),
+        }
+    }
+
+    #[test]
+    fn tool_text_marks_errors_and_wraps_values() {
+        let okv = tool_text(&json!({ "a": 1 }), false);
+        assert_eq!(okv["isError"], json!(false));
+        assert_eq!(okv["content"][0]["type"], json!("text"));
+
+        let errv = tool_text(&json!("boom"), true);
+        assert_eq!(errv["isError"], json!(true));
+        assert_eq!(errv["content"][0]["text"], json!("boom"), "error strings are unquoted");
     }
 }

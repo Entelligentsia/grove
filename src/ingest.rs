@@ -132,3 +132,61 @@ pub fn run(sources: &Path, out: &Path, only: &[String]) -> Result<()> {
     println!("\nwrote {}/index.json", out.display());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_sources(tag: &str, body: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("grove_ingest_src_{}_{tag}.json", std::process::id()));
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn default_tags_path() {
+        assert_eq!(default_tags(), "queries/tags.scm");
+    }
+
+    #[test]
+    fn sources_spec_deserializes_with_defaults() {
+        let json = r#"{ "grammars": [
+            { "name": "python", "repo": "tree-sitter/tree-sitter-python", "rev": "v0.25.0",
+              "wasm_asset": "tree-sitter-python.wasm", "extensions": ["py"], "profile": {} }
+        ] }"#;
+        let s: Sources = serde_json::from_str(json).unwrap();
+        assert_eq!(s.grammars.len(), 1);
+        let g = &s.grammars[0];
+        assert_eq!(g.name, "python");
+        assert_eq!(g.tags_path, "queries/tags.scm", "tags_path defaults when omitted");
+    }
+
+    #[test]
+    fn run_errors_when_only_names_an_unknown_grammar() {
+        // Filtering happens after parsing but before any network fetch.
+        let src = write_sources("unknown_only", r#"{ "grammars": [
+            { "name": "python", "repo": "r", "rev": "v1", "wasm_asset": "p.wasm",
+              "extensions": ["py"], "profile": {} } ] }"#);
+        let out = std::env::temp_dir().join(format!("grove_ingest_out_{}", std::process::id()));
+        let err = run(&src, &out, &["nope".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("`nope` is not in"), "got: {err}");
+        std::fs::remove_file(&src).ok();
+    }
+
+    #[test]
+    fn run_errors_on_missing_sources_file() {
+        let missing = std::env::temp_dir().join(format!("grove_ingest_absent_{}.json", std::process::id()));
+        let out = std::env::temp_dir().join("grove_ingest_out_x");
+        let err = run(&missing, &out, &[]).unwrap_err();
+        assert!(err.to_string().contains("reading"), "got: {err}");
+    }
+
+    #[test]
+    fn run_errors_on_malformed_sources() {
+        let src = write_sources("malformed", "{ not valid json");
+        let out = std::env::temp_dir().join("grove_ingest_out_y");
+        let err = run(&src, &out, &[]).unwrap_err();
+        assert!(err.to_string().contains("parsing sources spec"), "got: {err}");
+        std::fs::remove_file(&src).ok();
+    }
+}

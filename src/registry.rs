@@ -458,4 +458,117 @@ mod tests {
         assert!(written.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn build_index_records_release_asset_when_release_base_set() {
+        let dir = toy_registry("asset");
+        let catalog = build_index(&dir, Some("https://example.test/releases/v1")).unwrap();
+        assert_eq!(catalog["release_base"], serde_json::json!("https://example.test/releases/v1"));
+        let wasm = &catalog["grammars"][0]["files"]["grammar.wasm"];
+        assert_eq!(wasm["asset"], serde_json::json!("toy.wasm"), "wasm routed to a release asset");
+        // tags.scm / manifest.json stay in the repo — no asset field.
+        assert!(catalog["grammars"][0]["files"]["tags.scm"].get("asset").is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn build_index_errors_on_missing_root() {
+        let missing = std::env::temp_dir().join(format!("grove_no_such_registry_{}", std::process::id()));
+        let err = build_index(&missing, None).unwrap_err();
+        assert!(err.to_string().contains("reading registry"), "got: {err}");
+    }
+
+    // ---- path/extension resolution (against whichever registry root wins) ----
+
+    #[test]
+    fn lang_for_path_maps_known_extensions() {
+        assert_eq!(lang_for_path(Path::new("a/b/foo.rs")), Some("rust"));
+        assert_eq!(lang_for_path(Path::new("foo.py")), Some("python"));
+        assert_eq!(lang_for_path(Path::new("foo.js")), Some("javascript"));
+        assert_eq!(lang_for_path(Path::new("foo.unknownext")), None);
+        assert_eq!(lang_for_path(Path::new("no_extension")), None);
+    }
+
+    #[test]
+    fn is_source_follows_extension() {
+        assert!(is_source(Path::new("lib.rs")));
+        assert!(!is_source(Path::new("README.unknownext")));
+        assert!(!is_source(Path::new("Makefile")));
+    }
+
+    #[test]
+    fn for_path_errors_on_unregistered_extension() {
+        let err = for_path(Path::new("notes.unknownext")).err().expect("should error");
+        assert!(err.to_string().contains("no registered grammar"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_errors_on_unknown_language() {
+        let err = resolve("definitely-not-a-language").err().expect("should error");
+        assert!(err.to_string().contains("not in the registry"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_caches_and_loads_a_real_grammar() {
+        let a = resolve("rust").unwrap();
+        let b = resolve("rust").unwrap();
+        assert_eq!(a.name, "rust");
+        assert!(!a.wasm.is_empty());
+        // Second resolve returns the cached Arc — same allocation.
+        assert!(Arc::ptr_eq(&a.wasm, &b.wasm));
+    }
+
+    #[test]
+    fn available_and_extensions_are_sorted_and_include_the_dev_stub() {
+        let langs = available();
+        assert!(langs.contains(&"rust".to_string()));
+        assert!(langs.contains(&"python".to_string()));
+        assert!(langs.windows(2).all(|w| w[0] <= w[1]), "available() must be sorted");
+        let exts = extensions();
+        assert!(exts.contains(&"rs".to_string()));
+        assert!(exts.windows(2).all(|w| w[0] <= w[1]), "extensions() must be sorted");
+    }
+
+    #[test]
+    fn manifests_are_sorted_and_carry_versions() {
+        let ms = manifests();
+        assert!(!ms.is_empty());
+        assert!(ms.windows(2).all(|w| w[0].name <= w[1].name), "manifests sorted by name");
+        let rust = ms.iter().find(|m| m.name == "rust").expect("rust manifest");
+        assert!(!rust.version.is_empty());
+        assert!(rust.extensions.contains(&"rs".to_string()));
+    }
+
+    #[test]
+    fn search_path_is_ordered_and_root_exists() {
+        let path = search_path();
+        assert!(!path.is_empty());
+        assert!(path.iter().any(|c| c.source == "dev (source tree)"), "dev candidate always listed");
+        assert!(root().is_dir(), "the resolved root must exist");
+    }
+
+    #[test]
+    fn write_lock_for_pins_versions_and_hashes() {
+        let out = std::env::temp_dir().join(format!("grove_lock_test_{}.lock", std::process::id()));
+        let n = write_lock_for(&["rust".into(), "rust".into()], &out).unwrap();
+        assert_eq!(n, 1, "duplicate langs are deduped");
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(doc["version"], serde_json::json!(1));
+        assert_eq!(doc["grammars"][0]["name"], serde_json::json!("rust"));
+        assert!(doc["grammars"][0]["wasm"].as_str().unwrap().starts_with("sha256:"));
+        std::fs::remove_file(&out).ok();
+    }
+
+    #[test]
+    fn manifest_deserializes_call_kinds_from_profile() {
+        // End-to-end of #10: a manifest's profile.call_kinds reaches the Profile.
+        let json = r#"{
+            "name": "ruby", "version": "1.0.0", "extensions": ["rb"],
+            "profile": { "function_kinds": ["method"], "call_kinds": ["call", "send"] }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.profile.call_kinds, vec!["call", "send"]);
+        assert!(m.profile.is_call_kind("send"));
+    }
 }
