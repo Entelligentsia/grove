@@ -128,15 +128,20 @@ pub struct SourceResult {
 /// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<row>`) or
 /// by file + name.
 pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
-    let (file, want): (PathBuf, String) = match name {
-        Some(n) => (PathBuf::from(id_or_file), n.to_string()),
+    let (file, want, want_row): (PathBuf, String, Option<usize>) = match name {
+        Some(n) => (PathBuf::from(id_or_file), n.to_string(), None),
         None => {
             let rest = id_or_file.split_once(':').map_or(id_or_file, |(_, r)| r);
             let (path, after) = rest
                 .split_once('#')
                 .context("symbol id must look like <lang>:<path>#<name>@<row>")?;
-            let name = after.split('@').next().unwrap_or(after).to_string();
-            (PathBuf::from(path), name)
+            // The `@<row>` suffix disambiguates duplicate-named definitions; keep
+            // it so the requested symbol is the one returned.
+            let (name, row) = match after.split_once('@') {
+                Some((n, r)) => (n.to_string(), r.parse::<usize>().ok()),
+                None => (after.to_string(), None),
+            };
+            (PathBuf::from(path), name, row)
         }
     };
 
@@ -148,14 +153,23 @@ pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
         .filter(|s| s.is_definition && s.name == want)
         .collect();
 
-    let chosen = match matches.first() {
-        None => anyhow::bail!("no definition named `{want}` in {}", file.display()),
+    // Prefer the exact-row match when the id carried a row; otherwise (name mode,
+    // rowless id, or no row matched) fall back to the first definition.
+    let chosen = match want_row.and_then(|r| matches.iter().find(|s| s.row == r)) {
         Some(c) => *c,
+        None => match matches.first() {
+            None => anyhow::bail!("no definition named `{want}` in {}", file.display()),
+            Some(c) => *c,
+        },
     };
     Ok(SourceResult {
         id: chosen.id.clone(),
         source: engine::slice(&src, chosen).to_string(),
-        other_candidates: matches.iter().skip(1).map(|s| s.id.clone()).collect(),
+        other_candidates: matches
+            .iter()
+            .filter(|s| s.id != chosen.id)
+            .map(|s| s.id.clone())
+            .collect(),
     })
 }
 
@@ -189,7 +203,7 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
         let syms = engine::extract(grammar, relpath, src)?;
         let calls: Vec<&Symbol> = syms
             .iter()
-            .filter(|s| !s.is_definition && s.kind == "call" && s.name == name)
+            .filter(|s| !s.is_definition && grammar.profile.is_call_kind(&s.kind) && s.name == name)
             .collect();
         if calls.is_empty() {
             return Ok(());
@@ -241,4 +255,67 @@ pub fn definition_at(file: &Path, row: usize, col: usize, dir: &Path) -> Result<
     .with_context(|| format!("no identifier at {}:{row}:{col}", file.display()))?;
     let defs = definition(dir, &name)?;
     Ok((name, defs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two definitions named `run`, at rows 0 and 4.
+    const DUP: &str =
+        "fn run() {\n    let _first = 1;\n}\n\nfn run() {\n    let _second = 2;\n}\n";
+
+    fn write_temp(tag: &str, contents: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!("grove_src_test_{}_{tag}.rs", std::process::id()));
+        std::fs::write(&p, contents).unwrap();
+        p
+    }
+
+    #[test]
+    fn id_row_selects_that_definition() {
+        let path = write_temp("dup_row", DUP);
+
+        let res = source(&format!("rust:{}#run@4", path.display()), None).unwrap();
+        assert!(res.source.contains("_second"), "row 4 must pick the 2nd run, got: {}", res.source);
+        assert!(res.id.ends_with("@4"), "chosen id should be the row-4 def, got {}", res.id);
+
+        let res0 = source(&format!("rust:{}#run@0", path.display()), None).unwrap();
+        assert!(res0.source.contains("_first"), "row 0 must pick the 1st run, got: {}", res0.source);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn unmatched_row_falls_back_to_first() {
+        let path = write_temp("dup_fallback", DUP);
+        let res = source(&format!("rust:{}#run@99", path.display()), None).unwrap();
+        assert!(res.source.contains("_first"), "unknown row falls back to the first def");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn by_name_returns_first_and_lists_other_candidate() {
+        let path = write_temp("dup_name", DUP);
+        let res = source(path.to_str().unwrap(), Some("run")).unwrap();
+        assert!(res.source.contains("_first"));
+        assert_eq!(res.other_candidates.len(), 1, "the 2nd run is the other candidate");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn callers_finds_call_sites_via_profile() {
+        // `helper` is called once; the profile-driven call filter (#10) must
+        // still surface the `@reference.call` site for the dev-stub rust grammar.
+        let dir = std::env::temp_dir().join(format!("grove_callers_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "fn helper() {}\nfn main() {\n    helper();\n}\n").unwrap();
+
+        let sites = callers(&dir, "helper").unwrap();
+        assert_eq!(sites.len(), 1, "exactly one call to helper, got {sites:?}");
+        assert_eq!(sites[0].in_function.as_deref(), Some("main"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
