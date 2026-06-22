@@ -186,7 +186,50 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{safe_segment, sha256};
+    use super::{host, safe_segment, sha256, Catalog, DEFAULT_HOST};
+
+    #[test]
+    fn host_defaults_and_honors_env_override() {
+        // All env mutation kept in one test so it can't race a parallel reader.
+        std::env::remove_var("GROVE_REGISTRY_URL");
+        assert_eq!(host(), DEFAULT_HOST, "defaults to the hosted registry");
+
+        std::env::set_var("GROVE_REGISTRY_URL", "https://mirror.test/grove/");
+        assert_eq!(host(), "https://mirror.test/grove", "override + trailing slash trimmed");
+
+        std::env::remove_var("GROVE_REGISTRY_URL");
+    }
+
+    #[test]
+    fn catalog_parses_schema_2_with_release_assets() {
+        let json = r#"{
+            "schema": 2,
+            "release_base": "https://example.test/releases/v1",
+            "grammars": [
+                { "name": "rust", "version": "0.24.0", "extensions": ["rs"],
+                  "files": {
+                      "grammar.wasm": { "sha256": "sha256:aa", "asset": "rust.wasm" },
+                      "tags.scm": { "sha256": "sha256:bb" }
+                  } }
+            ]
+        }"#;
+        let cat: Catalog = serde_json::from_str(json).unwrap();
+        assert_eq!(cat.release_base.as_deref(), Some("https://example.test/releases/v1"));
+        assert_eq!(cat.grammars.len(), 1);
+        let g = &cat.grammars[0];
+        assert_eq!(g.name, "rust");
+        assert_eq!(g.extensions, vec!["rs"]);
+        assert_eq!(g.files["grammar.wasm"].asset.as_deref(), Some("rust.wasm"));
+        assert_eq!(g.files["grammar.wasm"].sha256, "sha256:aa");
+        assert!(g.files["tags.scm"].asset.is_none(), "repo-served file has no asset");
+    }
+
+    #[test]
+    fn catalog_tolerates_missing_optional_fields() {
+        let cat: Catalog = serde_json::from_str(r#"{ "grammars": [] }"#).unwrap();
+        assert!(cat.release_base.is_none());
+        assert!(cat.grammars.is_empty());
+    }
 
     #[test]
     fn fetch_verifies_with_the_shared_helper() {

@@ -341,3 +341,97 @@ pub fn identifier_at(
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry;
+
+    fn rust() -> Grammar {
+        registry::resolve("rust").expect("rust grammar (dev stub or cache)")
+    }
+
+    #[test]
+    fn check_passes_clean_source() {
+        let defects = check(&rust(), b"fn main() {}\n").unwrap();
+        assert!(defects.is_empty(), "valid rust has no defects, got {defects:?}");
+    }
+
+    #[test]
+    fn check_reports_defects_on_broken_source() {
+        // Unbalanced delimiters force ERROR / MISSING nodes.
+        let defects = check(&rust(), b"fn main( {\n").unwrap();
+        assert!(!defects.is_empty(), "broken rust must report a defect");
+        assert!(defects.iter().all(|d| d.kind == "error" || d.kind == "missing"));
+        assert!(defects.iter().all(|d| d.end_byte >= d.start_byte));
+    }
+
+    #[test]
+    fn extract_finds_definitions_with_container_parent() {
+        let src = b"struct S;\nimpl S {\n    fn method(&self) {}\n}\n";
+        let syms = extract(&rust(), "lib.rs", src).unwrap();
+        let m = syms
+            .iter()
+            .find(|s| s.name == "method" && s.is_definition)
+            .expect("method definition");
+        assert_eq!(m.parent.as_deref(), Some("S"), "method's container is impl S");
+        assert!(m.id.starts_with("rust:lib.rs#method@"), "stable id, got {}", m.id);
+    }
+
+    #[test]
+    fn extract_with_tree_returns_a_reusable_tree() {
+        let src = b"fn helper() {}\nfn caller() {\n    helper();\n}\n";
+        let (syms, tree) = extract_with_tree(&rust(), "lib.rs", src).unwrap();
+        assert!(syms.iter().any(|s| s.name == "helper" && s.is_definition));
+        // The returned tree is usable for the enclosing-function pass.
+        let call = syms.iter().find(|s| s.name == "helper" && !s.is_definition).unwrap();
+        let enc = enclosing_function_at(tree.root_node(), call.start_byte, src, &rust().profile);
+        assert_eq!(enc.as_deref(), Some("caller"));
+    }
+
+    #[test]
+    fn slice_returns_the_symbols_bytes() {
+        let src = b"fn only() { let x = 1; }\n";
+        let syms = extract(&rust(), "lib.rs", src).unwrap();
+        let f = syms.iter().find(|s| s.name == "only").unwrap();
+        let body = slice(src, f);
+        assert!(body.starts_with("fn only"));
+        assert!(body.contains("let x = 1"));
+    }
+
+    #[test]
+    fn identifier_at_resolves_the_name_under_the_cursor() {
+        let src = b"fn helper() {}\nfn caller() {\n    helper();\n}\n";
+        let g = rust();
+        let name = with_tree(&g, src, |root, profile| {
+            // row 2 (0-based), col 4 — start of `helper` in the call.
+            identifier_at(root, 2, 4, src, profile)
+        })
+        .unwrap();
+        assert_eq!(name.as_deref(), Some("helper"));
+    }
+
+    #[test]
+    fn enclosing_function_at_qualifies_method_with_its_type() {
+        let src = b"struct S;\nimpl S {\n    fn m(&self) {\n        let _ = 1;\n    }\n}\n";
+        let g = rust();
+        // A byte inside the method body.
+        let needle = src.windows(9).position(|w| w == b"let _ = 1").unwrap();
+        let enc = with_tree(&g, src, |root, profile| {
+            enclosing_function_at(root, needle, src, profile)
+        })
+        .unwrap();
+        assert_eq!(enc.as_deref(), Some("S::m"), "method qualified by container type");
+    }
+
+    #[test]
+    fn extract_dedups_overlapping_matches() {
+        // No symbol range appears twice with the same is_definition flag.
+        let src = b"struct S;\nimpl S {\n    fn a(&self) {}\n    fn b(&self) {}\n}\n";
+        let syms = extract(&rust(), "lib.rs", src).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for s in &syms {
+            assert!(seen.insert((s.start_byte, s.end_byte, s.is_definition)), "duplicate: {s:?}");
+        }
+    }
+}

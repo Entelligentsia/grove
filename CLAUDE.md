@@ -111,8 +111,16 @@ grove index  [dir] [--release-base <url>] [-o index.json]
    '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
    | ./target/release/grove serve
   ```
-- There is **no test suite yet** — adding one (per-language load/extract smoke +
-  golden tests on a fixture) is a Tier-1 next step.
+- **Tests:** `cargo test` runs in-module unit tests (every `src/*.rs` has a
+  `#[cfg(test)] mod tests`) plus the CLI integration suite in `tests/cli.rs`,
+  which shells out to the built binary against the dev stub
+  (`GROVE_REGISTRY=registry`). Unit tests resolve real grammars via the registry
+  precedence (OS cache or dev stub); keep assertions registry-root-agnostic
+  unless the test pins `GROVE_REGISTRY` (the integration suite does, so it can
+  assert the 3-language counts). Coverage: `cargo llvm-cov --summary-only`
+  (~83% lines; the gaps are network paths in `fetch`/`ingest`/`init` and the
+  `serve` stdio loop). Network-dependent paths are tested up to the
+  error-before-fetch boundary, not mocked.
 
 ## Conventions
 
@@ -142,7 +150,8 @@ grove index  [dir] [--release-base <url>] [-o index.json]
 ## Roadmap (what's next)
 
 Tier 1 — make it real: **ship the grove binary** (`cargo install` + GitHub release
-prebuilts + brew/npm); **tests + CI**; **registry CI** (automate ingest→index→
+prebuilts + brew/npm); **CI** (wire `cargo test` — the suite now exists, see
+Conventions — into GitHub Actions); **registry CI** (automate ingest→index→
 publish on new tree-sitter releases).
 Tier 2 — complete the loop: **`map`** (repo orient — highest agent value) and
 **`grep`** (scope-aware); **adoption/eval** (E0/E1 + token-savings harness).

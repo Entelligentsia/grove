@@ -201,3 +201,93 @@ or grep. `{p}callers`/`{p}definition` are name-based (not receiver-type resolved
         langs = langs.join(", "),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("grove_init_test_{}_{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn claude_section_is_delimited_and_names_langs_and_prefix() {
+        let s = claude_section(&["rust".into(), "python".into()], "mcp__grove__");
+        assert!(s.starts_with(CLAUDE_START));
+        assert!(s.trim_end().ends_with(CLAUDE_END));
+        assert!(s.contains("rust, python"));
+        assert!(s.contains("mcp__grove__outline"));
+        assert!(s.contains("mcp__grove__callers"));
+    }
+
+    #[test]
+    fn write_claude_md_creates_then_updates_idempotently() {
+        let dir = tmp("claude_idem");
+        let path = dir.join("CLAUDE.md");
+
+        write_claude_md(&dir, &["rust".into()]).unwrap();
+        let first = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(first.matches(CLAUDE_START).count(), 1);
+        assert!(first.contains("rust"));
+
+        // Re-run with a different language set: section is replaced in place, not
+        // duplicated.
+        write_claude_md(&dir, &["python".into()]).unwrap();
+        let second = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(second.matches(CLAUDE_START).count(), 1, "exactly one grove section");
+        assert_eq!(second.matches(CLAUDE_END).count(), 1);
+        assert!(second.contains("python"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_claude_md_appends_below_existing_content() {
+        let dir = tmp("claude_append");
+        let path = dir.join("CLAUDE.md");
+        std::fs::write(&path, "# My project\n\nHand-written notes.\n").unwrap();
+
+        write_claude_md(&dir, &["rust".into()]).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("Hand-written notes."), "existing content preserved");
+        assert!(text.contains(CLAUDE_START), "grove section appended");
+        assert!(text.find("Hand-written").unwrap() < text.find(CLAUDE_START).unwrap());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_mcp_json_registers_grove_and_preserves_other_servers() {
+        let dir = tmp("mcp_preserve");
+        let path = dir.join(".mcp.json");
+        std::fs::write(&path, r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
+
+        write_mcp_json(&dir).unwrap();
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(doc["mcpServers"]["other"]["command"], json!("x"), "existing server kept");
+        assert_eq!(doc["mcpServers"]["grove"]["args"], json!(["serve"]), "grove registered");
+        assert!(doc["mcpServers"]["grove"]["command"].is_string());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_mcp_json_creates_file_when_absent() {
+        let dir = tmp("mcp_fresh");
+        write_mcp_json(&dir).unwrap();
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
+        assert!(doc["mcpServers"]["grove"].is_object());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_mcp_json_errors_on_invalid_existing_json() {
+        let dir = tmp("mcp_bad");
+        std::fs::write(dir.join(".mcp.json"), "{not json").unwrap();
+        let err = write_mcp_json(&dir).unwrap_err();
+        assert!(err.to_string().contains("not valid JSON"), "got: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

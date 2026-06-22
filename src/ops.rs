@@ -341,4 +341,153 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    // ---- parse_pos ----
+
+    #[test]
+    fn parse_pos_parses_file_row_col() {
+        let (file, row, col) = parse_pos("src/lib.rs:12:4").unwrap();
+        assert_eq!(file, PathBuf::from("src/lib.rs"));
+        assert_eq!((row, col), (12, 4));
+    }
+
+    #[test]
+    fn parse_pos_keeps_colons_in_the_path() {
+        // rsplitn(3) means only the last two colons split row/col; a path with a
+        // colon (or a Windows drive) stays intact.
+        let (file, row, col) = parse_pos("a:b/file.rs:3:7").unwrap();
+        assert_eq!(file, PathBuf::from("a:b/file.rs"));
+        assert_eq!((row, col), (3, 7));
+    }
+
+    #[test]
+    fn parse_pos_rejects_bad_shapes() {
+        assert!(parse_pos("no-colons").is_err());
+        assert!(parse_pos("file.rs:notarow:4").unwrap_err().to_string().contains("bad row"));
+        assert!(parse_pos("file.rs:4:notacol").unwrap_err().to_string().contains("bad col"));
+    }
+
+    // ---- project (detail tiers) ----
+
+    #[test]
+    fn project_tiers_control_field_density() {
+        let dir = std::env::temp_dir().join(format!("grove_project_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "struct S;\nimpl S {\n    fn m(&self) {}\n}\n").unwrap();
+        let syms = outline(&file, None).unwrap();
+
+        let terse = project(&syms, 0);
+        let first = &terse.as_array().unwrap()[0];
+        assert!(first.get("id").is_none(), "detail 0 omits id");
+        assert!(first.get("signature").is_none(), "detail 0 omits signature");
+        assert!(first.get("kind").is_some() && first.get("name").is_some());
+
+        let default = project(&syms, 1);
+        let d0 = &default.as_array().unwrap()[0];
+        assert!(d0.get("id").is_some(), "detail 1 adds id");
+        assert!(d0.get("signature").is_some(), "detail 1 adds signature");
+        assert!(d0.get("start_byte").is_none(), "detail 1 drops byte offsets");
+
+        let full = project(&syms, 2);
+        let f0 = &full.as_array().unwrap()[0];
+        assert!(f0.get("start_byte").is_some(), "detail 2 includes byte offsets");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- outline / symbols filters ----
+
+    #[test]
+    fn outline_filters_by_kind_and_skips_references() {
+        let dir = std::env::temp_dir().join(format!("grove_outline_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "struct S;\nfn f() {\n    g();\n}\n").unwrap();
+
+        let all = outline(&file, None).unwrap();
+        assert!(all.iter().all(|s| s.is_definition), "outline yields definitions only");
+        assert!(all.iter().any(|s| s.name == "S"));
+        assert!(all.iter().any(|s| s.name == "f"));
+
+        // The rust tags map `struct` to the `class` kind.
+        let classes = outline(&file, Some("class")).unwrap();
+        assert!(classes.iter().all(|s| s.kind == "class"));
+        assert!(classes.iter().any(|s| s.name == "S"));
+        assert!(!classes.iter().any(|s| s.name == "f"), "kind filter excludes fns");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn symbols_honors_name_kind_and_refs_filters() {
+        let dir = std::env::temp_dir().join(format!("grove_symbols_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "fn alpha() {}\nfn beta() {\n    alpha();\n}\n").unwrap();
+
+        // Definitions only by default.
+        let defs = symbols(&dir, None, None, false).unwrap();
+        assert!(defs.iter().all(|s| s.is_definition));
+
+        // With refs, the call site shows up too.
+        let with_refs = symbols(&dir, None, Some("alpha"), true).unwrap();
+        assert!(with_refs.iter().any(|s| !s.is_definition && s.name == "alpha"));
+
+        // Case-insensitive substring on name.
+        let named = symbols(&dir, None, Some("AL"), false).unwrap();
+        assert!(named.iter().any(|s| s.name == "alpha"));
+        assert!(!named.iter().any(|s| s.name == "beta"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- definition / definition_at ----
+
+    #[test]
+    fn definition_finds_exact_name() {
+        let dir = std::env::temp_dir().join(format!("grove_def_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "fn target() {}\nfn target_helper() {}\n").unwrap();
+
+        let defs = definition(&dir, "target").unwrap();
+        assert_eq!(defs.len(), 1, "exact match only, not the substring `target_helper`");
+        assert_eq!(defs[0].name, "target");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn definition_at_resolves_use_site_to_def() {
+        let dir = std::env::temp_dir().join(format!("grove_defat_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "fn target() {}\nfn caller() {\n    target();\n}\n").unwrap();
+
+        let (name, defs) = definition_at(&file, 2, 4, &dir).unwrap();
+        assert_eq!(name, "target");
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].row, 0, "def is on row 0");
+
+        // No identifier at an empty position errors with context.
+        let err = definition_at(&file, 1, 0, &dir).err();
+        assert!(err.is_none() || err.unwrap().to_string().contains("no identifier"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- source error paths ----
+
+    #[test]
+    fn source_rejects_malformed_id() {
+        let err = source("rust:src/lib.rs", None).unwrap_err();
+        assert!(err.to_string().contains("symbol id must look like"), "got: {err}");
+    }
+
+    #[test]
+    fn source_errors_when_name_absent() {
+        let path = write_temp("absent", DUP);
+        let err = source(path.to_str().unwrap(), Some("does_not_exist")).unwrap_err();
+        assert!(err.to_string().contains("no definition named"), "got: {err}");
+        std::fs::remove_file(&path).ok();
+    }
 }
