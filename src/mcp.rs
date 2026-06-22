@@ -252,15 +252,20 @@ fn call_tool(params: &Value) -> Outcome {
             None => missing("name"),
         },
         "definition" => {
+            // One shape for both modes — `{resolved, definitions}` — so a client
+            // never has to branch on which argument it passed. In `at` mode
+            // `resolved` is the name grove resolved at the position; in `name`
+            // mode it is simply the name the caller supplied.
             let dir = PathBuf::from(str_arg("dir").unwrap_or_else(|| ".".to_string()));
             if let Some(at) = str_arg("at") {
                 match ops::parse_pos(&at) {
                     Ok((file, row, col)) => ops::definition_at(&file, row, col, &dir)
-                        .map(|(name, defs)| serde_json::json!({ "resolved": name, "definitions": defs })),
+                        .map(|(name, defs)| json!({ "resolved": name, "definitions": defs })),
                     Err(e) => Err(e),
                 }
             } else if let Some(name) = str_arg("name") {
-                ops::definition(&dir, &name).and_then(to_json)
+                ops::definition(&dir, &name)
+                    .map(|defs| json!({ "resolved": name, "definitions": defs }))
             } else {
                 Err(anyhow::anyhow!("provide either `name` or `at`"))
             }
@@ -303,4 +308,57 @@ fn tool_text(value: &Value, is_error: bool) -> Value {
         "content": [ { "type": "text", "text": text } ],
         "isError": is_error,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run the `definition` tool and return its parsed JSON payload.
+    fn definition(args: Value) -> Value {
+        let params = json!({ "name": "definition", "arguments": args });
+        match call_tool(&params) {
+            Outcome::Ok(v) => {
+                assert_eq!(v["isError"], json!(false), "tool errored: {v}");
+                let text = v["content"][0]["text"].as_str().expect("text content");
+                serde_json::from_str(text).expect("payload is JSON")
+            }
+            Outcome::Err { message, .. } => panic!("expected Outcome::Ok, got Err: {message}"),
+            Outcome::Notify => panic!("expected Outcome::Ok, got Notify"),
+        }
+    }
+
+    fn fixture() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("grove_mcp_def_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "fn helper() {}\nfn main() {\n    helper();\n}\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn both_modes_return_resolved_and_definitions() {
+        let dir = fixture();
+
+        // name mode — previously a bare array.
+        let by_name = definition(json!({ "name": "helper", "dir": dir.to_str().unwrap() }));
+        assert_eq!(by_name["resolved"], json!("helper"));
+        assert!(by_name["definitions"].is_array(), "definitions must be an array, got {by_name}");
+        assert_eq!(by_name["definitions"].as_array().unwrap().len(), 1);
+
+        // at mode — the call site of `helper` on row 2, col 4.
+        let at = format!("{}:2:4", dir.join("lib.rs").display());
+        let by_at = definition(json!({ "at": at, "dir": dir.to_str().unwrap() }));
+        assert_eq!(by_at["resolved"], json!("helper"));
+        assert!(by_at["definitions"].is_array());
+
+        // Both modes expose the same keys — a client never branches on the shape.
+        let keys = |v: &Value| {
+            let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(&by_name), keys(&by_at));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
