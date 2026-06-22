@@ -4,6 +4,27 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-06-22
+
+### Added
+
+- **Cross-harness skill** (`skills/grove/SKILL.md` + `.claude-plugin/marketplace.json`):
+  grove's capabilities as an Agent Skill, installable across 70+ harnesses with
+  `npx skills add Entelligentsia/grove`. The skill prefers grove's MCP tools when
+  the host exposes them and falls back to the `grove` CLI otherwise, and
+  self-installs the binary on first use if it's missing (#22).
+- **`grove init --as mcp|skill|both`**: grammar provisioning + `grove.lock`
+  happen for every target; `.mcp.json` + CLAUDE.md are written only for the MCP
+  targets. Default is `mcp` (fully backward-compatible) (#22).
+
+### Fixed
+
+- **MCP `source` / `definition`**: dropped the top-level `anyOf` from their input
+  schemas. Some MCP clients can't normalize a top-level `anyOf` and silently drop
+  the tool during registration, so those two tools went missing while the four
+  flat-schema tools registered fine. Both now use plain object schemas; the
+  mutually-exclusive argument forms are enforced at runtime (#21).
+
 ## [0.1.3] - 2026-06-22
 
 ### Security
@@ -60,6 +81,7 @@ All notable changes to grove are documented here. The format follows
 
 - Initial release.
 
+[0.1.4]: https://github.com/Entelligentsia/grove/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Entelligentsia/grove/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Entelligentsia/grove/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Entelligentsia/grove/compare/v0.1.0...v0.1.1
