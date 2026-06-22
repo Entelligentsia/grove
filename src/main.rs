@@ -79,11 +79,15 @@ enum Cmd {
         #[arg(long)]
         at: Option<String>,
     },
-    /// Set up grove in a project: detect languages, write .mcp.json + CLAUDE.md + grove.lock.
+    /// Set up grove in a project: fetch grammars + grove.lock, and wire up the
+    /// chosen integration (MCP server, the cross-harness skill, or both).
     Init {
         /// Project directory (default: current).
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Which integration to set up: mcp (default), skill, or both.
+        #[arg(long = "as", value_enum, default_value_t = init::Target::Mcp)]
+        target: init::Target,
         /// Show what would be detected/written without writing.
         #[arg(long)]
         dry_run: bool,
@@ -213,7 +217,7 @@ fn main() -> Result<()> {
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
         }
-        Cmd::Init { path, dry_run } => init::run(&path, dry_run)?,
+        Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
         Cmd::Ingest { only, sources, out } => ingest::run(&sources, &out, &only)?,
         Cmd::Index { dir, output, release_base } => {

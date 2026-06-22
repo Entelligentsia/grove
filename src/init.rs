@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
@@ -17,13 +18,36 @@ use crate::{fetch, registry};
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";
 
+/// Which integration `grove init` wires up. Grammar provisioning (fetch +
+/// `grove.lock`) happens for every target; this only selects the harness glue.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum Target {
+    /// Register the MCP server (`.mcp.json`) + a CLAUDE.md steering block.
+    #[default]
+    Mcp,
+    /// Grammars only — the skill itself is distributed via the skills tool
+    /// (`npx skills add Entelligentsia/grove`), which steers to MCP-or-CLI.
+    Skill,
+    /// Both of the above.
+    Both,
+}
+
+impl Target {
+    fn writes_mcp(self) -> bool {
+        matches!(self, Target::Mcp | Target::Both)
+    }
+    fn is_skill(self) -> bool {
+        matches!(self, Target::Skill | Target::Both)
+    }
+}
+
 /// The key grove registers itself under in `.mcp.json`. Claude Code namespaces
 /// an MCP server's tools as `mcp__<key>__<tool>`, so this also determines the
 /// tool prefix the steering directive must use to name the real tools.
 const MCP_SERVER_KEY: &str = "grove";
 
-pub fn run(root: &Path, dry_run: bool) -> Result<()> {
-    println!("grove init  scanning {}\n", root.display());
+pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
+    println!("grove init  scanning {} (as {:?})\n", root.display(), target);
 
     // 1. Build an extension→language map. Prefer the hosted catalog so we detect
     //    languages whose grammar isn't fetched yet (otherwise a project's main
@@ -77,27 +101,48 @@ pub fn run(root: &Path, dry_run: bool) -> Result<()> {
         }
     }
 
-    // 4. Write the three artifacts (only for languages now available).
+    // 4. Provision grammars (every target) + write the harness glue the target
+    //    asks for. The lock is always written; `.mcp.json`/CLAUDE.md only for
+    //    the MCP targets — a skill-only init leaves the repo otherwise untouched
+    //    (the skill artifact is distributed via the skills tool, not by init).
     let langs: Vec<String> = langs.into_iter().filter(|l| is_cached(l)).collect();
     if langs.is_empty() {
         println!("\n  no grammars available — nothing written.");
         return Ok(());
     }
-    let mut wrote = Vec::new();
-    wrote.push(write_mcp_json(root)?);
-    wrote.push(write_claude_md(root, &langs)?);
-    let n = registry::write_lock_for(&langs, &root.join("grove.lock"))?;
-    wrote.push(format!("grove.lock ({n} grammars)"));
+    let wrote = write_harness(root, target, &langs)?;
 
-    println!("\n  agent      Claude Code");
+    println!("\n  wrote");
     for w in &wrote {
         println!("             ✓ {w}");
     }
-    println!("\n  ready      your agent now has grove's tools across its loop:");
-    println!("             outline · symbols · source · callers · definition · check");
-    println!("\n  try it     start a fresh Claude Code session here and ask a");
-    println!("             \"where/what/who-calls\" question — it routes through grove.");
+    if target.writes_mcp() {
+        println!("\n  ready      your agent now has grove's tools across its loop:");
+        println!("             outline · symbols · source · callers · definition · check");
+        println!("\n  try it     start a fresh Claude Code session here and ask a");
+        println!("             \"where/what/who-calls\" question — it routes through grove.");
+    }
+    if target.is_skill() {
+        println!("\n  skill      grammars are ready. Install the cross-harness skill with:");
+        println!("             npx skills add Entelligentsia/grove");
+        println!("             (it steers your agent to grove's MCP tools when present,");
+        println!("              else the grove CLI — same engine either way.)");
+    }
     Ok(())
+}
+
+/// Write the harness glue for `target` and pin `grove.lock`. The lock is
+/// always written; `.mcp.json` + CLAUDE.md only for MCP targets. Returns a
+/// human list of what was written, in order.
+fn write_harness(root: &Path, target: Target, langs: &[String]) -> Result<Vec<String>> {
+    let mut wrote = Vec::new();
+    if target.writes_mcp() {
+        wrote.push(write_mcp_json(root)?);
+        wrote.push(write_claude_md(root, langs)?);
+    }
+    let n = registry::write_lock_for(langs, &root.join("grove.lock"))?;
+    wrote.push(format!("grove.lock ({n} grammars)"));
+    Ok(wrote)
 }
 
 /// Extension→language map and whether it came from the hosted catalog (`true`,
@@ -288,6 +333,50 @@ mod tests {
         std::fs::write(dir.join(".mcp.json"), "{not json").unwrap();
         let err = write_mcp_json(&dir).unwrap_err();
         assert!(err.to_string().contains("not valid JSON"), "got: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn target_default_is_mcp_and_flags_route_correctly() {
+        assert_eq!(Target::default(), Target::Mcp);
+        assert!(Target::Mcp.writes_mcp() && !Target::Mcp.is_skill());
+        assert!(!Target::Skill.writes_mcp() && Target::Skill.is_skill());
+        assert!(Target::Both.writes_mcp() && Target::Both.is_skill());
+    }
+
+    #[test]
+    fn skill_target_writes_only_the_lock() {
+        let dir = tmp("harness_skill");
+        let wrote = write_harness(&dir, Target::Skill, &["rust".into()]).unwrap();
+
+        assert!(dir.join("grove.lock").exists(), "lock is always written");
+        assert!(!dir.join(".mcp.json").exists(), "skill mode writes no .mcp.json");
+        assert!(!dir.join("CLAUDE.md").exists(), "skill mode writes no CLAUDE.md");
+        assert_eq!(wrote.len(), 1, "only the lock reported: {wrote:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mcp_target_writes_all_three() {
+        let dir = tmp("harness_mcp");
+        let wrote = write_harness(&dir, Target::Mcp, &["rust".into()]).unwrap();
+
+        assert!(dir.join(".mcp.json").exists());
+        assert!(dir.join("CLAUDE.md").exists());
+        assert!(dir.join("grove.lock").exists());
+        assert_eq!(wrote.len(), 3);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn both_target_writes_all_three() {
+        let dir = tmp("harness_both");
+        write_harness(&dir, Target::Both, &["rust".into()]).unwrap();
+        assert!(dir.join(".mcp.json").exists());
+        assert!(dir.join("CLAUDE.md").exists());
+        assert!(dir.join("grove.lock").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
