@@ -214,11 +214,11 @@ fn call_tool(params: &Value) -> Outcome {
 
     let result: Result<Value> = match name {
         "outline" => match str_arg("file") {
-            Some(f) => {
-                let detail = args.get("detail").and_then(Value::as_u64).unwrap_or(1) as u8;
-                ops::outline(&PathBuf::from(f), str_arg("kind").as_deref())
-                    .map(|syms| ops::project(&syms, detail))
-            }
+            Some(f) => match outline_detail(&args) {
+                Ok(detail) => ops::outline(&PathBuf::from(f), str_arg("kind").as_deref())
+                    .map(|syms| ops::project(&syms, detail)),
+                Err(e) => Err(e),
+            },
             None => missing("file"),
         },
         "symbols" => match str_arg("dir") {
@@ -295,6 +295,19 @@ fn missing(field: &str) -> Result<Value> {
     Err(anyhow::anyhow!("missing required argument: {field}"))
 }
 
+/// Resolve the `outline` `detail` tier, validating it against the advertised
+/// `enum [0,1,2]`. Absent means the default (1). Anything else is an error —
+/// never a silent `as u8` truncation (`256` -> `0`) that serves the wrong tier.
+fn outline_detail(args: &Value) -> Result<u8> {
+    match args.get("detail") {
+        None | Some(Value::Null) => Ok(1),
+        Some(v) => match v.as_u64() {
+            Some(d @ (0 | 1 | 2)) => Ok(d as u8),
+            _ => Err(anyhow::anyhow!("`detail` must be 0, 1, or 2 (got {v})")),
+        },
+    }
+}
+
 /// Wrap a JSON value as an MCP tool result (a single text content block).
 /// Uses compact (non-pretty) JSON — agents parse it fine, and on large payloads
 /// pretty-printing's whitespace was a real fraction of the token cost.
@@ -360,5 +373,35 @@ mod tests {
         assert_eq!(keys(&by_name), keys(&by_at));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn outline_detail_validates_range() {
+        assert_eq!(outline_detail(&json!({})).unwrap(), 1, "absent -> default 1");
+        assert_eq!(outline_detail(&json!({ "detail": 0 })).unwrap(), 0);
+        assert_eq!(outline_detail(&json!({ "detail": 2 })).unwrap(), 2);
+
+        // The exact bug: 256 wrapped to 0, 257 to 1 under `as u8`.
+        assert!(outline_detail(&json!({ "detail": 256 })).is_err());
+        assert!(outline_detail(&json!({ "detail": 257 })).is_err());
+        assert!(outline_detail(&json!({ "detail": 3 })).is_err());
+        assert!(outline_detail(&json!({ "detail": "2" })).is_err());
+        assert!(outline_detail(&json!({ "detail": -1 })).is_err());
+    }
+
+    #[test]
+    fn outline_out_of_range_is_tool_error() {
+        let params = json!({
+            "name": "outline",
+            "arguments": { "file": "src/mcp.rs", "detail": 256 }
+        });
+        match call_tool(&params) {
+            Outcome::Ok(v) => {
+                assert_eq!(v["isError"], json!(true), "out-of-range detail must be a tool error");
+                let msg = v["content"][0]["text"].as_str().unwrap_or("");
+                assert!(msg.contains("detail"), "error should mention detail, got: {msg}");
+            }
+            _ => panic!("expected Outcome::Ok with isError=true"),
+        }
     }
 }
