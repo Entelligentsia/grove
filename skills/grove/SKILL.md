@@ -14,8 +14,10 @@ Prefer grove's MCP tools (`mcp__grove__*`) if they're available this session;
 otherwise use the `grove` CLI (add `--json` for machine-readable output). Both
 are the same engine.
 
-First CLI use only — ensure the binary, then fetch this repo's grammars:
-`command -v grove || npm i -g @entelligentsia/grove` then `grove init --as skill`.
+**Setup (CLI path, do this once if needed):** run `grove --version`. If it's
+not found, install grove — `npm i -g @entelligentsia/grove` — then run
+`grove init --as skill` in the repo root to fetch its grammars. If grove is
+already on PATH, skip straight to the commands below.
 
 Every result carries a stable id `<lang>:<relpath>#<name>@<row>` — pass it
 between calls instead of re-searching.
