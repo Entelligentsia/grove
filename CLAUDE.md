@@ -104,7 +104,14 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   dev stub without publishing, `GROVE_REGISTRY=<dir> grove ...` or `grove fetch` it.
 - **Test beds:** `../grove-test` (a ripgrep clone, with `.mcp.json` + `CLAUDE.md`
   for manual MCP testing — see its `GROVE_TESTING.md`). Rust on ripgrep should
-  yield **3317 definitions** (regression anchor).
+  yield **3317 definitions** (regression anchor). `../git` (the git source tree)
+  is the C bed — its `.mcp.json` registers grove too.
+- **Local agent testing:** `scripts/setup-local-test.sh [lang ...]` builds the
+  release binary, installs it over the npm-vendored one the test beds' `.mcp.json`
+  point at, regenerates the requested grammars in the OS cache via the real
+  `ingest` pipeline (so `registry-sources.json` `extra_tags` are applied), and
+  verifies against `../git`. Re-run after a change, then start a fresh agent
+  session in a test bed so its MCP server reloads.
 - **MCP smoke test** without an agent:
   ```bash
   printf '%s\n' \
