@@ -28,6 +28,24 @@ pub struct Profile {
     /// Node kinds whose text is a usable identifier (for go-to-def).
     #[serde(default)]
     pub identifier_kinds: Vec<String>,
+    /// `@reference.*` capture suffixes that denote a call site, e.g. `["call"]`
+    /// for Rust/JS or `["send", "call"]` for Ruby. Empty means the default
+    /// (`"call"`), which keeps every existing manifest working unchanged.
+    #[serde(default)]
+    pub call_kinds: Vec<String>,
+}
+
+impl Profile {
+    /// Is `kind` (a `@reference.*` capture suffix) a call site? Honors the
+    /// manifest's `call_kinds`, falling back to the literal `"call"` so a
+    /// grammar without the field behaves exactly as before.
+    pub fn is_call_kind(&self, kind: &str) -> bool {
+        if self.call_kinds.is_empty() {
+            kind == "call"
+        } else {
+            self.call_kinds.iter().any(|k| k == kind)
+        }
+    }
 }
 
 /// Where a hosted artifact was ingested from — recorded for auditability.
@@ -332,4 +350,29 @@ pub fn write_lock_for(langs: &[String], path: &Path) -> Result<usize> {
     std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(grammars.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_call_kinds_defaults_to_literal_call() {
+        // A manifest with no `call_kinds` (every grammar shipped before #10)
+        // must keep treating `@reference.call` as the call site.
+        let p = Profile::default();
+        assert!(p.is_call_kind("call"));
+        assert!(!p.is_call_kind("send"));
+        assert!(!p.is_call_kind("invocation"));
+    }
+
+    #[test]
+    fn call_kinds_drives_the_filter() {
+        // A Ruby/Elixir-style grammar declares its own call suffixes; the
+        // literal "call" is no longer special once the field is set.
+        let p = Profile { call_kinds: vec!["send".into(), "invocation".into()], ..Default::default() };
+        assert!(p.is_call_kind("send"));
+        assert!(p.is_call_kind("invocation"));
+        assert!(!p.is_call_kind("call"));
+    }
 }

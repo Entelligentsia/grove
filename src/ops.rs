@@ -203,7 +203,7 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
         let syms = engine::extract(grammar, relpath, src)?;
         let calls: Vec<&Symbol> = syms
             .iter()
-            .filter(|s| !s.is_definition && s.kind == "call" && s.name == name)
+            .filter(|s| !s.is_definition && grammar.profile.is_call_kind(&s.kind) && s.name == name)
             .collect();
         if calls.is_empty() {
             return Ok(());
@@ -301,5 +301,21 @@ mod tests {
         assert!(res.source.contains("_first"));
         assert_eq!(res.other_candidates.len(), 1, "the 2nd run is the other candidate");
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn callers_finds_call_sites_via_profile() {
+        // `helper` is called once; the profile-driven call filter (#10) must
+        // still surface the `@reference.call` site for the dev-stub rust grammar.
+        let dir = std::env::temp_dir().join(format!("grove_callers_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "fn helper() {}\nfn main() {\n    helper();\n}\n").unwrap();
+
+        let sites = callers(&dir, "helper").unwrap();
+        assert_eq!(sites.len(), 1, "exactly one call to helper, got {sites:?}");
+        assert_eq!(sites[0].in_function.as_deref(), Some("main"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
