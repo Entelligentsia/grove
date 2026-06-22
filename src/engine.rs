@@ -197,6 +197,12 @@ pub fn extract_with_tree(
                 continue;
             }
             let pos = nn.start_position();
+            // Some upstream tags queries anchor `@definition.function` on a
+            // declarator (e.g. C's `function_declarator`) that spans only the
+            // signature, not the body. Expand to the enclosing full-function
+            // node so `source` returns the complete body. The name position and
+            // signature line stay anchored on the name itself.
+            let span = definition_span(node, &kind, &grammar.profile);
             out.push(Symbol {
                 id: symbol_id(&grammar.name, rel, &name, pos.row),
                 name,
@@ -205,8 +211,8 @@ pub fn extract_with_tree(
                 file: rel.to_string(),
                 row: pos.row,
                 col: pos.column,
-                start_byte: node.start_byte(),
-                end_byte: node.end_byte(),
+                start_byte: span.start_byte(),
+                end_byte: span.end_byte(),
                 signature: line_text(source, nn.start_byte()),
                 parent: None,
             });
@@ -268,6 +274,33 @@ fn collect_defects(node: Node, source: &[u8], out: &mut Vec<Defect>) {
     }
 }
 
+/// The node whose byte range best represents the *whole* function definition.
+///
+/// Upstream tags queries vary in what they anchor `@definition.function` on:
+/// Rust/Python capture the full function node (body included), but C's query
+/// anchors on `function_declarator`, which spans only the signature. When the
+/// captured node is such a declarator nested inside a full-function node (per
+/// the profile's `function_kinds`), climb to that node so the symbol's byte
+/// range covers the body. A bare prototype (no enclosing function node) keeps
+/// the declarator range — it has no body to miss.
+fn definition_span<'a>(node: Node<'a>, kind: &str, profile: &Profile) -> Node<'a> {
+    if kind != "function" && kind != "method" {
+        return node;
+    }
+    let is_fn_kind = |n: &Node| profile.function_kinds.iter().any(|k| k.as_str() == n.kind());
+    if is_fn_kind(&node) {
+        return node;
+    }
+    let mut cur = node.parent();
+    while let Some(n) = cur {
+        if is_fn_kind(&n) {
+            return n;
+        }
+        cur = n.parent();
+    }
+    node
+}
+
 // ---- position resolution (parent / enclosing-fn / go-to-def) ----
 
 /// Name of the nearest container (impl type / trait / class / module) at or
@@ -302,6 +335,23 @@ pub fn with_tree<R>(
     })
 }
 
+/// Name of a function node. Prefers a direct `name` field (Rust/Python/JS);
+/// falls back to descending the `declarator` chain to the identifier (C, where
+/// `function_definition` has no `name` field — the name sits under
+/// `function_declarator`, possibly through `pointer_declarator`).
+fn function_name(node: Node, source: &[u8], profile: &Profile) -> Option<String> {
+    if let Some(n) = node.child_by_field_name("name") {
+        return n.utf8_text(source).ok().map(str::to_string);
+    }
+    let mut cur = node.child_by_field_name("declarator")?;
+    loop {
+        if profile.identifier_kinds.iter().any(|k| k.as_str() == cur.kind()) {
+            return cur.utf8_text(source).ok().map(str::to_string);
+        }
+        cur = cur.child_by_field_name("declarator")?;
+    }
+}
+
 /// Name of the function/method enclosing `byte`, qualified by container.
 pub fn enclosing_function_at(
     root: Node,
@@ -312,13 +362,13 @@ pub fn enclosing_function_at(
     let mut node = root.descendant_for_byte_range(byte, byte)?;
     loop {
         if profile.function_kinds.iter().any(|k| k.as_str() == node.kind()) {
-            let fname = node.child_by_field_name("name")?.utf8_text(source).ok()?;
+            let fname = function_name(node, source, profile)?;
             let container = node
                 .parent()
                 .and_then(|p| nearest_container(p, source, profile));
             return Some(match container {
                 Some(c) => format!("{c}::{fname}"),
-                None => fname.to_string(),
+                None => fname,
             });
         }
         node = node.parent()?;
@@ -376,6 +426,68 @@ mod tests {
             .expect("method definition");
         assert_eq!(m.parent.as_deref(), Some("S"), "method's container is impl S");
         assert!(m.id.starts_with("rust:lib.rs#method@"), "stable id, got {}", m.id);
+    }
+
+    #[test]
+    fn rust_definition_span_covers_the_whole_body() {
+        // Rust anchors @definition.function on the full function node, so the
+        // captured range already spans the body. Guards against regressing the
+        // common case while exercising the slice/range path.
+        let src = b"fn f() {\n    let x = 1;\n    x + 1\n}\n";
+        let syms = extract(&rust(), "lib.rs", src).unwrap();
+        let f = syms.iter().find(|s| s.name == "f" && s.is_definition).unwrap();
+        let body = slice(src, f);
+        assert!(body.starts_with("fn f()"), "starts at signature: {body:?}");
+        assert!(body.trim_end().ends_with('}'), "includes closing brace: {body:?}");
+    }
+
+    #[test]
+    fn c_function_definition_span_includes_the_body() {
+        // C's upstream tags query anchors @definition.function on
+        // `function_declarator` (signature only). The engine must expand the
+        // range to the enclosing `function_definition` so `source` returns the
+        // full body. Skip where the C grammar isn't installed (the dev stub
+        // ships rust/python/js only).
+        let Ok(c) = registry::resolve("c") else {
+            eprintln!("skipping: C grammar not resolvable in this environment");
+            return;
+        };
+        let src = b"static int *get_thing(const char *s,\n                      int n)\n{\n\tint total = 0;\n\treturn &total;\n}\n";
+        let syms = extract(&c, "demo.c", src).unwrap();
+        let f = syms
+            .iter()
+            .find(|s| s.name == "get_thing" && s.is_definition)
+            .expect("get_thing definition");
+        let body = slice(src, f);
+        assert!(body.contains("int total = 0"), "body included: {body:?}");
+        assert!(body.contains("return &total"), "body included: {body:?}");
+        assert!(body.trim_end().ends_with('}'), "closing brace included: {body:?}");
+        // The pointer return type sits above the declarator — expansion must
+        // reach the whole `function_definition`, not just the declarator.
+        assert!(body.starts_with("static int *"), "return type included: {body:?}");
+        // Name position still anchors on the identifier, not the expanded span.
+        assert_eq!(f.row, 0, "name row unchanged");
+    }
+
+    #[test]
+    fn c_callers_capture_calls_with_enclosing_function() {
+        // Two-part regression for #27: C's curated tags must capture
+        // `@reference.call`, and `enclosing_function_at` must resolve a C
+        // function's name through the declarator chain (C `function_definition`
+        // has no `name` field). Skip where the C grammar isn't installed.
+        let Ok(c) = registry::resolve("c") else {
+            eprintln!("skipping: C grammar not resolvable in this environment");
+            return;
+        };
+        let src = b"static int helper(int x) { return x + 1; }\nstatic int caller_one(void) { return helper(5); }\n";
+        let (syms, tree) = extract_with_tree(&c, "demo.c", src).unwrap();
+        let call = syms
+            .iter()
+            .find(|s| s.name == "helper" && !s.is_definition)
+            .expect("helper call captured as a reference");
+        assert_eq!(call.kind, "call", "call reference kind");
+        let enc = enclosing_function_at(tree.root_node(), call.start_byte, src, &c.profile);
+        assert_eq!(enc.as_deref(), Some("caller_one"), "enclosing fn resolved for C");
     }
 
     #[test]

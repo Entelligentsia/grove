@@ -212,7 +212,11 @@ fn main() -> Result<()> {
             } else {
                 for s in &defs {
                     let owner = s.parent.clone().unwrap_or_default();
-                    println!("{:<10} {:<26} {:<18} {}:{:<4} {}", s.kind, s.name, owner, s.row, s.col, s.signature);
+                    // `definition` searches a whole dir, so results can span
+                    // files — lead with `file:row:col` so the caller knows
+                    // which file each hit is in without a follow-up `symbols`.
+                    let loc = format!("{}:{}:{}", s.file, s.row, s.col);
+                    println!("{:<10} {:<26} {:<18} {:<28} {}", s.kind, s.name, owner, loc, s.signature);
                 }
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
