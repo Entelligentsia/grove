@@ -9,9 +9,9 @@ use std::io::Read;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use crate::registry;
+use crate::registry::sha256;
 
 /// Default host for the catalog + per-language text files (tags.scm, manifest).
 /// raw.githubusercontent serves these reliably (jsDelivr's per-file cold-fetch
@@ -88,12 +88,6 @@ pub(crate) fn get_bytes(url: &str) -> Result<Vec<u8>> {
         .read_to_end(&mut buf)
         .with_context(|| format!("reading {url}"))?;
     Ok(buf)
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    let mut h = Sha256::new();
-    h.update(bytes);
-    format!("sha256:{:x}", h.finalize())
 }
 
 /// Reject any catalog-supplied name that isn't a single, safe path component.
@@ -192,7 +186,19 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_segment;
+    use super::{safe_segment, sha256};
+
+    #[test]
+    fn fetch_verifies_with_the_shared_helper() {
+        // `fetch` no longer has its own digest — it verifies downloads against
+        // the exact `registry::sha256` the index/lockfile were built with, so a
+        // format change can't drift the producer and verifier apart (#15).
+        assert_eq!(
+            sha256(b""),
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(sha256(b"abc"), crate::registry::sha256(b"abc"));
+    }
 
     #[test]
     fn accepts_plain_file_names() {

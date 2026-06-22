@@ -82,9 +82,7 @@ pub struct Grammar {
 impl Grammar {
     /// sha256 of the wasm bytes — the lockfile's integrity field.
     pub fn wasm_sha256(&self) -> String {
-        let mut h = Sha256::new();
-        h.update(self.wasm.as_slice());
-        format!("sha256:{:x}", h.finalize())
+        sha256(self.wasm.as_slice())
     }
 }
 
@@ -267,7 +265,11 @@ pub fn manifests() -> Vec<Manifest> {
     v
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+/// The canonical content hash for grove artifacts: `sha256:<hex>`. The single
+/// source of truth — the lockfile, the index, and `grove fetch`'s verification
+/// all go through here, so the format can never drift between producer and
+/// verifier.
+pub fn sha256(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
     format!("sha256:{:x}", h.finalize())
@@ -302,7 +304,7 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
         for fname in ["grammar.wasm", "tags.scm", "manifest.json"] {
             let bytes = std::fs::read(dir.join(fname))
                 .with_context(|| format!("hashing {}/{fname}", m.name))?;
-            let mut fref = serde_json::json!({ "sha256": sha256_hex(&bytes) });
+            let mut fref = serde_json::json!({ "sha256": sha256(&bytes) });
             if fname == "grammar.wasm" && release_base.is_some() {
                 fref["asset"] = serde_json::json!(format!("{}.wasm", m.name));
             }
@@ -422,6 +424,30 @@ mod tests {
             .as_str().unwrap().starts_with("sha256:"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sha256_has_canonical_format() {
+        // Known-answer vector for the empty input, pinning the `sha256:` prefix
+        // and lowercase hex — the format every producer and verifier shares.
+        assert_eq!(
+            sha256(b""),
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn wasm_sha256_delegates_to_sha256() {
+        let bytes = b"\0asm-some-grammar".to_vec();
+        let g = Grammar {
+            name: "toy".into(),
+            version: "0.0.0".into(),
+            wasm: Arc::new(bytes.clone()),
+            tags_query: Arc::new(String::new()),
+            profile: Arc::new(Profile::default()),
+        };
+        // The lockfile field and the index/fetch helper must agree byte-for-byte.
+        assert_eq!(g.wasm_sha256(), sha256(&bytes));
     }
 
     #[test]
