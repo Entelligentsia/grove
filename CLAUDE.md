@@ -32,9 +32,10 @@ typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP server emits JSON.
 `outline` (file skeleton) · `symbols` (find across a dir) · `source` (one symbol's
 code) · `check` (ERROR/MISSING nodes — post-edit verify) · `callers` (call sites +
 enclosing fn) · `map` (directory dependency graph — defs + outgoing refs, no bodies) ·
-`definition` (go-to-def by name or `--at file:row:col`).
+`definition` (go-to-def by name or `--at file:line:col`, 1-based).
 
-All carry a stable `symbol-id` (`<lang>:<relpath>#<name>@<row>`). `outline` is
+All carry a stable `symbol-id` (`<lang>:<relpath>#<name>@<line>`, line 1-based —
+lines/cols are 1-based across the whole surface, `grep -n` convention). `outline` is
 tiered (`--kind`, `--detail 0|1|2`) so big files stay cheap. `map` is the
 breadth-control tool: it returns a directory's definitions grouped by file, each
 with its outgoing references (which other symbols it calls/uses), replacing many
@@ -84,7 +85,7 @@ grove source  <id> | <file> <name>
 grove check   <file>
 grove callers <name> [-d <dir>]
 grove map     <dir> [--kind K] [--name SUB]
-grove definition <name> [-d <dir>] | --at <file:row:col>
+grove definition <name> [-d <dir>] | --at <file:line:col>   # line/col 1-based
 grove serve                         # MCP server over stdio
 
 # setup / registry

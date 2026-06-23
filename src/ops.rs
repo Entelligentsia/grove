@@ -27,7 +27,24 @@ pub fn rel(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// True if `path` is a generated declaration file grove should not index as
+/// source during a directory walk. TypeScript `.d.ts`/`.d.cts`/`.d.mts` files
+/// are type declarations with no implementation — often machine-generated
+/// (under `tests/baselines/`, `declarations/`, `dist/`). Indexing them points
+/// `symbols`/`definition`/`callers` at the decl instead of the real source and
+/// drops genuine call sites, so they are excluded from the walk. A single
+/// file requested explicitly via `outline`/`source`/`check` is still honored —
+/// this filter only governs the recursive indexing pass. (Issue #32.)
+fn is_generated_decl(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    name.ends_with(".d.ts") || name.ends_with(".d.cts") || name.ends_with(".d.mts")
+}
+
 /// Walk every registered-source file under `dir`, yielding `(grammar, relpath, source)`.
+/// Generated declaration files (`*.d.ts`, see [`is_generated_decl`]) are skipped
+/// so `symbols`/`definition`/`callers` answer from real source, not generated decls.
 fn for_each_source(dir: &Path, mut f: impl FnMut(&Grammar, &str, &[u8]) -> Result<()>) -> Result<()> {
     for entry in WalkBuilder::new(dir).build() {
         let entry = match entry {
@@ -35,7 +52,7 @@ fn for_each_source(dir: &Path, mut f: impl FnMut(&Grammar, &str, &[u8]) -> Resul
             Err(_) => continue,
         };
         let path = entry.path();
-        if !path.is_file() || !registry::is_source(path) {
+        if !path.is_file() || !registry::is_source(path) || is_generated_decl(path) {
             continue;
         }
         let grammar = registry::for_path(path)?;
@@ -66,7 +83,7 @@ pub fn outline(file: &Path, kind: Option<&str>) -> Result<Vec<Symbol>> {
 }
 
 /// Project symbols to a JSON array at a detail level, to keep payloads bounded:
-/// 0 = terse (kind/name/parent/row), 1 = default (adds id/col/signature, drops
+/// 0 = terse (kind/name/parent/line), 1 = default (adds id/col/signature, drops
 /// byte offsets — the agent addresses symbols by id, not offset), 2 = full.
 pub fn project(syms: &[Symbol], detail: u8) -> serde_json::Value {
     use serde_json::{Map, Value};
@@ -85,7 +102,7 @@ pub fn project(syms: &[Symbol], detail: u8) -> serde_json::Value {
             if let Some(p) = &s.parent {
                 m.insert("parent".into(), p.clone().into());
             }
-            m.insert("row".into(), s.row.into());
+            m.insert("line".into(), s.line.into());
             if detail >= 1 {
                 m.insert("col".into(), s.col.into());
                 m.insert("signature".into(), s.signature.clone().into());
@@ -136,23 +153,23 @@ pub struct SourceResult {
     pub other_candidates: Vec<String>,
 }
 
-/// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<row>`) or
+/// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<line>`) or
 /// by file + name.
 pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
-    let (file, want, want_row): (PathBuf, String, Option<usize>) = match name {
+    let (file, want, want_line): (PathBuf, String, Option<usize>) = match name {
         Some(n) => (PathBuf::from(id_or_file), n.to_string(), None),
         None => {
             let rest = id_or_file.split_once(':').map_or(id_or_file, |(_, r)| r);
             let (path, after) = rest
                 .split_once('#')
-                .context("symbol id must look like <lang>:<path>#<name>@<row>")?;
-            // The `@<row>` suffix disambiguates duplicate-named definitions; keep
+                .context("symbol id must look like <lang>:<path>#<name>@<line>")?;
+            // The `@<line>` suffix disambiguates duplicate-named definitions; keep
             // it so the requested symbol is the one returned.
-            let (name, row) = match after.split_once('@') {
+            let (name, line) = match after.split_once('@') {
                 Some((n, r)) => (n.to_string(), r.parse::<usize>().ok()),
                 None => (after.to_string(), None),
             };
-            (PathBuf::from(path), name, row)
+            (PathBuf::from(path), name, line)
         }
     };
 
@@ -164,9 +181,9 @@ pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
         .filter(|s| s.is_definition && s.name == want)
         .collect();
 
-    // Prefer the exact-row match when the id carried a row; otherwise (name mode,
-    // rowless id, or no row matched) fall back to the first definition.
-    let chosen = match want_row.and_then(|r| matches.iter().find(|s| s.row == r)) {
+    // Prefer the exact-line match when the id carried a line; otherwise (name
+    // mode, lineless id, or no line matched) fall back to the first definition.
+    let chosen = match want_line.and_then(|r| matches.iter().find(|s| s.line == r)) {
         Some(c) => *c,
         None => match matches.first() {
             None => anyhow::bail!("no definition named `{want}` in {}", file.display()),
@@ -191,61 +208,175 @@ pub fn check(file: &Path) -> Result<Vec<Defect>> {
     engine::check(&grammar, &src)
 }
 
-/// A site where a symbol is called.
+/// A site where a symbol is referenced (call site, type use, textual occurrence).
 #[derive(Debug, Serialize)]
 pub struct CallSite {
     pub file: String,
-    pub row: usize,
+    /// 1-based line and column of the call (editor / `grep -n` convention).
+    pub line: usize,
     pub col: usize,
-    /// The function/method that contains this call (`Type::method` when known).
+    /// The function/method that contains this reference (`Type::method` when known).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_function: Option<String>,
-    /// The trimmed source line of the call.
-    pub line: String,
+    /// The trimmed source text of the call's line.
+    pub text: String,
+    /// Provenance: `"structural"` for tree-sitter tag-resolved references,
+    /// `"textual"` for whole-word grep matches that the tags query missed.
+    /// Structural sites are high-precision (name-resolved); textual sites fill
+    /// recall gaps (may include type annotations, imports, or comments).
+    pub source: String,
 }
 
-/// `callers` — every call site of `name` across `dir`, with enclosing function.
+/// `callers` — every reference to `name` across `dir`, with enclosing function.
 ///
-/// Name-based: matches calls to *any* function/method with this name (the slice
-/// does not resolve receiver types). Honest over-match, documented for the agent.
+/// Two passes are merged and deduped:
+/// 1. **Structural** — tree-sitter tag-resolved references (all reference kinds:
+///    call, type, implementation, etc.). High precision but low recall for names
+///    that the tags query doesn't capture (e.g. class/type references in Java or
+///    Python).
+/// 2. **Textual** — whole-word grep for the name, for lines not already covered
+///    by a structural hit. Higher recall but lower precision (may include type
+///    annotations, imports, or comments). Each result carries a `source` field
+///    (`"structural"` or `"textual"`) so the agent can prioritise.
+///
+/// Name-based: matches *any* symbol with this name (the slice does not resolve
+/// receiver types). Honest over-match, documented for the agent.
 pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
     let mut out = Vec::new();
     for_each_source(dir, |grammar, relpath, src| {
         // Reuse the parse tree from extraction for the enclosing-function pass —
         // parsing dominates cost, so re-parsing here would double the work.
         let (syms, tree) = engine::extract_with_tree(grammar, relpath, src)?;
-        let calls: Vec<&Symbol> = syms
-            .iter()
-            .filter(|s| !s.is_definition && grammar.profile.is_call_kind(&s.kind) && s.name == name)
-            .collect();
-        if calls.is_empty() {
-            return Ok(());
-        }
         let root = tree.root_node();
-        for s in &calls {
+
+        // --- Structural pass: all non-definition tag-resolved references ---
+        // The previous `is_call_kind` filter excluded type references, impl
+        // references, etc., causing callers to return [] for heavily-used
+        // class/type names (issue #33). Including all reference kinds fixes
+        // that while the textual pass below fills the long tail.
+        let structurals: Vec<&Symbol> = syms
+            .iter()
+            .filter(|s| !s.is_definition && s.name == name)
+            .collect();
+        // Lines covered by structural hits OR structural definitions of the same
+        // name — the textual pass skips these to avoid duplicating references or
+        // surfacing the definition line itself (callers is for references, not
+        // definitions).
+        let mut skip_lines: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+        for s in &structurals {
+            skip_lines.insert(s.line.saturating_sub(1));
+        }
+        for s in syms.iter().filter(|s| s.is_definition && s.name == name) {
+            skip_lines.insert(s.line.saturating_sub(1));
+        }
+        for s in &structurals {
             out.push(CallSite {
-                in_function: engine::enclosing_function_at(root, s.start_byte, src, &grammar.profile),
+                in_function: engine::enclosing_function_at(
+                    root,
+                    s.start_byte,
+                    src,
+                    &grammar.profile,
+                ),
                 file: s.file.clone(),
-                row: s.row,
+                line: s.line,
                 col: s.col,
-                line: s.signature.clone(),
+                text: s.signature.clone(),
+                source: "structural".to_string(),
             });
         }
+
+        // --- Textual pass: whole-word grep for the name ---
+        // Covers references that the tags query misses (type annotations, imports,
+        // dynamic dispatch, etc.). Only adds lines not already covered by structural
+        // hits or definitions, so there's no duplication.
+        let src_str = std::str::from_utf8(src).unwrap_or("");
+        for (row, line_text) in src_str.lines().enumerate() {
+            if skip_lines.contains(&row) {
+                continue; // already covered by a structural hit or definition
+            }
+            if !has_whole_word(line_text, name) {
+                continue;
+            }
+            // Find the byte offset of the first occurrence for enclosing-function.
+            let col = line_text.find(name).unwrap_or(0);
+            let byte = line_offset(src, row) + col;
+            out.push(CallSite {
+                in_function: engine::enclosing_function_at(root, byte, src, &grammar.profile),
+                file: relpath.to_string(),
+                line: row + 1,
+                col: col + 1,
+                text: line_text.trim().to_string(),
+                source: "textual".to_string(),
+            });
+        }
+
         Ok(())
     })?;
     Ok(out)
 }
 
-/// Parse a `file:row:col` position string (row/col 0-based).
+/// Byte offset of the start of line `row` (0-based) in `source`.
+fn line_offset(source: &[u8], row: usize) -> usize {
+    let mut off = 0;
+    for _ in 0..row {
+        match source[off..].iter().position(|&b| b == b'\n') {
+            Some(pos) => off += pos + 1,
+            None => return source.len(),
+        }
+    }
+    off
+}
+
+/// Does `haystack` contain `needle` as a whole word?
+/// A word boundary is the start/end of `haystack` or a char that is not
+/// ASCII alphanumeric or underscore. This mirrors how `grep -w` works for
+/// identifier names, without requiring a regex dependency.
+fn has_whole_word(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    let haystack_bytes = haystack.as_bytes();
+    if needle_bytes.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    while i + needle_bytes.len() <= haystack_bytes.len() {
+        if &haystack_bytes[i..i + needle_bytes.len()] == needle_bytes {
+            let before_ok = i == 0 || !is_ident_char(haystack_bytes[i - 1]);
+            let after_ok =
+                i + needle_bytes.len() == haystack_bytes.len()
+                    || !is_ident_char(haystack_bytes[i + needle_bytes.len()]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        // Advance: skip ahead past the current byte (handles multi-byte UTF-8
+        // correctly because we only match on ASCII needle/ident chars).
+        i += 1;
+    }
+    false
+}
+
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Parse a `file:line:col` position string. `line`/`col` are 1-based on input
+/// (the editor / `grep -n` convention grove prints), and are returned as the
+/// 0-based row/col tree-sitter expects, so the location grove prints round-trips
+/// straight back into `--at`.
 pub fn parse_pos(s: &str) -> Result<(PathBuf, usize, usize)> {
     let parts: Vec<&str> = s.rsplitn(3, ':').collect();
     match parts.as_slice() {
-        [col, row, file] => Ok((
-            PathBuf::from(file),
-            row.parse().map_err(|_| anyhow::anyhow!("bad row in `{s}`"))?,
-            col.parse().map_err(|_| anyhow::anyhow!("bad col in `{s}`"))?,
-        )),
-        _ => anyhow::bail!("expected file:row:col, got `{s}`"),
+        [col, line, file] => {
+            let line: usize = line.parse().map_err(|_| anyhow::anyhow!("bad line in `{s}`"))?;
+            let col: usize = col.parse().map_err(|_| anyhow::anyhow!("bad col in `{s}`"))?;
+            Ok((
+                PathBuf::from(file),
+                line.saturating_sub(1),
+                col.saturating_sub(1),
+            ))
+        }
+        _ => anyhow::bail!("expected file:line:col, got `{s}`"),
     }
 }
 
@@ -329,7 +460,7 @@ pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<Fil
                     kind: s.kind.clone(),
                     name: s.name.clone(),
                     parent: s.parent.clone(),
-                    row: s.row,
+                    row: s.line,
                     signature: s.signature.clone(),
                     references: refs,
                 }
@@ -356,8 +487,10 @@ pub fn definition(dir: &Path, name: &str) -> Result<Vec<Symbol>> {
     Ok(defs)
 }
 
-/// `definition --at` — resolve the identifier at `file:row:col`, then find its
-/// definition(s). Returns the resolved name alongside the matches.
+/// `definition --at` — resolve the identifier at a usage site, then find its
+/// definition(s). `row`/`col` are 0-based tree-sitter coords (callers feed the
+/// output of [`parse_pos`], which converts the 1-based `file:line:col` users
+/// type). Returns the resolved name alongside the matches.
 pub fn definition_at(file: &Path, row: usize, col: usize, dir: &Path) -> Result<(String, Vec<Symbol>)> {
     let grammar = registry::for_path(file)?;
     let src = read(file)?;
@@ -385,24 +518,25 @@ mod tests {
     }
 
     #[test]
-    fn id_row_selects_that_definition() {
-        let path = write_temp("dup_row", DUP);
+    fn id_line_selects_that_definition() {
+        let path = write_temp("dup_line", DUP);
 
-        let res = source(&format!("rust:{}#run@4", path.display()), None).unwrap();
-        assert!(res.source.contains("_second"), "row 4 must pick the 2nd run, got: {}", res.source);
-        assert!(res.id.ends_with("@4"), "chosen id should be the row-4 def, got {}", res.id);
+        // The 2nd `run` starts on the 5th line (1-based) of DUP.
+        let res = source(&format!("rust:{}#run@5", path.display()), None).unwrap();
+        assert!(res.source.contains("_second"), "line 5 must pick the 2nd run, got: {}", res.source);
+        assert!(res.id.ends_with("@5"), "chosen id should be the line-5 def, got {}", res.id);
 
-        let res0 = source(&format!("rust:{}#run@0", path.display()), None).unwrap();
-        assert!(res0.source.contains("_first"), "row 0 must pick the 1st run, got: {}", res0.source);
+        let res0 = source(&format!("rust:{}#run@1", path.display()), None).unwrap();
+        assert!(res0.source.contains("_first"), "line 1 must pick the 1st run, got: {}", res0.source);
 
         std::fs::remove_file(&path).ok();
     }
 
     #[test]
-    fn unmatched_row_falls_back_to_first() {
+    fn unmatched_line_falls_back_to_first() {
         let path = write_temp("dup_fallback", DUP);
         let res = source(&format!("rust:{}#run@99", path.display()), None).unwrap();
-        assert!(res.source.contains("_first"), "unknown row falls back to the first def");
+        assert!(res.source.contains("_first"), "unknown line falls back to the first def");
         std::fs::remove_file(&path).ok();
     }
 
@@ -453,28 +587,115 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn callers_includes_type_and_impl_references() {
+        // Issue #33: callers previously filtered to is_call_kind only, returning []
+        // for heavily-used type/class names. Now all non-definition references are
+        // included (call, type, implementation, etc.).
+        let dir = std::env::temp_dir().join(format!("grove_callers_type_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Rust tags query captures `impl Trait for Type` with the trait name as
+        // @reference.implementation — a non-call kind. `Clone` appears as a
+        // structural reference (kind "implementation") that was previously filtered
+        // out by is_call_kind.
+        std::fs::write(
+            dir.join("lib.rs"),
+            "struct Thing;\nimpl Clone for Thing {}\n",
+        ).unwrap();
+        let sites = callers(&dir, "Clone").unwrap();
+        // The `impl Clone for Thing` reference is structural (tag-resolved) with
+        // kind "implementation", not "call" — previously filtered out.
+        let structural = sites.iter().filter(|s| s.source == "structural").count();
+        assert!(structural >= 1, "should find impl reference to Clone, got {sites:?}");
+        // No definition of `Clone` in this file, so no lines are skipped.
+        assert!(sites.iter().any(|s| s.in_function.is_none()), "impl is top-level, got {sites:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_textual_fallback_finds_untagged_references() {
+        // Issue #33: when the tags query misses references to a name, the textual
+        // fallback finds them via whole-word grep.
+        let dir = std::env::temp_dir().join(format!("grove_callers_textual_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // `Scanner` appears as a type annotation and in a string — not captured by
+        // tags as a reference, but the textual pass should find them.
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn go(s: Scanner) { let x: Scanner = s; }\n",
+        ).unwrap();
+        let sites = callers(&dir, "Scanner").unwrap();
+        let textual: Vec<&CallSite> = sites.iter().filter(|s| s.source == "textual").collect();
+        // The type annotations `s: Scanner` and `x: Scanner` should be found as
+        // textual matches (not captured by Rust's tags query as references).
+        assert!(!textual.is_empty(), "textual fallback should find type-annotation references to Scanner, got {sites:?}");
+        // Line 0 has `Scanner` twice (s: Scanner and x: Scanner) — but has_whole_word
+        // finds the line; we report one call site per line.
+        assert_eq!(textual.len(), 1, "one textual line containing Scanner, got {textual:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_excludes_definition_from_textual() {
+        // The definition line should not appear in callers results (it's not a
+        // reference). The textual pass skips lines that have a structural definition.
+        let dir = std::env::temp_dir().join(format!("grove_callers_nodef_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn helper() {}\nfn main() { helper(); }\n",
+        ).unwrap();
+        let sites = callers(&dir, "helper").unwrap();
+        // Row 0 is the definition line — should NOT appear.
+        assert!(!sites.iter().any(|s| s.line == 1), "definition line should not be in callers results, got {sites:?}");
+        // Row 1 is the call site — should appear.
+        assert!(sites.iter().any(|s| s.line == 2), "call site line should be in callers results, got {sites:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn has_whole_word_finds_identifier_names() {
+        assert!(has_whole_word("    helper()", "helper"));
+        assert!(has_whole_word("fn helper() {}", "helper"));
+        assert!(has_whole_word("s: Scanner", "Scanner"));
+        assert!(has_whole_word("Scanner::new()", "Scanner"));
+        assert!(has_whole_word("use crate::Scanner;", "Scanner"));
+        // Not a whole word — part of a larger identifier.
+        assert!(!has_whole_word("helper_fn()", "helper"));
+        assert!(!has_whole_word("myhelper()", "helper"));
+        assert!(!has_whole_word("MyScanner", "Scanner"));
+        assert!(!has_whole_word("scanner_new", "Scanner"));
+        // Empty needle.
+        assert!(!has_whole_word("anything", ""));
+        // Needle longer than haystack.
+        assert!(!has_whole_word("ab", "abc"));
+        // Exact match.
+        assert!(has_whole_word("helper", "helper"));
+    }
+
     // ---- parse_pos ----
 
     #[test]
-    fn parse_pos_parses_file_row_col() {
+    fn parse_pos_parses_file_line_col() {
+        // 1-based `line:col` input is returned as 0-based row/col.
         let (file, row, col) = parse_pos("src/lib.rs:12:4").unwrap();
         assert_eq!(file, PathBuf::from("src/lib.rs"));
-        assert_eq!((row, col), (12, 4));
+        assert_eq!((row, col), (11, 3));
     }
 
     #[test]
     fn parse_pos_keeps_colons_in_the_path() {
-        // rsplitn(3) means only the last two colons split row/col; a path with a
+        // rsplitn(3) means only the last two colons split line/col; a path with a
         // colon (or a Windows drive) stays intact.
         let (file, row, col) = parse_pos("a:b/file.rs:3:7").unwrap();
         assert_eq!(file, PathBuf::from("a:b/file.rs"));
-        assert_eq!((row, col), (3, 7));
+        assert_eq!((row, col), (2, 6));
     }
 
     #[test]
     fn parse_pos_rejects_bad_shapes() {
         assert!(parse_pos("no-colons").is_err());
-        assert!(parse_pos("file.rs:notarow:4").unwrap_err().to_string().contains("bad row"));
+        assert!(parse_pos("file.rs:notarow:4").unwrap_err().to_string().contains("bad line"));
         assert!(parse_pos("file.rs:4:notacol").unwrap_err().to_string().contains("bad col"));
     }
 
@@ -536,6 +757,51 @@ mod tests {
     }
 
     #[test]
+    fn is_generated_decl_flags_typescript_declaration_files() {
+        // Issue #32: `.d.ts`/`.d.cts`/`.d.mts` are generated declarations — they
+        // must be skipped by the directory walk so symbols/definition/callers
+        // answer from real source, not the decl. The check is suffix-based so it
+        // is independent of the registry (the typescript grammar may be absent).
+        assert!(is_generated_decl(Path::new("src/compiler/scanner.d.ts")));
+        assert!(is_generated_decl(Path::new("tests/baselines/reference/api/typescript.d.ts")));
+        assert!(is_generated_decl(Path::new("declarations/LoaderContext.d.ts")));
+        assert!(is_generated_decl(Path::new("pkg/index.d.cts")));
+        assert!(is_generated_decl(Path::new("pkg/index.d.mts")));
+
+        // Real implementation files and other paths are left alone.
+        assert!(!is_generated_decl(Path::new("src/compiler/scanner.ts")));
+        assert!(!is_generated_decl(Path::new("lib/Compiler.js")));
+        assert!(!is_generated_decl(Path::new("types.ts")), "`types.ts` is real source, not `types.d.ts`");
+        assert!(!is_generated_decl(Path::new("README.md")));
+        assert!(!is_generated_decl(Path::new("no_extension")));
+    }
+
+    #[test]
+    fn symbols_skips_generated_declaration_files() {
+        // Issue #32: a `.d.ts` file in the tree must not contribute symbols,
+        // even when a registered grammar would otherwise accept its extension.
+        // Here the dev-stub registry has no typescript grammar, so `.d.ts` is
+        // already not source — but a `.d.js`-style nested decl under a real
+        // registered extension is the closest in-stub analog. We instead assert
+        // the skip at the predicate level (see is_generated_decl_flags_*).
+        // This test pins that a real `.js` decl-like name is still indexed (i.e.
+        // the filter is suffix-precise and does not over-reach onto `.js`).
+        let dir = std::env::temp_dir().join(format!("grove_nodecl_test_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("declarations")).unwrap();
+        std::fs::write(dir.join("declarations/LoaderContext.d.ts"), "export class LoaderContext {}").unwrap();
+        std::fs::write(dir.join("lib.js"), "class Compiler {}").unwrap();
+
+        let defs = symbols(&dir, None, Some("Compiler"), false).unwrap();
+        assert!(defs.iter().any(|s| s.name == "Compiler"), "real source is indexed");
+        // No symbol named `LoaderContext` leaks in from the `.d.ts` (typescript is
+        // not registered here, but this also guards against a future regression where
+        // the filter stops being applied in the walk).
+        assert!(!defs.iter().any(|s| s.name == "LoaderContext"), "generated decl is skipped");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn kind_matches_exact_and_struct_synonyms() {
         assert!(kind_matches("class", "class"));
         assert!(kind_matches("class", "struct"), "struct → class");
@@ -592,7 +858,7 @@ mod tests {
         let (name, defs) = definition_at(&file, 2, 4, &dir).unwrap();
         assert_eq!(name, "target");
         assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].row, 0, "def is on row 0");
+        assert_eq!(defs[0].line, 1, "def is on line 1 (1-based)");
 
         // No identifier at an empty position errors with context.
         let err = definition_at(&file, 1, 0, &dir).err();

@@ -117,7 +117,7 @@ many symbols+source round-trips with one call), `outline` to see a file's \
 definitions, `symbols`/`definition` to locate code, `source` to read one \
 symbol's body, `callers` to find call sites, and `check` after an edit to \
 verify syntax. Every result carries a stable symbol-id \
-(`<lang>:<relpath>#<name>@<row>`) you can pass between tools. {roster}\n\n\
+(`<lang>:<relpath>#<name>@<line>`, line 1-based) you can pass between tools. {roster}\n\n\
 Breadth control: prefer `map` for architectural overviews — it returns the \
 definition-and-reference graph of a directory in one call. Use `source` only \
 for the few load-bearing definitions you need to read in full. Avoid fetching \
@@ -146,7 +146,7 @@ fn tool_specs() -> Value {
                 "properties": {
                     "file": { "type": "string", "description": "Path to a source file" },
                     "kind": { "type": "string", "description": "Only this kind (kinds are language-dependent), e.g. class, struct, function, method, module" },
-                    "detail": { "type": "integer", "enum": [0, 1, 2], "description": "0 terse (kind/name/parent/row) · 1 default (adds id/signature) · 2 full (adds byte offsets). Default 1." }
+                    "detail": { "type": "integer", "enum": [0, 1, 2], "description": "0 terse (kind/name/parent/line) · 1 default (adds id/signature) · 2 full (adds byte offsets). Default 1." }
                 },
                 "required": ["file"]
             },
@@ -173,7 +173,7 @@ fn tool_specs() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": { "type": "string", "description": "A symbol-id like <lang>:<relpath>#<name>@<row> (e.g. py:app/main.py#run@41)" },
+                    "id": { "type": "string", "description": "A symbol-id like <lang>:<relpath>#<name>@<line> (e.g. py:app/main.py#run@41); line is 1-based" },
                     "file": { "type": "string", "description": "Alternatively, the source file (with `name`)" },
                     "name": { "type": "string", "description": "…and the symbol name to find in it" }
                 }
@@ -219,12 +219,12 @@ fn tool_specs() -> Value {
         },
         {
             "name": "definition",
-            "description": "Find where a symbol is defined (go-to-def). Either pass `name` for an exact-name lookup, or `at` (file:row:col, 0-based) to resolve the identifier under a usage site and jump to its definition. Returns JSON definitions with signature, parent, and id.",
+            "description": "Find where a symbol is defined (go-to-def). Either pass `name` for an exact-name lookup, or `at` (file:line:col, 1-based) to resolve the identifier under a usage site and jump to its definition. Returns JSON definitions with signature, parent, and id.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "Exact symbol name to resolve (provide this or `at`)" },
-                    "at": { "type": "string", "description": "Usage site to resolve instead: file:row:col (0-based)" },
+                    "at": { "type": "string", "description": "Usage site to resolve instead: file:line:col (1-based)" },
                     "dir": { "type": "string", "description": "Directory to search (default: current)" }
                 }
             },
@@ -391,8 +391,8 @@ mod tests {
         assert!(by_name["definitions"].is_array(), "definitions must be an array, got {by_name}");
         assert_eq!(by_name["definitions"].as_array().unwrap().len(), 1);
 
-        // at mode — the call site of `helper` on row 2, col 4.
-        let at = format!("{}:2:4", dir.join("lib.rs").display());
+        // at mode — the call site of `helper` on line 3, col 5 (1-based).
+        let at = format!("{}:3:5", dir.join("lib.rs").display());
         let by_at = definition(json!({ "at": at, "dir": dir.to_str().unwrap() }));
         assert_eq!(by_at["resolved"], json!("helper"));
         assert!(by_at["definitions"].is_array());

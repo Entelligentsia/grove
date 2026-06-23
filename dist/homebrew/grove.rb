@@ -11,7 +11,7 @@
 class Grove < Formula
   desc "Structural, byte-precise, token-cheap codebase access for coding agents"
   homepage "https://github.com/Entelligentsia/grove"
-  version "0.1.6"
+  version "0.1.7"
   license "MIT"
 
   BASE = "https://github.com/Entelligentsia/grove/releases/download/v#{version}".freeze
