@@ -66,7 +66,7 @@ pub fn outline(file: &Path, kind: Option<&str>) -> Result<Vec<Symbol>> {
 }
 
 /// Project symbols to a JSON array at a detail level, to keep payloads bounded:
-/// 0 = terse (kind/name/parent/row), 1 = default (adds id/col/signature, drops
+/// 0 = terse (kind/name/parent/line), 1 = default (adds id/col/signature, drops
 /// byte offsets — the agent addresses symbols by id, not offset), 2 = full.
 pub fn project(syms: &[Symbol], detail: u8) -> serde_json::Value {
     use serde_json::{Map, Value};
@@ -85,7 +85,7 @@ pub fn project(syms: &[Symbol], detail: u8) -> serde_json::Value {
             if let Some(p) = &s.parent {
                 m.insert("parent".into(), p.clone().into());
             }
-            m.insert("row".into(), s.row.into());
+            m.insert("line".into(), s.line.into());
             if detail >= 1 {
                 m.insert("col".into(), s.col.into());
                 m.insert("signature".into(), s.signature.clone().into());
@@ -136,23 +136,23 @@ pub struct SourceResult {
     pub other_candidates: Vec<String>,
 }
 
-/// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<row>`) or
+/// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<line>`) or
 /// by file + name.
 pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
-    let (file, want, want_row): (PathBuf, String, Option<usize>) = match name {
+    let (file, want, want_line): (PathBuf, String, Option<usize>) = match name {
         Some(n) => (PathBuf::from(id_or_file), n.to_string(), None),
         None => {
             let rest = id_or_file.split_once(':').map_or(id_or_file, |(_, r)| r);
             let (path, after) = rest
                 .split_once('#')
-                .context("symbol id must look like <lang>:<path>#<name>@<row>")?;
-            // The `@<row>` suffix disambiguates duplicate-named definitions; keep
+                .context("symbol id must look like <lang>:<path>#<name>@<line>")?;
+            // The `@<line>` suffix disambiguates duplicate-named definitions; keep
             // it so the requested symbol is the one returned.
-            let (name, row) = match after.split_once('@') {
+            let (name, line) = match after.split_once('@') {
                 Some((n, r)) => (n.to_string(), r.parse::<usize>().ok()),
                 None => (after.to_string(), None),
             };
-            (PathBuf::from(path), name, row)
+            (PathBuf::from(path), name, line)
         }
     };
 
@@ -164,9 +164,9 @@ pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
         .filter(|s| s.is_definition && s.name == want)
         .collect();
 
-    // Prefer the exact-row match when the id carried a row; otherwise (name mode,
-    // rowless id, or no row matched) fall back to the first definition.
-    let chosen = match want_row.and_then(|r| matches.iter().find(|s| s.row == r)) {
+    // Prefer the exact-line match when the id carried a line; otherwise (name
+    // mode, lineless id, or no line matched) fall back to the first definition.
+    let chosen = match want_line.and_then(|r| matches.iter().find(|s| s.line == r)) {
         Some(c) => *c,
         None => match matches.first() {
             None => anyhow::bail!("no definition named `{want}` in {}", file.display()),
@@ -195,13 +195,14 @@ pub fn check(file: &Path) -> Result<Vec<Defect>> {
 #[derive(Debug, Serialize)]
 pub struct CallSite {
     pub file: String,
-    pub row: usize,
+    /// 1-based line and column of the call (editor / `grep -n` convention).
+    pub line: usize,
     pub col: usize,
     /// The function/method that contains this call (`Type::method` when known).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_function: Option<String>,
-    /// The trimmed source line of the call.
-    pub line: String,
+    /// The trimmed source text of the call's line.
+    pub text: String,
 }
 
 /// `callers` — every call site of `name` across `dir`, with enclosing function.
@@ -226,9 +227,9 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
             out.push(CallSite {
                 in_function: engine::enclosing_function_at(root, s.start_byte, src, &grammar.profile),
                 file: s.file.clone(),
-                row: s.row,
+                line: s.line,
                 col: s.col,
-                line: s.signature.clone(),
+                text: s.signature.clone(),
             });
         }
         Ok(())
@@ -236,16 +237,23 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
     Ok(out)
 }
 
-/// Parse a `file:row:col` position string (row/col 0-based).
+/// Parse a `file:line:col` position string. `line`/`col` are 1-based on input
+/// (the editor / `grep -n` convention grove prints), and are returned as the
+/// 0-based row/col tree-sitter expects, so the location grove prints round-trips
+/// straight back into `--at`.
 pub fn parse_pos(s: &str) -> Result<(PathBuf, usize, usize)> {
     let parts: Vec<&str> = s.rsplitn(3, ':').collect();
     match parts.as_slice() {
-        [col, row, file] => Ok((
-            PathBuf::from(file),
-            row.parse().map_err(|_| anyhow::anyhow!("bad row in `{s}`"))?,
-            col.parse().map_err(|_| anyhow::anyhow!("bad col in `{s}`"))?,
-        )),
-        _ => anyhow::bail!("expected file:row:col, got `{s}`"),
+        [col, line, file] => {
+            let line: usize = line.parse().map_err(|_| anyhow::anyhow!("bad line in `{s}`"))?;
+            let col: usize = col.parse().map_err(|_| anyhow::anyhow!("bad col in `{s}`"))?;
+            Ok((
+                PathBuf::from(file),
+                line.saturating_sub(1),
+                col.saturating_sub(1),
+            ))
+        }
+        _ => anyhow::bail!("expected file:line:col, got `{s}`"),
     }
 }
 
@@ -329,7 +337,7 @@ pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<Fil
                     kind: s.kind.clone(),
                     name: s.name.clone(),
                     parent: s.parent.clone(),
-                    row: s.row,
+                    row: s.line,
                     signature: s.signature.clone(),
                     references: refs,
                 }
@@ -356,8 +364,10 @@ pub fn definition(dir: &Path, name: &str) -> Result<Vec<Symbol>> {
     Ok(defs)
 }
 
-/// `definition --at` — resolve the identifier at `file:row:col`, then find its
-/// definition(s). Returns the resolved name alongside the matches.
+/// `definition --at` — resolve the identifier at a usage site, then find its
+/// definition(s). `row`/`col` are 0-based tree-sitter coords (callers feed the
+/// output of [`parse_pos`], which converts the 1-based `file:line:col` users
+/// type). Returns the resolved name alongside the matches.
 pub fn definition_at(file: &Path, row: usize, col: usize, dir: &Path) -> Result<(String, Vec<Symbol>)> {
     let grammar = registry::for_path(file)?;
     let src = read(file)?;
@@ -385,24 +395,25 @@ mod tests {
     }
 
     #[test]
-    fn id_row_selects_that_definition() {
-        let path = write_temp("dup_row", DUP);
+    fn id_line_selects_that_definition() {
+        let path = write_temp("dup_line", DUP);
 
-        let res = source(&format!("rust:{}#run@4", path.display()), None).unwrap();
-        assert!(res.source.contains("_second"), "row 4 must pick the 2nd run, got: {}", res.source);
-        assert!(res.id.ends_with("@4"), "chosen id should be the row-4 def, got {}", res.id);
+        // The 2nd `run` starts on the 5th line (1-based) of DUP.
+        let res = source(&format!("rust:{}#run@5", path.display()), None).unwrap();
+        assert!(res.source.contains("_second"), "line 5 must pick the 2nd run, got: {}", res.source);
+        assert!(res.id.ends_with("@5"), "chosen id should be the line-5 def, got {}", res.id);
 
-        let res0 = source(&format!("rust:{}#run@0", path.display()), None).unwrap();
-        assert!(res0.source.contains("_first"), "row 0 must pick the 1st run, got: {}", res0.source);
+        let res0 = source(&format!("rust:{}#run@1", path.display()), None).unwrap();
+        assert!(res0.source.contains("_first"), "line 1 must pick the 1st run, got: {}", res0.source);
 
         std::fs::remove_file(&path).ok();
     }
 
     #[test]
-    fn unmatched_row_falls_back_to_first() {
+    fn unmatched_line_falls_back_to_first() {
         let path = write_temp("dup_fallback", DUP);
         let res = source(&format!("rust:{}#run@99", path.display()), None).unwrap();
-        assert!(res.source.contains("_first"), "unknown row falls back to the first def");
+        assert!(res.source.contains("_first"), "unknown line falls back to the first def");
         std::fs::remove_file(&path).ok();
     }
 
@@ -456,25 +467,26 @@ mod tests {
     // ---- parse_pos ----
 
     #[test]
-    fn parse_pos_parses_file_row_col() {
+    fn parse_pos_parses_file_line_col() {
+        // 1-based `line:col` input is returned as 0-based row/col.
         let (file, row, col) = parse_pos("src/lib.rs:12:4").unwrap();
         assert_eq!(file, PathBuf::from("src/lib.rs"));
-        assert_eq!((row, col), (12, 4));
+        assert_eq!((row, col), (11, 3));
     }
 
     #[test]
     fn parse_pos_keeps_colons_in_the_path() {
-        // rsplitn(3) means only the last two colons split row/col; a path with a
+        // rsplitn(3) means only the last two colons split line/col; a path with a
         // colon (or a Windows drive) stays intact.
         let (file, row, col) = parse_pos("a:b/file.rs:3:7").unwrap();
         assert_eq!(file, PathBuf::from("a:b/file.rs"));
-        assert_eq!((row, col), (3, 7));
+        assert_eq!((row, col), (2, 6));
     }
 
     #[test]
     fn parse_pos_rejects_bad_shapes() {
         assert!(parse_pos("no-colons").is_err());
-        assert!(parse_pos("file.rs:notarow:4").unwrap_err().to_string().contains("bad row"));
+        assert!(parse_pos("file.rs:notarow:4").unwrap_err().to_string().contains("bad line"));
         assert!(parse_pos("file.rs:4:notacol").unwrap_err().to_string().contains("bad col"));
     }
 
@@ -592,7 +604,7 @@ mod tests {
         let (name, defs) = definition_at(&file, 2, 4, &dir).unwrap();
         assert_eq!(name, "target");
         assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].row, 0, "def is on row 0");
+        assert_eq!(defs[0].line, 1, "def is on line 1 (1-based)");
 
         // No identifier at an empty position errors with context.
         let err = definition_at(&file, 1, 0, &dir).err();

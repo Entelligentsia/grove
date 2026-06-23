@@ -116,8 +116,8 @@ fn callers_finds_call_sites() {
     assert!(out.status.success());
     assert!(stdout(&out).contains("caller"), "enclosing fn shown: {}", stdout(&out));
     // Each row leads with the file path so directory-wide queries are usable
-    // without a grep fallback (#29).
-    assert!(stdout(&out).contains("lib.rs:2:"), "file path shown: {}", stdout(&out));
+    // without a grep fallback (#29). The call sits on line 3 (1-based) of the fixture.
+    assert!(stdout(&out).contains("lib.rs:3:"), "file path shown: {}", stdout(&out));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -135,8 +135,8 @@ fn definition_by_name_and_by_position() {
     assert!(human.status.success());
     assert!(stdout(&human).contains("helper"));
 
-    // Resolve the `helper()` call on row 2, col 4 back to its definition.
-    let by_at = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:2:4"]);
+    // Resolve the `helper()` call on line 3, col 5 (1-based) back to its definition.
+    let by_at = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:3:5"]);
     assert!(by_at.status.success(), "stderr: {}", String::from_utf8_lossy(&by_at.stderr));
     let v2: serde_json::Value = serde_json::from_str(&stdout(&by_at)).unwrap();
     assert!(v2.as_array().unwrap().iter().any(|s| s["name"] == "helper"));

@@ -41,12 +41,12 @@ grove is optional.
 1. Identify the named symbol and/or file in the prompt.
 2. File but no symbol → `grove outline <file>` (add `--detail 0` on files > 500 lines).
 3. Symbol but no file → `grove symbols <dir> --name <symbol>`.
-4. Take the `symbol-id` (`<lang>:<relpath>#<name>@<row>`) from that result.
+4. Take the `symbol-id` (`<lang>:<relpath>#<name>@<line>`, line 1-based) from that result.
 5. `grove source <id>` → exactly that symbol's body, signature through closing
    brace. The `grove source <file> <name>` form returns the same body; the id
    just pins the exact match when a name is overloaded.
 6. "who calls" → `grove callers <name> -d <dir>`; "where defined" →
-   `grove definition <name> -d <dir>` (or `--at file:row:col`).
+   `grove definition <name> -d <dir>` (or `--at file:line:col`, 1-based).
 7. After an edit → `grove check <file>`.
 8. **Broad/architectural questions** → `grove map <dir>` — every definition
    grouped by file, each with its outgoing references, in one call. Prefer `map`

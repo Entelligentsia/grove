@@ -20,15 +20,18 @@ use crate::registry::{Grammar, Profile};
 /// A definition or reference extracted from a file.
 #[derive(Debug, Serialize)]
 pub struct Symbol {
-    /// Stable handle: `<lang>:<relpath>#<name>@<row>`. Survives across turns.
+    /// Stable handle: `<lang>:<relpath>#<name>@<line>` (line is 1-based). Survives across turns.
     pub id: String,
     pub name: String,
     /// e.g. `function`, `method`, `class`, `call` — from the grammar's tag query.
     pub kind: String,
     pub is_definition: bool,
     pub file: String,
-    /// 0-based start row/col of the name.
-    pub row: usize,
+    /// 1-based line and column of the name — the editor / `grep -n` convention,
+    /// so a citation printed as "line N" lands on the right line. (tree-sitter's
+    /// own `Point` is 0-based; we normalize here. The byte range below, not these,
+    /// is what `source` slices.)
+    pub line: usize,
     pub col: usize,
     /// Byte range of the whole symbol (what `source` slices).
     pub start_byte: usize,
@@ -44,7 +47,8 @@ pub struct Symbol {
 #[derive(Debug, Serialize)]
 pub struct Defect {
     pub kind: &'static str,
-    pub row: usize,
+    /// 1-based line and column — same editor / `grep -n` convention as `Symbol`.
+    pub line: usize,
     pub col: usize,
     pub start_byte: usize,
     pub end_byte: usize,
@@ -139,8 +143,8 @@ pub mod parse_counter {
     }
 }
 
-fn symbol_id(lang: &str, rel: &str, name: &str, row: usize) -> String {
-    format!("{lang}:{rel}#{name}@{row}")
+fn symbol_id(lang: &str, rel: &str, name: &str, line: usize) -> String {
+    format!("{lang}:{rel}#{name}@{line}")
 }
 
 /// The trimmed source line containing `byte`.
@@ -203,14 +207,17 @@ pub fn extract_with_tree(
             // node so `source` returns the complete body. The name position and
             // signature line stay anchored on the name itself.
             let span = definition_span(node, &kind, &grammar.profile);
+            // tree-sitter `Point` is 0-based; surface 1-based line/col so the
+            // agent-facing handle and output read as human line numbers (#31).
+            let line = pos.row + 1;
             out.push(Symbol {
-                id: symbol_id(&grammar.name, rel, &name, pos.row),
+                id: symbol_id(&grammar.name, rel, &name, line),
                 name,
                 kind,
                 is_definition,
                 file: rel.to_string(),
-                row: pos.row,
-                col: pos.column,
+                line,
+                col: pos.column + 1,
                 start_byte: span.start_byte(),
                 end_byte: span.end_byte(),
                 signature: line_text(source, nn.start_byte()),
@@ -258,8 +265,8 @@ fn collect_defects(node: Node, source: &[u8], out: &mut Vec<Defect>) {
         let start = node.start_position();
         out.push(Defect {
             kind: if node.is_missing() { "missing" } else { "error" },
-            row: start.row,
-            col: start.column,
+            line: start.row + 1,
+            col: start.column + 1,
             start_byte: node.start_byte(),
             end_byte: node.end_byte(),
             text: String::from_utf8_lossy(&source[node.byte_range()])
@@ -401,6 +408,48 @@ mod tests {
         registry::resolve("rust").expect("rust grammar (dev stub or cache)")
     }
 
+    /// Regression guard for #31: the reported `line` must equal the real
+    /// `grep -n` line of the definition (1-based), per grammar. The off-by-one
+    /// clustered by language, so this asserts across every dev-stub grammar with
+    /// the def deliberately placed below line 1 — where a 0-vs-1 slip would show.
+    #[test]
+    fn reported_line_matches_grep_n_per_grammar() {
+        // (lang, source, def name). `target` sits on the 3rd line in each — the
+        // line `grep -n target` would report.
+        let cases: &[(&str, &str, &str)] = &[
+            ("rust", "// header\n\nfn target() {}\n", "target"),
+            ("python", "# header\n\ndef target():\n    pass\n", "target"),
+            ("javascript", "// header\n\nfunction target() {}\n", "target"),
+        ];
+        for (lang, src, name) in cases {
+            let Ok(g) = registry::resolve(lang) else {
+                eprintln!("skipping {lang}: grammar not resolvable in this environment");
+                continue;
+            };
+            let want_line = src
+                .lines()
+                .position(|l| l.contains(&format!(" {name}")) || l.contains(&format!("{name}(")))
+                .map(|i| i + 1)
+                .expect("fixture contains the def");
+            let syms = extract(&g, &format!("demo.{lang}"), src.as_bytes()).unwrap();
+            let def = syms
+                .iter()
+                .find(|s| s.name == *name && s.is_definition)
+                .unwrap_or_else(|| panic!("{lang}: no def named {name}"));
+            assert_eq!(
+                def.line, want_line,
+                "{lang}: reported line {} != grep -n line {want_line}",
+                def.line
+            );
+            // The id's `@<line>` must carry the same 1-based line.
+            assert!(
+                def.id.ends_with(&format!("@{want_line}")),
+                "{lang}: id {} should end with @{want_line}",
+                def.id
+            );
+        }
+    }
+
     #[test]
     fn check_passes_clean_source() {
         let defects = check(&rust(), b"fn main() {}\n").unwrap();
@@ -466,7 +515,7 @@ mod tests {
         // reach the whole `function_definition`, not just the declarator.
         assert!(body.starts_with("static int *"), "return type included: {body:?}");
         // Name position still anchors on the identifier, not the expanded span.
-        assert_eq!(f.row, 0, "name row unchanged");
+        assert_eq!(f.line, 1, "name on the first line (1-based)");
     }
 
     #[test]

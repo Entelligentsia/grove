@@ -204,10 +204,12 @@ every served file) — the publish step for registry CI.
 | Verify | `grove check <file>` | ERROR / MISSING nodes (exit 1 if any) — post-edit syntax check |
 | Trace | `grove callers <name> [-d <dir>]` | call sites of a symbol, each with its enclosing function |
 | Map | `grove map <dir> [--kind K] [--name SUB]` | directory dependency graph: definitions + outgoing references, no source bodies |
-| Trace | `grove definition <name> [-d <dir>]` or `grove definition --at <file:row:col>` | go-to-def, by name or from a usage position |
+| Trace | `grove definition <name> [-d <dir>]` or `grove definition --at <file:line:col>` | go-to-def, by name or from a usage position (`line`/`col` are 1-based) |
 
-Add `--json` to any command for the agent-facing structured shape. Every result
-carries a stable `symbol-id` (`<lang>:<relpath>#<name>@<row>`) usable across turns.
+Add `--json` to any command for the agent-facing structured shape. Lines and
+columns are **1-based** everywhere grove reports or accepts them (the editor /
+`grep -n` convention). Every result carries a stable `symbol-id`
+(`<lang>:<relpath>#<name>@<line>`, line 1-based) usable across turns.
 
 ## Examples
 
