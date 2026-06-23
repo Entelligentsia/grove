@@ -154,13 +154,14 @@ fn tool_specs() -> Value {
         },
         {
             "name": "symbols",
-            "description": "Find symbols across a directory (gitignore-aware), in any language grove has a grammar for. Filter by kind (function, method, class, struct, …) and/or a name substring. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids. For a structured overview with reference edges, prefer `map` — it returns definitions and their outgoing references in one call, replacing many `symbols`+`source` round-trips.",
+            "description": "Find symbols across a directory (gitignore-aware), in any language grove has a grammar for. Filter by kind (function, method, class, struct, …) and/or a name. `name` matches exactly (case-insensitive); set `nameContains` true for substring matching. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids. For a structured overview with reference edges, prefer `map` — it returns definitions and their outgoing references in one call, replacing many `symbols`+`source` round-trips.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "dir": { "type": "string", "description": "Directory to search" },
                     "kind": { "type": "string", "description": "Only this kind, e.g. function, class, method (language-dependent)" },
-                    "name": { "type": "string", "description": "Only names containing this substring (case-insensitive)" },
+                    "name": { "type": "string", "description": "Only definitions whose name equals this exactly (case-insensitive)" },
+                    "nameContains": { "type": "boolean", "description": "Substring matching for `name` instead of exact equality (case-insensitive). Default false." },
                     "refs": { "type": "boolean", "description": "Include references, not just definitions (default false)" }
                 },
                 "required": ["dir"]
@@ -205,13 +206,14 @@ fn tool_specs() -> Value {
         },
         {
             "name": "map",
-            "description": "Return a compact structural map of a directory: every definition grouped by file, with each definition's outgoing references (which other symbols it calls or uses). No source bodies — just the dependency graph. Use this instead of many symbols+source calls when you need a broad picture of how code connects. Prefer map for architectural understanding; use source only for the few load-bearing definitions you need to read in full. Filter by kind or name to narrow the view. Returns JSON.",
+            "description": "Return a compact structural map of a directory: every definition grouped by file, with each definition's outgoing references (which other symbols it calls or uses). No source bodies — just the dependency graph. Use this instead of many symbols+source calls when you need a broad picture of how code connects. Prefer map for architectural understanding; use source only for the few load-bearing definitions you need to read in full. Filter by kind or name (`name` is exact, case-insensitive; set `nameContains` true for substring) to narrow the view. Returns JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "dir": { "type": "string", "description": "Directory to map" },
                     "kind": { "type": "string", "description": "Only definitions of this kind, e.g. function, class, method" },
-                    "name": { "type": "string", "description": "Only definitions whose name contains this substring (case-insensitive)" }
+                    "name": { "type": "string", "description": "Only definitions whose name equals this exactly (case-insensitive)" },
+                    "nameContains": { "type": "boolean", "description": "Substring matching for `name` instead of exact equality (case-insensitive). Default false." }
                 },
                 "required": ["dir"]
             },
@@ -253,6 +255,7 @@ fn call_tool(params: &Value) -> Outcome {
                 str_arg("kind").as_deref(),
                 str_arg("name").as_deref(),
                 args.get("refs").and_then(Value::as_bool).unwrap_or(false),
+                args.get("nameContains").and_then(Value::as_bool).unwrap_or(false),
             )
             .and_then(to_json),
             None => missing("dir"),
@@ -278,8 +281,13 @@ fn call_tool(params: &Value) -> Outcome {
             None => missing("name"),
         },
         "map" => match str_arg("dir") {
-            Some(d) => ops::map(&PathBuf::from(d), str_arg("kind").as_deref(), str_arg("name").as_deref())
-                .and_then(to_json),
+            Some(d) => ops::map(
+                &PathBuf::from(d),
+                str_arg("kind").as_deref(),
+                str_arg("name").as_deref(),
+                args.get("nameContains").and_then(Value::as_bool).unwrap_or(false),
+            )
+            .and_then(to_json),
             None => missing("dir"),
         },
         "definition" => {
@@ -555,6 +563,23 @@ mod tests {
         assert!(payload.as_array().unwrap().iter().any(|s| s["name"] == json!("helper")));
         assert!(matches!(call("symbols", json!({})),
             Outcome::Ok(v) if v["isError"] == json!(true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn symbols_tool_name_exact_unless_name_contains() {
+        // `name` is exact by default (issue #37); `nameContains` opts into substring.
+        let dir = fixture("symbols_name");
+        let exact = tool_payload(call("symbols", json!({ "dir": dir.to_str().unwrap(), "name": "help" })));
+        assert!(
+            exact.as_array().unwrap().is_empty(),
+            "exact 'help' must not match 'helper'"
+        );
+        let substr = tool_payload(call("symbols", json!({ "dir": dir.to_str().unwrap(), "name": "help", "nameContains": true })));
+        assert!(
+            substr.as_array().unwrap().iter().any(|s| s["name"] == json!("helper")),
+            "nameContains=true must substring-match 'help' onto 'helper'"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

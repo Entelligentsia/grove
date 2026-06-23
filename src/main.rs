@@ -44,9 +44,12 @@ enum Cmd {
         /// Only this kind (e.g. function, struct, method).
         #[arg(long)]
         kind: Option<String>,
-        /// Only names containing this substring (case-insensitive).
+        /// Only definitions whose name equals this exactly (case-insensitive).
         #[arg(long)]
         name: Option<String>,
+        /// Substring matching for --name (case-insensitive) instead of exact equality.
+        #[arg(long = "name-contains", alias = "name-substr")]
+        name_contains: bool,
         /// Include references, not just definitions.
         #[arg(long)]
         refs: bool,
@@ -74,9 +77,12 @@ enum Cmd {
         /// Only definitions of this kind (e.g. function, class, method).
         #[arg(long)]
         kind: Option<String>,
-        /// Only definitions whose name contains this substring (case-insensitive).
+        /// Only definitions whose name equals this exactly (case-insensitive).
         #[arg(long)]
         name: Option<String>,
+        /// Substring matching for --name (case-insensitive) instead of exact equality.
+        #[arg(long = "name-contains", alias = "name-substr")]
+        name_contains: bool,
     },
     /// Find where a symbol is defined (go-to-def), by name or by position.
     Definition {
@@ -157,8 +163,8 @@ fn main() -> Result<()> {
                 eprintln!("\n{} definitions · {}", syms.len(), ops::rel(&file));
             }
         }
-        Cmd::Symbols { dir, kind, name, refs } => {
-            let syms = ops::symbols(&dir, kind.as_deref(), name.as_deref(), refs)?;
+        Cmd::Symbols { dir, kind, name, name_contains, refs } => {
+            let syms = ops::symbols(&dir, kind.as_deref(), name.as_deref(), refs, name_contains)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&syms)?);
             } else {
@@ -210,8 +216,8 @@ fn main() -> Result<()> {
                 eprintln!("\n{} reference(s) of `{}` (S=structural, T=textual)", sites.len(), name);
             }
         }
-        Cmd::Map { dir, kind, name } => {
-            let maps = ops::map(&dir, kind.as_deref(), name.as_deref())?;
+        Cmd::Map { dir, kind, name, name_contains } => {
+            let maps = ops::map(&dir, kind.as_deref(), name.as_deref(), name_contains)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&maps)?);
             } else {

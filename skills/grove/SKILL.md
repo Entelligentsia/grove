@@ -81,6 +81,52 @@ read in full. Do **not** fetch many sources in sequence to build a picture that
 - Do NOT `grep -rn '<typename>' .` as a substitute — grep returns string
   matches, grove returns semantic definitions.
 
+## Trace a parameter's shape (dynamically-typed languages)
+
+"What is the type/shape of the `batch` argument inside `panouploaddb.createBatch`?"
+On a **dynamically-typed** codebase grove has no type system, so you reconstruct
+the shape by a short backward slice — **~3 hops, all grove tools, no grep and no
+whole-file `read`**. (On a statically-typed language this is usually one hop:
+`grove source <id>` — the type is already in the signature grove slices.)
+
+Procedure:
+
+1. `grove symbols <dir> --name createBatch` (exact match) → take the id; then
+   `grove source <id>` to read the signature and name the parameter of interest.
+2. `grove callers createBatch -d <root>` → every call site plus its enclosing
+   function (`callers` returns the enclosing fn so you don't grep for it).
+3. For each call site: `grove source <enclosing-fn-id>` and read **how the
+   argument is constructed**. If it's a constructor / factory / `require(...)` /
+   `import` binding, resolve that name exactly — `grove symbols <dir> --name
+   <Constructor>` → `grove source <id>` — and merge its field assignments with
+   any caller-side mutations. `grove map <dir>` can fold several of these hops
+   into one call when the construction is local to one directory.
+
+Per-idiom table (the construction site to chase at step 3):
+
+| Language | module/binding | instance shape |
+|---|---|---|
+| JS/TS | `require('./x')`, `import x` | `this.foo =`, `Object.assign`, literal `{...}` |
+| Python | `import x`, `from x import Y` | `self.foo =`, `__init__`, `@dataclass` fields |
+| Ruby | `require 'x'`, module include | `@foo =`, `attr_accessor`, `initialize` |
+| Go | `import "pkg"` | `&Foo{...}` literal, `NewFoo(...)` constructor |
+| PHP | `use Namespace\Cls` | `$this->foo =`, `new Cls(...)` |
+
+**Profile gate.** `callers` and the enclosing-function field only exist for the
+~15 **full-profile** languages (the ones whose `manifest.json` declares
+`function_kinds`/`identifier_kinds`). On the **minimal-profile** languages this
+procedure degrades to: `grove outline <file>` → `grove source <id>` for each
+candidate, i.e. the model reads the few relevant symbols by id. It earns its
+keep on the **dynamically-typed, full-profile** subset (JS/Python/Ruby/PHP/…);
+on statically-typed full-profile languages (Rust/Go/…) `source` already carries
+the type and the slice is unnecessary.
+
+**Steering.** Resolve names with `grove symbols --name <exact>` (exact by
+default; `--name-contains` only for deliberate fuzzy exploration) and read
+bodies with `grove source <id>`. Do **not** `grep -rn '<constructor>'` to chase
+a `require`, and do **not** `read` a whole file to find a call site — that is
+the fallback this procedure exists to avoid.
+
 ## Recovery — grove returned partial/empty output
 
 - Empty `outline`/`symbols` for a file grove should cover → confirm the language

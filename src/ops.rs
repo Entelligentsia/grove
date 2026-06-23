@@ -73,6 +73,21 @@ fn kind_matches(sym_kind: &str, filter: &str) -> bool {
         || (matches!(filter, "struct" | "union" | "record") && sym_kind == "class")
 }
 
+/// Compare a symbol's name against a lowercased query. By default **exact**
+/// (case-insensitive) equality — so `--name batch` returns `batch`, not
+/// `testCreateBatch` (issue #37). With `contains` true, falls back to substring
+/// matching (the `--name-contains` opt-in) for fuzzy exploration. Grammar-common:
+/// it operates on the already-extracted `Symbol.name` string, so one rule serves
+/// every language.
+fn name_matches(sym_name: &str, query_lc: &str, contains: bool) -> bool {
+    let sym_lc = sym_name.to_lowercase();
+    if contains {
+        sym_lc.contains(query_lc)
+    } else {
+        sym_lc == query_lc
+    }
+}
+
 /// `outline` — the definitions in one file, optionally filtered by kind.
 pub fn outline(file: &Path, kind: Option<&str>) -> Result<Vec<Symbol>> {
     let grammar = registry::for_path(file)?;
@@ -119,6 +134,7 @@ pub fn symbols(
     kind: Option<&str>,
     name: Option<&str>,
     refs: bool,
+    name_contains: bool,
 ) -> Result<Vec<Symbol>> {
     let name_lc = name.map(str::to_lowercase);
     let mut all = Vec::new();
@@ -132,7 +148,7 @@ pub fn symbols(
             }
             if name_lc
                 .as_ref()
-                .is_some_and(|n| !s.name.to_lowercase().contains(n))
+                .is_some_and(|n| !name_matches(&s.name, n, name_contains))
             {
                 continue;
             }
@@ -407,7 +423,12 @@ pub struct FileMap {
 /// calls or uses). No source bodies — just the dependency graph. Use this
 /// instead of many `symbols`+`source` calls when you need a broad picture of
 /// how code connects.
-pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<FileMap>> {
+pub fn map(
+    dir: &Path,
+    kind: Option<&str>,
+    name: Option<&str>,
+    name_contains: bool,
+) -> Result<Vec<FileMap>> {
     let name_lc = name.map(str::to_lowercase);
     let mut file_maps = Vec::new();
     for_each_source(dir, |grammar, relpath, src| {
@@ -421,7 +442,7 @@ pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<Fil
             .enumerate()
             .filter(|(_, s)| s.is_definition)
             .filter(|(_, s)| kind.is_none_or(|k| kind_matches(&s.kind, k)))
-            .filter(|(_, s)| name_lc.as_ref().is_none_or(|n| s.name.to_lowercase().contains(n)))
+            .filter(|(_, s)| name_lc.as_ref().is_none_or(|n| name_matches(&s.name, n, name_contains)))
             .map(|(i, _)| i)
             .collect();
         defs.sort_by_key(|&i| syms[i].end_byte - syms[i].start_byte);
@@ -482,7 +503,9 @@ pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<Fil
 
 /// `definition` — exact-name definitions of `name` across `dir` (go-to-def).
 pub fn definition(dir: &Path, name: &str) -> Result<Vec<Symbol>> {
-    let mut defs = symbols(dir, None, Some(name), false)?;
+    // `name_contains = false`: `definition` is exact by contract, so pre-filter
+    // exactly — cheaper than pulling every substring hit then retaining.
+    let mut defs = symbols(dir, None, Some(name), false, false)?;
     defs.retain(|s| s.name == name);
     Ok(defs)
 }
@@ -791,7 +814,7 @@ mod tests {
         std::fs::write(dir.join("declarations/LoaderContext.d.ts"), "export class LoaderContext {}").unwrap();
         std::fs::write(dir.join("lib.js"), "class Compiler {}").unwrap();
 
-        let defs = symbols(&dir, None, Some("Compiler"), false).unwrap();
+        let defs = symbols(&dir, None, Some("Compiler"), false, false).unwrap();
         assert!(defs.iter().any(|s| s.name == "Compiler"), "real source is indexed");
         // No symbol named `LoaderContext` leaks in from the `.d.ts` (typescript is
         // not registered here, but this also guards against a future regression where
@@ -818,17 +841,55 @@ mod tests {
         std::fs::write(dir.join("lib.rs"), "fn alpha() {}\nfn beta() {\n    alpha();\n}\n").unwrap();
 
         // Definitions only by default.
-        let defs = symbols(&dir, None, None, false).unwrap();
+        let defs = symbols(&dir, None, None, false, false).unwrap();
         assert!(defs.iter().all(|s| s.is_definition));
 
-        // With refs, the call site shows up too.
-        let with_refs = symbols(&dir, None, Some("alpha"), true).unwrap();
+        // With refs, the call site shows up too (exact name match).
+        let with_refs = symbols(&dir, None, Some("alpha"), true, false).unwrap();
         assert!(with_refs.iter().any(|s| !s.is_definition && s.name == "alpha"));
 
-        // Case-insensitive substring on name.
-        let named = symbols(&dir, None, Some("AL"), false).unwrap();
+        // `--name` is exact and case-insensitive by default (issue #37): "ALPHA"
+        // matches `alpha`, but a substring like "alp" does NOT.
+        let named = symbols(&dir, None, Some("ALPHA"), false, false).unwrap();
         assert!(named.iter().any(|s| s.name == "alpha"));
         assert!(!named.iter().any(|s| s.name == "beta"));
+        let not_substr = symbols(&dir, None, Some("alp"), false, false).unwrap();
+        assert!(
+            not_substr.is_empty(),
+            "exact mode must not substring-match 'alp' onto 'alpha'"
+        );
+
+        // `name_contains` restores the substring behaviour.
+        let substr = symbols(&dir, None, Some("alp"), false, true).unwrap();
+        assert!(substr.iter().any(|s| s.name == "alpha"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn symbols_name_exact_buries_substring_noise_issue_37() {
+        // Mirrors the issue's repro: `--name batch` used to return ~176 substring
+        // hits (testCreateBatch, updateBatchName, ...) burying the real `batch`
+        // constructor at row ~140, forcing a grep fallback. Exact matching lifts
+        // the target to the top; --name-contains keeps the fuzzy path.
+        let dir = std::env::temp_dir().join(format!("grove_symbols_issue37_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn test_create_batch() {}\nfn update_batch_name() {}\nfn batch() {}\n",
+        )
+        .unwrap();
+
+        // Exact: `--name batch` returns only `batch`.
+        let exact = symbols(&dir, None, Some("batch"), false, false).unwrap();
+        let exact_names: Vec<&str> = exact.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(exact_names, vec!["batch"], "exact --name must not leak substrings");
+
+        // Opt-in substring still reaches the noisy matches.
+        let substr = symbols(&dir, None, Some("batch"), false, true).unwrap();
+        assert!(substr.iter().any(|s| s.name == "batch"));
+        assert!(substr.iter().any(|s| s.name == "test_create_batch"));
+        assert!(substr.iter().any(|s| s.name == "update_batch_name"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -895,7 +956,7 @@ mod tests {
         )
         .unwrap();
 
-        let maps = map(&dir, None, None).unwrap();
+        let maps = map(&dir, None, None, false).unwrap();
         assert_eq!(maps.len(), 1, "one file");
         let fm = &maps[0];
         assert!(fm.file.ends_with("lib.rs"), "file is lib.rs, got {}", fm.file);
@@ -926,18 +987,30 @@ mod tests {
 
         // Filter by kind: "function" only (Rust tags free functions as "function",
         // methods as "method").
-        let maps = map(&dir, Some("function"), None).unwrap();
+        let maps = map(&dir, Some("function"), None, false).unwrap();
         let entries = &maps[0].entries;
         assert!(entries.iter().all(|e| e.kind == "function"), "all entries are functions, got {:?}", entries);
         assert!(entries.iter().any(|e| e.name == "helper"), "helper is a function");
         // m is a method, not a function — excluded by the kind filter.
         assert!(!entries.iter().any(|e| e.name == "m"), "m is a method, not a function");
 
-        // Filter by name substring.
-        let maps = map(&dir, None, Some("help")).unwrap();
-        let entries = &maps[0].entries;
-        assert!(entries.iter().any(|e| e.name == "helper"), "helper matches 'help'");
-        assert!(!entries.iter().any(|e| e.name == "S"), "S does not match 'help'");
+        // Filter by name: exact by default (issue #37), substring via name_contains.
+        let exact = map(&dir, None, Some("helper"), false).unwrap();
+        let entries = &exact[0].entries;
+        assert!(entries.iter().any(|e| e.name == "helper"), "exact 'helper' matches");
+        assert!(!entries.iter().any(|e| e.name == "S"), "S does not match 'helper'");
+        // Substring opt-in: "help" reaches `helper`; exact mode does not (and
+        // yields no file map at all, since no def is named exactly `help`).
+        let substr = map(&dir, None, Some("help"), true).unwrap();
+        assert!(
+            substr.iter().flat_map(|fm| fm.entries.iter()).any(|e| e.name == "helper"),
+            "helper matches 'help' substring"
+        );
+        let not_substr = map(&dir, None, Some("help"), false).unwrap();
+        assert!(
+            not_substr.iter().flat_map(|fm| fm.entries.iter()).all(|e| e.name != "helper"),
+            "exact 'help' must not match 'helper'"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -953,7 +1026,7 @@ mod tests {
         )
         .unwrap();
 
-        let maps = map(&dir, None, None).unwrap();
+        let maps = map(&dir, None, None, false).unwrap();
         let fib = &maps[0].entries[0];
         assert_eq!(fib.name, "fib");
         assert!(fib.references.is_empty(), "self-reference is excluded, got {:?}", fib.references);
@@ -976,7 +1049,7 @@ mod tests {
         )
         .unwrap();
 
-        let maps = map(&dir, None, None).unwrap();
+        let maps = map(&dir, None, None, false).unwrap();
         let entries = &maps[0].entries;
 
         let _s_entry = entries.iter().find(|e| e.name == "S").unwrap();
@@ -998,7 +1071,7 @@ mod tests {
         std::fs::write(dir.join("a.rs"), "fn alpha() {}\nfn call_beta() {\n    beta();\n}\n").unwrap();
         std::fs::write(dir.join("b.rs"), "fn beta() {}\nfn call_alpha() {\n    alpha();\n}\n").unwrap();
 
-        let maps = map(&dir, None, None).unwrap();
+        let maps = map(&dir, None, None, false).unwrap();
         assert!(maps.len() >= 2, "should have entries from both files, got {} files", maps.len());
 
         // Each file should have its own definitions with references.
