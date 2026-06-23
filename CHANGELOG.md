@@ -4,6 +4,28 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-06-23
+
+### Fixed
+
+- **Lines/columns are now 1-based across the whole surface** (CLI, MCP,
+  symbol-ids, `outline`, `map`, `definition --at`). Previously grove reported
+  raw 0-based tree-sitter rows, so every citation was one line low; the editor /
+  `grep -n` convention now holds everywhere (#31).
+- **`callers`**: include all reference kinds (not just `call`) — type
+  references, implementation references, etc. are now surfaced as structural
+  hits, so heavily-used class/type names return results instead of `[]` (#33).
+- **`callers`**: textual fallback finds whole-word references the tags query
+  misses (type annotations, imports, dynamic dispatch) with provenance
+  (`structural` vs `textual`) so the agent can prioritise (#33).
+- **`symbols`/`definition`/`callers`**: skip generated `.d.ts`/`.d.cts`/`.d.mts`
+  declaration files during directory walks so these tools answer from real
+  source, not machine-generated decls (#32).
+- **`map`**: report 1-based lines (it previously inherited the 0-based row bug).
+
+> Note: #32 and #33 were listed under 0.1.6 below, but did not land in the
+> 0.1.6 release code; they ship here in 0.1.7.
+
 ## [0.1.6] - 2026-06-23
 
 ### Added
@@ -18,18 +40,6 @@ All notable changes to grove are documented here. The format follows
 - CLI: `grove map <dir> [--kind K] [--name SUB]` with human and `--json` output.
 - MCP: 7th tool `map` with plain `{type: object, properties}` schema (no
   top-level `anyOf`).
-
-### Fixed
-
-- **`callers`**: include all reference kinds (not just `call`) — type
-  references, implementation references, etc. are now surfaced as structural
-  hits, so heavily-used class/type names return results instead of `[]` (#33).
-- **`callers`**: textual fallback finds whole-word references the tags query
-  misses (type annotations, imports, dynamic dispatch) with provenance
-  (`structural` vs `textual`) so the agent can prioritise (#33).
-- **`symbols`/`definition`/`callers`**: skip generated `.d.ts`/`.d.cts`/`.d.mts`
-  declaration files during directory walks so these tools answer from real
-  source, not machine-generated decls (#32).
 
 ## [0.1.5] - 2026-06-22
 
@@ -135,6 +145,7 @@ All notable changes to grove are documented here. The format follows
 
 - Initial release.
 
+[0.1.7]: https://github.com/Entelligentsia/grove/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Entelligentsia/grove/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Entelligentsia/grove/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Entelligentsia/grove/compare/v0.1.3...v0.1.4

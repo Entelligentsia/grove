@@ -60,9 +60,9 @@ enum Cmd {
     },
     /// Report ERROR / MISSING nodes — a post-edit syntax check.
     Check { file: PathBuf },
-    /// Find call sites of a symbol across a directory.
+    /// Find references to a symbol across a directory (structural + textual).
     Callers {
-        /// The function/method name to find calls to.
+        /// The symbol name to find references to.
         name: String,
         /// Directory to search.
         #[arg(short, long, default_value = ".")]
@@ -85,7 +85,7 @@ enum Cmd {
         /// Directory to search.
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
-        /// Resolve the identifier at a usage site instead: file:row:col (0-based).
+        /// Resolve the identifier at a usage site instead: file:line:col (1-based).
         #[arg(long)]
         at: Option<String>,
     },
@@ -152,7 +152,7 @@ fn main() -> Result<()> {
             } else {
                 for s in &syms {
                     let owner = s.parent.clone().unwrap_or_default();
-                    println!("{:<10} {:<26} {:<18} {}:{:<4} {}", s.kind, s.name, owner, s.row, s.col, s.signature);
+                    println!("{:<10} {:<26} {:<18} {}:{:<4} {}", s.kind, s.name, owner, s.line, s.col, s.signature);
                 }
                 eprintln!("\n{} definitions · {}", syms.len(), ops::rel(&file));
             }
@@ -188,7 +188,7 @@ fn main() -> Result<()> {
                 println!("ok · no syntax errors · {}", ops::rel(&file));
             } else {
                 for d in &defects {
-                    println!("{:<8} {}:{:<4} `{}`", d.kind, d.row, d.col, d.text);
+                    println!("{:<8} {}:{:<4} `{}`", d.kind, d.line, d.col, d.text);
                 }
                 eprintln!("\n{} defect(s) · {}", defects.len(), ops::rel(&file));
                 std::process::exit(1);
@@ -201,11 +201,13 @@ fn main() -> Result<()> {
             } else {
                 for s in &sites {
                     let inf = s.in_function.as_deref().unwrap_or("<top-level>");
-                    // Lead with `path:row:col` so the row is greppable and, for a
-                    // directory-wide query, you can tell which file it's in (#29).
-                    println!("{}:{}:{}   {:<28} {}", s.file, s.row, s.col, inf, s.line);
+                    // Lead with `path:line:col` so the location is greppable and,
+                    // for a directory-wide query, you can tell which file it's in (#29).
+                    // [S]/[T] = structural (tree-sitter) vs textual (grep) provenance (#33).
+                    let tag = if s.source == "structural" { "S" } else { "T" };
+                    println!("{}:{}:{}   {:<28} [{}] {}", s.file, s.line, s.col, inf, tag, s.text);
                 }
-                eprintln!("\n{} call site(s) of `{}`", sites.len(), name);
+                eprintln!("\n{} reference(s) of `{}` (S=structural, T=textual)", sites.len(), name);
             }
         }
         Cmd::Map { dir, kind, name } => {
@@ -245,9 +247,9 @@ fn main() -> Result<()> {
                 for s in &defs {
                     let owner = s.parent.clone().unwrap_or_default();
                     // `definition` searches a whole dir, so results can span
-                    // files — lead with `file:row:col` so the caller knows
+                    // files — lead with `file:line:col` so the caller knows
                     // which file each hit is in without a follow-up `symbols`.
-                    let loc = format!("{}:{}:{}", s.file, s.row, s.col);
+                    let loc = format!("{}:{}:{}", s.file, s.line, s.col);
                     println!("{:<10} {:<26} {:<18} {:<28} {}", s.kind, s.name, owner, loc, s.signature);
                 }
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);

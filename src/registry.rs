@@ -31,7 +31,10 @@ pub struct Profile {
     /// `@reference.*` capture suffixes that denote a call site, e.g. `["call"]`
     /// for Rust/JS or `["send", "call"]` for Ruby. Empty means the default
     /// (`"call"`), which keeps every existing manifest working unchanged.
+    /// Kept for manifest backward compatibility; callers now includes all reference
+    /// kinds (issue #33), but the field is preserved for future precision modes.
     #[serde(default)]
+    #[allow(dead_code)]
     pub call_kinds: Vec<String>,
 }
 
@@ -39,6 +42,10 @@ impl Profile {
     /// Is `kind` (a `@reference.*` capture suffix) a call site? Honors the
     /// manifest's `call_kinds`, falling back to the literal `"call"` so a
     /// grammar without the field behaves exactly as before.
+    ///
+    /// Kept for manifest backward compatibility; callers now includes all reference
+    /// kinds (issue #33), but the method is preserved for future precision modes.
+    #[allow(dead_code)]
     pub fn is_call_kind(&self, kind: &str) -> bool {
         if self.call_kinds.is_empty() {
             kind == "call"
