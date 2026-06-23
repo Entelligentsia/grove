@@ -51,6 +51,43 @@ skill) and `--as mcp|skill|both` are in **[Install](docs/install.md)** and
 > `npx skills add Entelligentsia/grove` — the skill self-installs the binary on
 > first use if it's missing. See [Setup](docs/setup.md).
 
+## Evaluated on real codebases
+
+The eval is [`Entelligentsia/grove-testbench`](https://github.com/Entelligentsia/grove-testbench):
+it runs the **same agent (Claude) on the same prompt** with grove off (`baseline`)
+and grove on (`grove`) across 10 large, popular, grammar-backed codebases, and
+measures the impact on **context tokens, wall-clock time, turns, and answer
+quality** — same agent both sides, grove the only variable. It's evidence-first
+(blind-judged answers verified against pinned source), not a highlight reel;
+where grove regresses, it's reported and filed as a fix.
+
+![grove cuts agent context ~90% on large repos](docs/assets/grove_savings_l2r2.png)
+
+**Early numbers — L2 callsites, run 2, grove v0.1.7** (1 run/side; full data in
+the testbench's `FINDINGS.md`):
+
+- **Context tokens:** median **−93%** (range −89% to −97% on the winners) —
+  e.g. [redis](https://github.com/redis/redis) 2.81M → 83K (**−97%**),
+  [rails](https://github.com/rails/rails) 1.98M → 128K (**−94%**),
+  [webpack](https://github.com/webpack/webpack) 4.52M → 307K (**−93%**),
+  [django](https://github.com/django/django) 1.40M → 95K (**−93%**),
+  [tokio](https://github.com/tokio-rs/tokio) 1.22M → 98K (**−92%**),
+  [hugo](https://github.com/gohugoio/hugo) 4.52M → 377K (**−92%**),
+  [laravel](https://github.com/laravel/framework) 3.76M → 432K (**−89%**).
+- **Tool calls:** median **−91%** (range −77% to −96%) — fewer, sharper hops
+  instead of grepping and whole-file reads.
+- **Wall-clock:** median **−64%** (range −48% to −82%) where comparable.
+
+Honest caveat: grove is **not a universal win yet** — on
+[spring-boot](https://github.com/spring-projects/spring-boot) it regressed
+(+36% context, slower) for the L2 callsites task; that's tracked in the
+testbench's `GROVE-ISSUES.md`. The other two charted repos in the testbench are
+[TypeScript](https://github.com/microsoft/TypeScript) and
+[bitcoin](https://github.com/bitcoin/bitcoin) (tool calls −96% / −59%; their
+baseline context was delegated to subagents so isn't on the token chart). The
+full per-repo breakdown, methodology, and raw runs:
+[`Entelligentsia/grove-testbench`](https://github.com/Entelligentsia/grove-testbench).
+
 ## The tools
 
 | | Command | What it returns |
@@ -76,6 +113,7 @@ Add `--json` to any command for the agent-facing shape. Full reference + example
 - **[Roadmap & repo layout](docs/roadmap.md)** — what's not done yet, source map
 - **[FAQ](docs/faq.md)** — *Is grove an LSP?* and other positioning questions
 - [`VISION.md`](VISION.md) — product vision · [`CHANGELOG.md`](CHANGELOG.md) — releases
+- Eval: [`Entelligentsia/grove-testbench`](https://github.com/Entelligentsia/grove-testbench) — same agent, grove off vs on, across 10 large repos
 - Registry: [`Entelligentsia/grove-registry`](https://github.com/Entelligentsia/grove-registry) · Homebrew tap: [`Entelligentsia/homebrew-grove`](https://github.com/Entelligentsia/homebrew-grove)
 
 ## Status
