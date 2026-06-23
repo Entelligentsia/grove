@@ -88,6 +88,20 @@ baseline context was delegated to subagents so isn't on the token chart). The
 full per-repo breakdown, methodology, and raw runs:
 [`Entelligentsia/grove-testbench`](https://github.com/Entelligentsia/grove-testbench).
 
+## Languages — supported out of the box
+
+One binary, **27 languages** — grammars load at runtime from the [hosted WASM registry](docs/languages.md), so `grove init` provisions whatever your project uses. No recompile, no per-language toolchain.
+
+**Full profile (15)** — `outline`, `symbols`, `source`, `check`, `callers` (enclosing fn), `map`, and go-to-def all work:
+
+<table><tr><td><img src="docs/assets/langs/bash.svg" width="20" height="20" alt="Bash" valign="middle">&nbsp;<b>Bash</b></td><td><img src="docs/assets/langs/c.svg" width="20" height="20" alt="C" valign="middle">&nbsp;<b>C</b></td><td><img src="docs/assets/langs/cpp.svg" width="20" height="20" alt="C++" valign="middle">&nbsp;<b>C++</b></td><td><img src="docs/assets/langs/c_sharp.svg" width="20" height="20" alt="C#" valign="middle">&nbsp;<b>C#</b></td><td><img src="docs/assets/langs/go.svg" width="20" height="20" alt="Go" valign="middle">&nbsp;<b>Go</b></td></tr><tr><td><img src="docs/assets/langs/java.svg" width="20" height="20" alt="Java" valign="middle">&nbsp;<b>Java</b></td><td><img src="docs/assets/langs/javascript.svg" width="20" height="20" alt="JavaScript" valign="middle">&nbsp;<b>JavaScript</b></td><td><img src="docs/assets/langs/julia.svg" width="20" height="20" alt="Julia" valign="middle">&nbsp;<b>Julia</b></td><td><img src="docs/assets/langs/php.svg" width="20" height="20" alt="PHP" valign="middle">&nbsp;<b>PHP</b></td><td><img src="docs/assets/langs/python.svg" width="20" height="20" alt="Python" valign="middle">&nbsp;<b>Python</b></td></tr><tr><td><img src="docs/assets/langs/ruby.svg" width="20" height="20" alt="Ruby" valign="middle">&nbsp;<b>Ruby</b></td><td><img src="docs/assets/langs/rust.svg" width="20" height="20" alt="Rust" valign="middle">&nbsp;<b>Rust</b></td><td><img src="docs/assets/langs/scala.svg" width="20" height="20" alt="Scala" valign="middle">&nbsp;<b>Scala</b></td><td><img src="docs/assets/langs/typescript.svg" width="20" height="20" alt="TypeScript" valign="middle">&nbsp;<b>TypeScript</b></td><td><img src="docs/assets/langs/typescript.svg" width="20" height="20" alt="TSX" valign="middle">&nbsp;<b>TSX</b></td></tr></table>
+
+**Minimal profile (12)** — the core tools (`outline`, `symbols`, `source`, `check`, `map`); `callers`/`definition` degrade (no function/identifier kinds declared). `<kbd>` badges = no official logo:
+
+<table><tr><td><kbd>Agda</kbd></td><td><img src="docs/assets/langs/css.svg" width="20" height="20" alt="CSS" valign="middle">&nbsp;<b>CSS</b></td><td><kbd>Embedded&nbsp;Template</kbd></td><td><img src="docs/assets/langs/haskell.svg" width="20" height="20" alt="Haskell" valign="middle">&nbsp;<b>Haskell</b></td><td><img src="docs/assets/langs/html.svg" width="20" height="20" alt="HTML" valign="middle">&nbsp;<b>HTML</b></td><td><kbd>JSDoc</kbd></td></tr><tr><td><img src="docs/assets/langs/json.svg" width="20" height="20" alt="JSON" valign="middle">&nbsp;<b>JSON</b></td><td><img src="docs/assets/langs/ocaml.svg" width="20" height="20" alt="OCaml" valign="middle">&nbsp;<b>OCaml</b></td><td><img src="docs/assets/langs/ocaml.svg" width="20" height="20" alt="OCaml Interface" valign="middle">&nbsp;<b>OCaml&nbsp;Interface</b></td><td><kbd>CodeQL</kbd></td><td><kbd>Regex</kbd></td><td><kbd>Verilog</kbd></td></tr></table>
+
+Profiles are **data**, not compiled in — each grammar's `manifest.json` declares its node-kind `profile`. See [Languages & grammars](docs/languages.md) for the registry, `fetch`/`lock`, and how profiles drive the tools.
+
 ## The tools
 
 | | Command | What it returns |

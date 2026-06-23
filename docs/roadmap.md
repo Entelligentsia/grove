@@ -31,6 +31,7 @@ src/mcp.rs         MCP server — newline-delimited JSON-RPC over stdio
 src/engine.rs      wasm load + Query-based tags, source slicing, check, position resolution
                    (node-kind profiles are data — they come from each manifest, not code)
 docs/assets/       grove_demo.cast + grove_demo.gif — the README demo
+docs/assets/langs/  language logos (devicon SVGs) for the README language grid
 ```
 
 Data flow: `main` / `mcp` → `ops` → `engine` (+ `registry` for grammar
