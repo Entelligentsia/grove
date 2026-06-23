@@ -249,6 +249,106 @@ pub fn parse_pos(s: &str) -> Result<(PathBuf, usize, usize)> {
     }
 }
 
+/// A definition in a `map` result, with its outgoing references.
+#[derive(Debug, Serialize)]
+pub struct MapEntry {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    pub row: usize,
+    pub signature: String,
+    /// Names of other symbols this definition references (outgoing edges).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
+}
+
+/// A file in a `map` result, with its definitions and their references.
+#[derive(Debug, Serialize)]
+pub struct FileMap {
+    pub file: String,
+    pub entries: Vec<MapEntry>,
+}
+
+/// `map` — compact structural map of a directory: every definition grouped by
+/// file, with each definition's outgoing references (which other symbols it
+/// calls or uses). No source bodies — just the dependency graph. Use this
+/// instead of many `symbols`+`source` calls when you need a broad picture of
+/// how code connects.
+pub fn map(dir: &Path, kind: Option<&str>, name: Option<&str>) -> Result<Vec<FileMap>> {
+    let name_lc = name.map(str::to_lowercase);
+    let mut file_maps = Vec::new();
+    for_each_source(dir, |grammar, relpath, src| {
+        let syms = engine::extract(grammar, relpath, src)?;
+
+        // Collect matching definition indices, sorted by byte-range size
+        // ascending so innermost (narrowest) definitions come first. This
+        // lets us attribute each reference to its innermost enclosing def.
+        let mut defs: Vec<usize> = syms
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.is_definition)
+            .filter(|(_, s)| kind.is_none_or(|k| kind_matches(&s.kind, k)))
+            .filter(|(_, s)| name_lc.as_ref().is_none_or(|n| s.name.to_lowercase().contains(n)))
+            .map(|(i, _)| i)
+            .collect();
+        defs.sort_by_key(|&i| syms[i].end_byte - syms[i].start_byte);
+
+        // Attribute each reference to the innermost containing definition.
+        let mut ref_map: std::collections::HashMap<usize, Vec<String>> =
+            std::collections::HashMap::new();
+        for (_, s) in syms.iter().enumerate() {
+            if s.is_definition {
+                continue;
+            }
+            for &d in &defs {
+                if s.start_byte >= syms[d].start_byte && s.end_byte <= syms[d].end_byte {
+                    ref_map.entry(d).or_default().push(s.name.clone());
+                    break; // first (narrowest) match wins
+                }
+            }
+        }
+
+        // Deduplicate reference names per definition.
+        for names in ref_map.values_mut() {
+            names.sort();
+            names.dedup();
+        }
+
+        // Build entries, sorted by row for deterministic output.
+        let mut entries: Vec<MapEntry> = defs
+            .iter()
+            .map(|&d| {
+                let s = &syms[d];
+                let mut refs = ref_map.remove(&d).unwrap_or_default();
+                // Remove self-references (e.g. recursive calls).
+                refs.retain(|n| n != &s.name);
+                MapEntry {
+                    id: s.id.clone(),
+                    kind: s.kind.clone(),
+                    name: s.name.clone(),
+                    parent: s.parent.clone(),
+                    row: s.row,
+                    signature: s.signature.clone(),
+                    references: refs,
+                }
+            })
+            .collect();
+        entries.sort_by_key(|e| e.row);
+
+        if !entries.is_empty() {
+            file_maps.push(FileMap {
+                file: relpath.to_string(),
+                entries,
+            });
+        }
+        Ok(())
+    })?;
+    file_maps.sort_by(|a, b| a.file.cmp(&b.file));
+    Ok(file_maps)
+}
+
 /// `definition` — exact-name definitions of `name` across `dir` (go-to-def).
 pub fn definition(dir: &Path, name: &str) -> Result<Vec<Symbol>> {
     let mut defs = symbols(dir, None, Some(name), false)?;
@@ -515,5 +615,132 @@ mod tests {
         let err = source(path.to_str().unwrap(), Some("does_not_exist")).unwrap_err();
         assert!(err.to_string().contains("no definition named"), "got: {err}");
         std::fs::remove_file(&path).ok();
+    }
+
+    // ---- map ----
+
+    #[test]
+    fn map_returns_definitions_with_references() {
+        let dir = std::env::temp_dir().join(format!("grove_map_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn helper() {}\nfn main() {\n    helper();\n}\n",
+        )
+        .unwrap();
+
+        let maps = map(&dir, None, None).unwrap();
+        assert_eq!(maps.len(), 1, "one file");
+        let fm = &maps[0];
+        assert!(fm.file.ends_with("lib.rs"), "file is lib.rs, got {}", fm.file);
+
+        // Two definitions: helper and main.
+        assert_eq!(fm.entries.len(), 2, "two definitions");
+        let helper = fm.entries.iter().find(|e| e.name == "helper").unwrap();
+        let main_entry = fm.entries.iter().find(|e| e.name == "main").unwrap();
+
+        // helper has no outgoing references (it doesn't call anything).
+        assert!(helper.references.is_empty(), "helper has no outgoing refs, got {:?}", helper.references);
+
+        // main references helper.
+        assert_eq!(main_entry.references, vec!["helper"], "main references helper");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn map_filters_by_kind_and_name() {
+        let dir = std::env::temp_dir().join(format!("grove_map_filter_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "struct S;\nimpl S {\n    fn m(&self) {\n        helper();\n    }\n}\nfn helper() {}\n",
+        )
+        .unwrap();
+
+        // Filter by kind: "function" only (Rust tags free functions as "function",
+        // methods as "method").
+        let maps = map(&dir, Some("function"), None).unwrap();
+        let entries = &maps[0].entries;
+        assert!(entries.iter().all(|e| e.kind == "function"), "all entries are functions, got {:?}", entries);
+        assert!(entries.iter().any(|e| e.name == "helper"), "helper is a function");
+        // m is a method, not a function — excluded by the kind filter.
+        assert!(!entries.iter().any(|e| e.name == "m"), "m is a method, not a function");
+
+        // Filter by name substring.
+        let maps = map(&dir, None, Some("help")).unwrap();
+        let entries = &maps[0].entries;
+        assert!(entries.iter().any(|e| e.name == "helper"), "helper matches 'help'");
+        assert!(!entries.iter().any(|e| e.name == "S"), "S does not match 'help'");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn map_excludes_self_references() {
+        let dir = std::env::temp_dir().join(format!("grove_map_selfref_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Recursive function: fn fib(n) { fib(n-1) }
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn fib(n: i32) -> i32 {\n    fib(n - 1)\n}\n",
+        )
+        .unwrap();
+
+        let maps = map(&dir, None, None).unwrap();
+        let fib = &maps[0].entries[0];
+        assert_eq!(fib.name, "fib");
+        assert!(fib.references.is_empty(), "self-reference is excluded, got {:?}", fib.references);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn map_attributes_refs_to_innermost_definition() {
+        // A reference inside a nested function should belong to the inner function,
+        // not the outer one.
+        let dir = std::env::temp_dir().join(format!("grove_map_nesting_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Rust doesn't have nested named functions, but methods in impl blocks are
+        // a similar nesting pattern. The reference to `helper` inside `m` should
+        // belong to `m`, not to `S`.
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn helper() {}\nstruct S;\nimpl S {\n    fn m(&self) {\n        helper();\n    }\n}\n",
+        )
+        .unwrap();
+
+        let maps = map(&dir, None, None).unwrap();
+        let entries = &maps[0].entries;
+
+        let _s_entry = entries.iter().find(|e| e.name == "S").unwrap();
+        // S's definition (struct) shouldn't reference helper directly —
+        // helper is inside m, not inside S's struct body.
+        // However, the impl block is a container, so the tags query might
+        // attribute the reference to S. What matters is that m references helper.
+        let m_entry = entries.iter().find(|e| e.name == "m").unwrap();
+        assert!(m_entry.references.contains(&"helper".to_string()),
+            "m references helper, got {:?}", m_entry.references);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn map_across_multiple_files() {
+        let dir = std::env::temp_dir().join(format!("grove_map_multi_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "fn alpha() {}\nfn call_beta() {\n    beta();\n}\n").unwrap();
+        std::fs::write(dir.join("b.rs"), "fn beta() {}\nfn call_alpha() {\n    alpha();\n}\n").unwrap();
+
+        let maps = map(&dir, None, None).unwrap();
+        assert!(maps.len() >= 2, "should have entries from both files, got {} files", maps.len());
+
+        // Each file should have its own definitions with references.
+        let a_map = maps.iter().find(|m| m.file.contains("a.rs")).unwrap();
+        let call_beta = a_map.entries.iter().find(|e| e.name == "call_beta").unwrap();
+        assert!(call_beta.references.contains(&"beta".to_string()),
+            "call_beta references beta, got {:?}", call_beta.references);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

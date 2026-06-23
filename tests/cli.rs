@@ -204,3 +204,41 @@ fn unknown_extension_errors() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("no registered grammar"));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn map_returns_definitions_with_references() {
+    let dir = fixture("map");
+
+    // JSON output: structured file maps with references.
+    let j = grove(&dir, &["--json", "map", "."]);
+    assert!(j.status.success(), "stderr: {}", String::from_utf8_lossy(&j.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&j)).unwrap();
+    let arr = v.as_array().expect("map returns an array");
+    assert!(!arr.is_empty(), "map should return at least one file map");
+    let fm = &arr[0];
+    let entries = fm["entries"].as_array().expect("entries is an array");
+    // The fixture has helper + caller + Thing + method.
+    assert!(entries.len() >= 3, "should have multiple definitions, got {}", entries.len());
+
+    // main/caller references helper.
+    let caller = entries.iter().find(|e| e["name"] == "caller").expect("caller definition");
+    let refs = caller["references"].as_array().expect("references is an array");
+    assert!(refs.iter().any(|r| r.as_str() == Some("helper")),
+        "caller should reference helper, got {:?}", refs);
+
+    // Human-readable output.
+    let human = grove(&dir, &["map", "."]);
+    assert!(human.status.success());
+    let text = stdout(&human);
+    assert!(text.contains("helper"), "human map shows helper: {text}");
+    assert!(text.contains("caller"), "human map shows caller: {text}");
+
+    // Kind filter.
+    let j2 = grove(&dir, &["--json", "map", ".", "--kind", "function"]);
+    assert!(j2.status.success());
+    let v2: serde_json::Value = serde_json::from_str(&stdout(&j2)).unwrap();
+    let entries2 = v2.as_array().unwrap()[0]["entries"].as_array().unwrap();
+    assert!(entries2.iter().all(|e| e["kind"] == "function"), "kind filter works");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
