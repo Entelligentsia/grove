@@ -60,9 +60,9 @@ enum Cmd {
     },
     /// Report ERROR / MISSING nodes — a post-edit syntax check.
     Check { file: PathBuf },
-    /// Find call sites of a symbol across a directory.
+    /// Find references to a symbol across a directory (structural + textual).
     Callers {
-        /// The function/method name to find calls to.
+        /// The symbol name to find references to.
         name: String,
         /// Directory to search.
         #[arg(short, long, default_value = ".")]
@@ -203,9 +203,11 @@ fn main() -> Result<()> {
                     let inf = s.in_function.as_deref().unwrap_or("<top-level>");
                     // Lead with `path:line:col` so the location is greppable and,
                     // for a directory-wide query, you can tell which file it's in (#29).
-                    println!("{}:{}:{}   {:<28} {}", s.file, s.line, s.col, inf, s.text);
+                    // [S]/[T] = structural (tree-sitter) vs textual (grep) provenance (#33).
+                    let tag = if s.source == "structural" { "S" } else { "T" };
+                    println!("{}:{}:{}   {:<28} [{}] {}", s.file, s.line, s.col, inf, tag, s.text);
                 }
-                eprintln!("\n{} call site(s) of `{}`", sites.len(), name);
+                eprintln!("\n{} reference(s) of `{}` (S=structural, T=textual)", sites.len(), name);
             }
         }
         Cmd::Map { dir, kind, name } => {

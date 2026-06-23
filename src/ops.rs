@@ -208,50 +208,156 @@ pub fn check(file: &Path) -> Result<Vec<Defect>> {
     engine::check(&grammar, &src)
 }
 
-/// A site where a symbol is called.
+/// A site where a symbol is referenced (call site, type use, textual occurrence).
 #[derive(Debug, Serialize)]
 pub struct CallSite {
     pub file: String,
     /// 1-based line and column of the call (editor / `grep -n` convention).
     pub line: usize,
     pub col: usize,
-    /// The function/method that contains this call (`Type::method` when known).
+    /// The function/method that contains this reference (`Type::method` when known).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_function: Option<String>,
     /// The trimmed source text of the call's line.
     pub text: String,
+    /// Provenance: `"structural"` for tree-sitter tag-resolved references,
+    /// `"textual"` for whole-word grep matches that the tags query missed.
+    /// Structural sites are high-precision (name-resolved); textual sites fill
+    /// recall gaps (may include type annotations, imports, or comments).
+    pub source: String,
 }
 
-/// `callers` — every call site of `name` across `dir`, with enclosing function.
+/// `callers` — every reference to `name` across `dir`, with enclosing function.
 ///
-/// Name-based: matches calls to *any* function/method with this name (the slice
-/// does not resolve receiver types). Honest over-match, documented for the agent.
+/// Two passes are merged and deduped:
+/// 1. **Structural** — tree-sitter tag-resolved references (all reference kinds:
+///    call, type, implementation, etc.). High precision but low recall for names
+///    that the tags query doesn't capture (e.g. class/type references in Java or
+///    Python).
+/// 2. **Textual** — whole-word grep for the name, for lines not already covered
+///    by a structural hit. Higher recall but lower precision (may include type
+///    annotations, imports, or comments). Each result carries a `source` field
+///    (`"structural"` or `"textual"`) so the agent can prioritise.
+///
+/// Name-based: matches *any* symbol with this name (the slice does not resolve
+/// receiver types). Honest over-match, documented for the agent.
 pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
     let mut out = Vec::new();
     for_each_source(dir, |grammar, relpath, src| {
         // Reuse the parse tree from extraction for the enclosing-function pass —
         // parsing dominates cost, so re-parsing here would double the work.
         let (syms, tree) = engine::extract_with_tree(grammar, relpath, src)?;
-        let calls: Vec<&Symbol> = syms
-            .iter()
-            .filter(|s| !s.is_definition && grammar.profile.is_call_kind(&s.kind) && s.name == name)
-            .collect();
-        if calls.is_empty() {
-            return Ok(());
-        }
         let root = tree.root_node();
-        for s in &calls {
+
+        // --- Structural pass: all non-definition tag-resolved references ---
+        // The previous `is_call_kind` filter excluded type references, impl
+        // references, etc., causing callers to return [] for heavily-used
+        // class/type names (issue #33). Including all reference kinds fixes
+        // that while the textual pass below fills the long tail.
+        let structurals: Vec<&Symbol> = syms
+            .iter()
+            .filter(|s| !s.is_definition && s.name == name)
+            .collect();
+        // Lines covered by structural hits OR structural definitions of the same
+        // name — the textual pass skips these to avoid duplicating references or
+        // surfacing the definition line itself (callers is for references, not
+        // definitions).
+        let mut skip_lines: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+        for s in &structurals {
+            skip_lines.insert(s.line.saturating_sub(1));
+        }
+        for s in syms.iter().filter(|s| s.is_definition && s.name == name) {
+            skip_lines.insert(s.line.saturating_sub(1));
+        }
+        for s in &structurals {
             out.push(CallSite {
-                in_function: engine::enclosing_function_at(root, s.start_byte, src, &grammar.profile),
+                in_function: engine::enclosing_function_at(
+                    root,
+                    s.start_byte,
+                    src,
+                    &grammar.profile,
+                ),
                 file: s.file.clone(),
                 line: s.line,
                 col: s.col,
                 text: s.signature.clone(),
+                source: "structural".to_string(),
             });
         }
+
+        // --- Textual pass: whole-word grep for the name ---
+        // Covers references that the tags query misses (type annotations, imports,
+        // dynamic dispatch, etc.). Only adds lines not already covered by structural
+        // hits or definitions, so there's no duplication.
+        let src_str = std::str::from_utf8(src).unwrap_or("");
+        for (row, line_text) in src_str.lines().enumerate() {
+            if skip_lines.contains(&row) {
+                continue; // already covered by a structural hit or definition
+            }
+            if !has_whole_word(line_text, name) {
+                continue;
+            }
+            // Find the byte offset of the first occurrence for enclosing-function.
+            let col = line_text.find(name).unwrap_or(0);
+            let byte = line_offset(src, row) + col;
+            out.push(CallSite {
+                in_function: engine::enclosing_function_at(root, byte, src, &grammar.profile),
+                file: relpath.to_string(),
+                line: row + 1,
+                col: col + 1,
+                text: line_text.trim().to_string(),
+                source: "textual".to_string(),
+            });
+        }
+
         Ok(())
     })?;
     Ok(out)
+}
+
+/// Byte offset of the start of line `row` (0-based) in `source`.
+fn line_offset(source: &[u8], row: usize) -> usize {
+    let mut off = 0;
+    for _ in 0..row {
+        match source[off..].iter().position(|&b| b == b'\n') {
+            Some(pos) => off += pos + 1,
+            None => return source.len(),
+        }
+    }
+    off
+}
+
+/// Does `haystack` contain `needle` as a whole word?
+/// A word boundary is the start/end of `haystack` or a char that is not
+/// ASCII alphanumeric or underscore. This mirrors how `grep -w` works for
+/// identifier names, without requiring a regex dependency.
+fn has_whole_word(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    let haystack_bytes = haystack.as_bytes();
+    if needle_bytes.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    while i + needle_bytes.len() <= haystack_bytes.len() {
+        if &haystack_bytes[i..i + needle_bytes.len()] == needle_bytes {
+            let before_ok = i == 0 || !is_ident_char(haystack_bytes[i - 1]);
+            let after_ok =
+                i + needle_bytes.len() == haystack_bytes.len()
+                    || !is_ident_char(haystack_bytes[i + needle_bytes.len()]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        // Advance: skip ahead past the current byte (handles multi-byte UTF-8
+        // correctly because we only match on ASCII needle/ident chars).
+        i += 1;
+    }
+    false
+}
+
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Parse a `file:line:col` position string. `line`/`col` are 1-based on input
@@ -479,6 +585,92 @@ mod tests {
         assert_eq!(parses, 3, "expected one parse per source file (3), got {parses}");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_includes_type_and_impl_references() {
+        // Issue #33: callers previously filtered to is_call_kind only, returning []
+        // for heavily-used type/class names. Now all non-definition references are
+        // included (call, type, implementation, etc.).
+        let dir = std::env::temp_dir().join(format!("grove_callers_type_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Rust tags query captures `impl Trait for Type` with the trait name as
+        // @reference.implementation — a non-call kind. `Clone` appears as a
+        // structural reference (kind "implementation") that was previously filtered
+        // out by is_call_kind.
+        std::fs::write(
+            dir.join("lib.rs"),
+            "struct Thing;\nimpl Clone for Thing {}\n",
+        ).unwrap();
+        let sites = callers(&dir, "Clone").unwrap();
+        // The `impl Clone for Thing` reference is structural (tag-resolved) with
+        // kind "implementation", not "call" — previously filtered out.
+        let structural = sites.iter().filter(|s| s.source == "structural").count();
+        assert!(structural >= 1, "should find impl reference to Clone, got {sites:?}");
+        // No definition of `Clone` in this file, so no lines are skipped.
+        assert!(sites.iter().any(|s| s.in_function.is_none()), "impl is top-level, got {sites:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_textual_fallback_finds_untagged_references() {
+        // Issue #33: when the tags query misses references to a name, the textual
+        // fallback finds them via whole-word grep.
+        let dir = std::env::temp_dir().join(format!("grove_callers_textual_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // `Scanner` appears as a type annotation and in a string — not captured by
+        // tags as a reference, but the textual pass should find them.
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn go(s: Scanner) { let x: Scanner = s; }\n",
+        ).unwrap();
+        let sites = callers(&dir, "Scanner").unwrap();
+        let textual: Vec<&CallSite> = sites.iter().filter(|s| s.source == "textual").collect();
+        // The type annotations `s: Scanner` and `x: Scanner` should be found as
+        // textual matches (not captured by Rust's tags query as references).
+        assert!(!textual.is_empty(), "textual fallback should find type-annotation references to Scanner, got {sites:?}");
+        // Line 0 has `Scanner` twice (s: Scanner and x: Scanner) — but has_whole_word
+        // finds the line; we report one call site per line.
+        assert_eq!(textual.len(), 1, "one textual line containing Scanner, got {textual:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn callers_excludes_definition_from_textual() {
+        // The definition line should not appear in callers results (it's not a
+        // reference). The textual pass skips lines that have a structural definition.
+        let dir = std::env::temp_dir().join(format!("grove_callers_nodef_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn helper() {}\nfn main() { helper(); }\n",
+        ).unwrap();
+        let sites = callers(&dir, "helper").unwrap();
+        // Row 0 is the definition line — should NOT appear.
+        assert!(!sites.iter().any(|s| s.line == 1), "definition line should not be in callers results, got {sites:?}");
+        // Row 1 is the call site — should appear.
+        assert!(sites.iter().any(|s| s.line == 2), "call site line should be in callers results, got {sites:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn has_whole_word_finds_identifier_names() {
+        assert!(has_whole_word("    helper()", "helper"));
+        assert!(has_whole_word("fn helper() {}", "helper"));
+        assert!(has_whole_word("s: Scanner", "Scanner"));
+        assert!(has_whole_word("Scanner::new()", "Scanner"));
+        assert!(has_whole_word("use crate::Scanner;", "Scanner"));
+        // Not a whole word — part of a larger identifier.
+        assert!(!has_whole_word("helper_fn()", "helper"));
+        assert!(!has_whole_word("myhelper()", "helper"));
+        assert!(!has_whole_word("MyScanner", "Scanner"));
+        assert!(!has_whole_word("scanner_new", "Scanner"));
+        // Empty needle.
+        assert!(!has_whole_word("anything", ""));
+        // Needle longer than haystack.
+        assert!(!has_whole_word("ab", "abc"));
+        // Exact match.
+        assert!(has_whole_word("helper", "helper"));
     }
 
     // ---- parse_pos ----
