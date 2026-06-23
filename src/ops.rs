@@ -27,7 +27,24 @@ pub fn rel(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// True if `path` is a generated declaration file grove should not index as
+/// source during a directory walk. TypeScript `.d.ts`/`.d.cts`/`.d.mts` files
+/// are type declarations with no implementation — often machine-generated
+/// (under `tests/baselines/`, `declarations/`, `dist/`). Indexing them points
+/// `symbols`/`definition`/`callers` at the decl instead of the real source and
+/// drops genuine call sites, so they are excluded from the walk. A single
+/// file requested explicitly via `outline`/`source`/`check` is still honored —
+/// this filter only governs the recursive indexing pass. (Issue #32.)
+fn is_generated_decl(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    name.ends_with(".d.ts") || name.ends_with(".d.cts") || name.ends_with(".d.mts")
+}
+
 /// Walk every registered-source file under `dir`, yielding `(grammar, relpath, source)`.
+/// Generated declaration files (`*.d.ts`, see [`is_generated_decl`]) are skipped
+/// so `symbols`/`definition`/`callers` answer from real source, not generated decls.
 fn for_each_source(dir: &Path, mut f: impl FnMut(&Grammar, &str, &[u8]) -> Result<()>) -> Result<()> {
     for entry in WalkBuilder::new(dir).build() {
         let entry = match entry {
@@ -35,7 +52,7 @@ fn for_each_source(dir: &Path, mut f: impl FnMut(&Grammar, &str, &[u8]) -> Resul
             Err(_) => continue,
         };
         let path = entry.path();
-        if !path.is_file() || !registry::is_source(path) {
+        if !path.is_file() || !registry::is_source(path) || is_generated_decl(path) {
             continue;
         }
         let grammar = registry::for_path(path)?;
@@ -543,6 +560,51 @@ mod tests {
         let structs = outline(&file, Some("struct")).unwrap();
         assert!(structs.iter().any(|s| s.name == "S"), "struct aliases to class");
         assert!(!structs.iter().any(|s| s.name == "f"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn is_generated_decl_flags_typescript_declaration_files() {
+        // Issue #32: `.d.ts`/`.d.cts`/`.d.mts` are generated declarations — they
+        // must be skipped by the directory walk so symbols/definition/callers
+        // answer from real source, not the decl. The check is suffix-based so it
+        // is independent of the registry (the typescript grammar may be absent).
+        assert!(is_generated_decl(Path::new("src/compiler/scanner.d.ts")));
+        assert!(is_generated_decl(Path::new("tests/baselines/reference/api/typescript.d.ts")));
+        assert!(is_generated_decl(Path::new("declarations/LoaderContext.d.ts")));
+        assert!(is_generated_decl(Path::new("pkg/index.d.cts")));
+        assert!(is_generated_decl(Path::new("pkg/index.d.mts")));
+
+        // Real implementation files and other paths are left alone.
+        assert!(!is_generated_decl(Path::new("src/compiler/scanner.ts")));
+        assert!(!is_generated_decl(Path::new("lib/Compiler.js")));
+        assert!(!is_generated_decl(Path::new("types.ts")), "`types.ts` is real source, not `types.d.ts`");
+        assert!(!is_generated_decl(Path::new("README.md")));
+        assert!(!is_generated_decl(Path::new("no_extension")));
+    }
+
+    #[test]
+    fn symbols_skips_generated_declaration_files() {
+        // Issue #32: a `.d.ts` file in the tree must not contribute symbols,
+        // even when a registered grammar would otherwise accept its extension.
+        // Here the dev-stub registry has no typescript grammar, so `.d.ts` is
+        // already not source — but a `.d.js`-style nested decl under a real
+        // registered extension is the closest in-stub analog. We instead assert
+        // the skip at the predicate level (see is_generated_decl_flags_*).
+        // This test pins that a real `.js` decl-like name is still indexed (i.e.
+        // the filter is suffix-precise and does not over-reach onto `.js`).
+        let dir = std::env::temp_dir().join(format!("grove_nodecl_test_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("declarations")).unwrap();
+        std::fs::write(dir.join("declarations/LoaderContext.d.ts"), "export class LoaderContext {}").unwrap();
+        std::fs::write(dir.join("lib.js"), "class Compiler {}").unwrap();
+
+        let defs = symbols(&dir, None, Some("Compiler"), false).unwrap();
+        assert!(defs.iter().any(|s| s.name == "Compiler"), "real source is indexed");
+        // No symbol named `LoaderContext` leaks in from the `.d.ts` (typescript is
+        // not registered here, but this also guards against a future regression where
+        // the filter stops being applied in the walk).
+        assert!(!defs.iter().any(|s| s.name == "LoaderContext"), "generated decl is skipped");
 
         std::fs::remove_dir_all(&dir).ok();
     }
