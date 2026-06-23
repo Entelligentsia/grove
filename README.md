@@ -74,6 +74,7 @@ Add `--json` to any command for the agent-facing shape. Full reference + example
 - **[Tools](docs/tools.md)** — the seven tools, `--json`, `symbol-id`, examples
 - **[MCP server](docs/mcp.md)** — `grove serve`, `.mcp.json`, steering, error model
 - **[Roadmap & repo layout](docs/roadmap.md)** — what's not done yet, source map
+- **[FAQ](docs/faq.md)** — *Is grove an LSP?* and other positioning questions
 - [`VISION.md`](VISION.md) — product vision · [`CHANGELOG.md`](CHANGELOG.md) — releases
 - Registry: [`Entelligentsia/grove-registry`](https://github.com/Entelligentsia/grove-registry) · Homebrew tap: [`Entelligentsia/homebrew-grove`](https://github.com/Entelligentsia/homebrew-grove)
 
