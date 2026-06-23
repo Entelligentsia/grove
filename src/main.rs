@@ -68,6 +68,16 @@ enum Cmd {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
     },
+    /// Compact structural map: definitions and their references, no source bodies.
+    Map {
+        dir: PathBuf,
+        /// Only definitions of this kind (e.g. function, class, method).
+        #[arg(long)]
+        kind: Option<String>,
+        /// Only definitions whose name contains this substring (case-insensitive).
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Find where a symbol is defined (go-to-def), by name or by position.
     Definition {
         /// The symbol name to resolve (omit when using --at).
@@ -194,6 +204,26 @@ fn main() -> Result<()> {
                     println!("{}:{:<4} {:<32} {}", s.row, s.col, inf, s.line);
                 }
                 eprintln!("\n{} call site(s) of `{}`", sites.len(), name);
+            }
+        }
+        Cmd::Map { dir, kind, name } => {
+            let maps = ops::map(&dir, kind.as_deref(), name.as_deref())?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&maps)?);
+            } else {
+                for fm in &maps {
+                    println!("{}", fm.file);
+                    for e in &fm.entries {
+                        let parent = e.parent.as_deref().unwrap_or("");
+                        if e.references.is_empty() {
+                            println!("  {:<10} {:<26} {:<18} {:<4} {}", e.kind, e.name, parent, e.row, e.signature);
+                        } else {
+                            println!("  {:<10} {:<26} {:<18} {:<4} {}  → {}", e.kind, e.name, parent, e.row, e.signature, e.references.join(", "));
+                        }
+                    }
+                }
+                let total: usize = maps.iter().map(|fm| fm.entries.len()).sum();
+                eprintln!("\n{} definitions across {} files", total, maps.len());
             }
         }
         Cmd::Definition { name, dir, at } => {

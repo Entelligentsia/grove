@@ -121,7 +121,7 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     }
     if target.writes_mcp() {
         println!("\n  ready      your agent now has grove's tools across its loop:");
-        println!("             outline · symbols · source · callers · definition · check");
+        println!("             outline · symbols · source · callers · map · definition · check");
         println!("\n  try it     start a fresh Claude Code session here and ask a");
         println!("             \"where/what/who-calls\" question — it routes through grove.");
     }
@@ -246,7 +246,7 @@ first action on a code question is a steering violation.
 
 The grove tools are **deferred** MCP tools — the moment a code question arrives,
 load their schemas with ToolSearch (do not default to a search agent or grep):
-`{p}outline`, `{p}symbols`, `{p}source`, `{p}callers`, `{p}definition`, `{p}check`.
+`{p}outline`, `{p}symbols`, `{p}source`, `{p}callers`, `{p}definition`, `{p}check`, `{p}map`.
 
 **Trigger — check before every tool call.** If the prompt contains any of — a
 file path, a function / type / struct / macro name, or the words \"where is\",
@@ -260,6 +260,13 @@ file path, a function / type / struct / macro name, or the words \"where is\",
 4. `{p}source` with that **id** → exactly that symbol's body.
 5. \"who calls\" → `{p}callers`; \"where defined\" → `{p}definition`.
 6. After an edit → `{p}check`.
+7. **Broad/architectural questions** → `{p}map` (directory dependency graph in one call).
+
+**Breadth control.** For questions about how code connects across a directory,
+prefer `{p}map` — it returns every definition plus its outgoing references in
+one call. Use `{p}source` only for the few load-bearing definitions you need
+to read in full. Do NOT fetch many sources in sequence to build a picture that
+`{p}map` gives in a single call.
 
 **Cross-file.** `{p}symbols` over the root (definitions tree-wide) → `{p}callers`
 (use sites) → `{p}source` per definition. Do NOT `grep -rn '<type>' .` instead —

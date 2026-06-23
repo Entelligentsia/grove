@@ -111,11 +111,17 @@ fn instructions() -> String {
     };
     format!(
         "grove gives byte-precise, token-cheap structural access to this codebase. \
-Prefer these tools over grep or reading whole files: `outline` to see a file's \
+Prefer these tools over grep or reading whole files: `map` for a directory-level \
+dependency graph (definitions + which other symbols each one references — replaces \
+many symbols+source round-trips with one call), `outline` to see a file's \
 definitions, `symbols`/`definition` to locate code, `source` to read one \
 symbol's body, `callers` to find call sites, and `check` after an edit to \
 verify syntax. Every result carries a stable symbol-id \
-(`<lang>:<relpath>#<name>@<row>`) you can pass between tools. {roster}"
+(`<lang>:<relpath>#<name>@<row>`) you can pass between tools. {roster}\n\n\
+Breadth control: prefer `map` for architectural overviews — it returns the \
+definition-and-reference graph of a directory in one call. Use `source` only \
+for the few load-bearing definitions you need to read in full. Avoid fetching \
+many sources in sequence; instead map first, then read only the symbols that matter."
     )
 }
 
@@ -148,7 +154,7 @@ fn tool_specs() -> Value {
         },
         {
             "name": "symbols",
-            "description": "Find symbols across a directory (gitignore-aware), in any language grove has a grammar for. Filter by kind (function, method, class, struct, …) and/or a name substring. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids.",
+            "description": "Find symbols across a directory (gitignore-aware), in any language grove has a grammar for. Filter by kind (function, method, class, struct, …) and/or a name substring. Use this to locate where something is defined instead of grepping. Returns JSON with stable symbol-ids. For a structured overview with reference edges, prefer `map` — it returns definitions and their outgoing references in one call, replacing many `symbols`+`source` round-trips.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -163,7 +169,7 @@ fn tool_specs() -> Value {
         },
         {
             "name": "source",
-            "description": "Return the exact full source of one symbol — by its symbol-id (from outline/symbols), or by file + name. Use this to read a single function/class/type body without loading the whole file. If several definitions share the name, returns the first plus `other_candidates` (their ids) so you can disambiguate without another call. Returns JSON { id, source, other_candidates? }.",
+            "description": "Return the exact full source of one symbol — by its symbol-id (from outline/symbols/map), or by file + name. Use sparingly — read one symbol at a time, only when you need its full implementation. For architectural understanding, prefer `map` (directory-level dependency graph in one call) or `outline` (file skeleton without bodies). If several definitions share the name, returns the first plus `other_candidates` (their ids) so you can disambiguate without another call. Returns JSON { id, source, other_candidates? }.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -186,7 +192,7 @@ fn tool_specs() -> Value {
         },
         {
             "name": "callers",
-            "description": "Find every call site of a function/method by name across a directory, each with its enclosing function and source line. Use this to answer 'what calls this?'. Note: name-based — it matches calls to any function/method with this name, not resolved by receiver type. Returns JSON.",
+            "description": "Find every reference to a symbol by name across a directory, with enclosing function and source line. Returns two kinds of results: 'structural' (tree-sitter resolved, high precision) and 'textual' (whole-word grep, high recall — covers type annotations, imports, and references the tags query misses). Use this to answer 'what calls this?' or 'where is this used?'. Name-based — matches any symbol with this name, not resolved by receiver type. For a broad call-graph view of a directory, prefer `map`. Returns JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -196,6 +202,20 @@ fn tool_specs() -> Value {
                 "required": ["name"]
             },
             "annotations": { "title": "Find callers", "readOnlyHint": true, "openWorldHint": false }
+        },
+        {
+            "name": "map",
+            "description": "Return a compact structural map of a directory: every definition grouped by file, with each definition's outgoing references (which other symbols it calls or uses). No source bodies — just the dependency graph. Use this instead of many symbols+source calls when you need a broad picture of how code connects. Prefer map for architectural understanding; use source only for the few load-bearing definitions you need to read in full. Filter by kind or name to narrow the view. Returns JSON.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dir": { "type": "string", "description": "Directory to map" },
+                    "kind": { "type": "string", "description": "Only definitions of this kind, e.g. function, class, method" },
+                    "name": { "type": "string", "description": "Only definitions whose name contains this substring (case-insensitive)" }
+                },
+                "required": ["dir"]
+            },
+            "annotations": { "title": "Map a directory's structure", "readOnlyHint": true, "openWorldHint": false }
         },
         {
             "name": "definition",
@@ -256,6 +276,11 @@ fn call_tool(params: &Value) -> Outcome {
                 ops::callers(&PathBuf::from(dir), &n).and_then(to_json)
             }
             None => missing("name"),
+        },
+        "map" => match str_arg("dir") {
+            Some(d) => ops::map(&PathBuf::from(d), str_arg("kind").as_deref(), str_arg("name").as_deref())
+                .and_then(to_json),
+            None => missing("dir"),
         },
         "definition" => {
             // One shape for both modes — `{resolved, definitions}` — so a client
@@ -456,7 +481,7 @@ mod tests {
         let v = ok(handle("tools/list", &Value::Null));
         let names: Vec<&str> = v["tools"].as_array().unwrap().iter()
             .map(|t| t["name"].as_str().unwrap()).collect();
-        for expected in ["outline", "symbols", "source", "check", "callers", "definition"] {
+        for expected in ["outline", "symbols", "source", "check", "callers", "map", "definition"] {
             assert!(names.contains(&expected), "tools/list missing {expected}");
         }
 
@@ -471,7 +496,7 @@ mod tests {
         // missing this way). Every schema must be a plain object.
         let tools = tool_specs();
         let arr = tools.as_array().unwrap();
-        assert_eq!(arr.len(), 6, "all six tools advertised");
+        assert_eq!(arr.len(), 7, "all seven tools advertised");
         for t in arr {
             let name = t["name"].as_str().unwrap();
             let schema = &t["inputSchema"];
@@ -594,5 +619,21 @@ mod tests {
         let errv = tool_text(&json!("boom"), true);
         assert_eq!(errv["isError"], json!(true));
         assert_eq!(errv["content"][0]["text"], json!("boom"), "error strings are unquoted");
+    }
+
+    #[test]
+    fn map_tool_returns_definitions_with_references() {
+        let dir = fixture("map");
+        let payload = tool_payload(call("map", json!({ "dir": dir.to_str().unwrap() })));
+        let arr = payload.as_array().expect("map returns an array of file maps");
+        assert!(!arr.is_empty(), "map should return at least one file map");
+        let fm = &arr[0];
+        let entries = fm["entries"].as_array().expect("entries is an array");
+        // The fixture has `helper` and `main` — `main` calls `helper`.
+        let main_entry = entries.iter().find(|e| e["name"] == "main").expect("main definition");
+        assert_eq!(main_entry["references"].as_array().expect("references is an array").len(), 1,
+            "main should reference helper");
+        assert!(tool_error_msg(call("map", json!({}))).contains("missing required argument: dir"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

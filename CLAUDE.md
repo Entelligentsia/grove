@@ -27,15 +27,19 @@ Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolut
 **Never put engine logic in `main` or `mcp`** — they only format. `ops` returns
 typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP server emits JSON.
 
-## The tool surface (6 tools, the agent loop)
+## The tool surface (7 tools, the agent loop)
 
 `outline` (file skeleton) · `symbols` (find across a dir) · `source` (one symbol's
 code) · `check` (ERROR/MISSING nodes — post-edit verify) · `callers` (call sites +
-enclosing fn) · `definition` (go-to-def by name or `--at file:row:col`).
+enclosing fn) · `map` (directory dependency graph — defs + outgoing refs, no bodies) ·
+`definition` (go-to-def by name or `--at file:row:col`).
 
 All carry a stable `symbol-id` (`<lang>:<relpath>#<name>@<row>`). `outline` is
-tiered (`--kind`, `--detail 0|1|2`) so big files stay cheap. MCP results are
-compact JSON; tool errors come back as `isError: true` so the model can recover.
+tiered (`--kind`, `--detail 0|1|2`) so big files stay cheap. `map` is the
+breadth-control tool: it returns a directory's definitions grouped by file, each
+with its outgoing references (which other symbols it calls/uses), replacing many
+`symbols`+`source` round-trips with one call. MCP results are compact JSON; tool
+errors come back as `isError: true` so the model can recover.
 
 ## How grammars work (important)
 
@@ -79,6 +83,7 @@ grove symbols <dir> [--kind K] [--name SUB] [--refs]
 grove source  <id> | <file> <name>
 grove check   <file>
 grove callers <name> [-d <dir>]
+grove map     <dir> [--kind K] [--name SUB]
 grove definition <name> [-d <dir>] | --at <file:row:col>
 grove serve                         # MCP server over stdio
 

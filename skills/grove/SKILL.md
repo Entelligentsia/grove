@@ -2,8 +2,8 @@
 name: grove
 description: >
   Byte-precise, token-cheap code navigation via tree-sitter — outline a file,
-  find or define a symbol, read one symbol's body, find callers, go-to-def, and
-  syntax-check after edits. The required first move for any where-is /
+  find or define a symbol, read one symbol's body, find callers, map a directory's
+  dependency graph, go-to-def, and syntax-check after edits. The required first move for any where-is /
   what's-in / who-calls question, in any language grove has a grammar for —
   before grep, rg, read, cat, or sed.
 ---
@@ -16,9 +16,9 @@ otherwise use the `grove` CLI (`--json` for machine-readable output). Same
 engine — every `grove <verb>` below is the `mcp__grove__<verb>` tool.
 
 **If the `mcp__grove__*` tools are deferred** (listed by name, schemas not yet
-loaded), load all six in a **single** ToolSearch before you start, not one at a
+loaded), load all seven in a **single** ToolSearch before you start, not one at a
 time:
-`select:mcp__grove__outline,mcp__grove__symbols,mcp__grove__source,mcp__grove__check,mcp__grove__callers,mcp__grove__definition`.
+`select:mcp__grove__outline,mcp__grove__symbols,mcp__grove__source,mcp__grove__check,mcp__grove__callers,mcp__grove__map,mcp__grove__definition`.
 The procedure chains (e.g. `symbols` → `source`), so fetching schemas on demand
 forces serial round-trips — you won't know you need `source` until `symbols`
 returns. Batch them up front and the whole navigation runs without a stall.
@@ -48,6 +48,17 @@ grove is optional.
 6. "who calls" → `grove callers <name> -d <dir>`; "where defined" →
    `grove definition <name> -d <dir>` (or `--at file:row:col`).
 7. After an edit → `grove check <file>`.
+8. **Broad/architectural questions** → `grove map <dir>` — every definition
+   grouped by file, each with its outgoing references, in one call. Prefer `map`
+   over fetching many sources in sequence.
+
+## Breadth control
+
+For questions about how code connects across a directory, prefer `map` — it
+returns every definition plus which other symbols each one references, in a
+single call. Use `source` only for the few load-bearing definitions you need to
+read in full. Do **not** fetch many sources in sequence to build a picture that
+`map` gives in one call.
 
 ## Don't / Do
 
@@ -57,6 +68,7 @@ grove is optional.
 | `grep -rn 'refs_be_files' refs/` | `grove symbols refs/ --name refs_be_files` → `grove source <id>` |
 | `read builtin/commit.c` (whole 1700-line file) | `grove outline builtin/commit.c` → `grove source <id>` for the one symbol |
 | `grep -rn 'struct ref_storage_be' .` | `grove symbols . --name ref_storage_be` → `grove source <id>` |
+| 7× `source` calls to understand a subsystem | `grove map <dir>` — one call, definitions + references, no bodies |
 
 ## Cross-file / "used across the codebase"
 
