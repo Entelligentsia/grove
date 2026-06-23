@@ -203,6 +203,7 @@ every served file) — the publish step for registry CI.
 | Read | `grove source <id>` or `grove source <file> <name>` | full source of one symbol — no whole-file read |
 | Verify | `grove check <file>` | ERROR / MISSING nodes (exit 1 if any) — post-edit syntax check |
 | Trace | `grove callers <name> [-d <dir>]` | call sites of a symbol, each with its enclosing function |
+| Map | `grove map <dir> [--kind K] [--name SUB]` | directory dependency graph: definitions + outgoing references, no source bodies |
 | Trace | `grove definition <name> [-d <dir>]` or `grove definition --at <file:row:col>` | go-to-def, by name or from a usage position |
 
 Add `--json` to any command for the agent-facing structured shape. Every result
@@ -216,13 +217,14 @@ grove outline foo.py --kind class        # python, loaded from wasm at runtime
 grove outline src/engine.rs --kind function
 grove source  src/mcp.rs serve
 grove callers extract -d src
+grove map     src --kind function         # dependency graph, no source bodies
 grove check   src/registry.rs
 ```
 
 ## The MCP face (for agents)
 
 `grove serve` runs an MCP server over stdio (newline-delimited JSON-RPC 2.0),
-exposing the same six tools for every registered language. Register it with a
+exposing the same seven tools for every registered language. Register it with a
 coding agent and the agent gains structural sight.
 
 Project-scoped registration for Claude Code lives in [`.mcp.json`](.mcp.json):

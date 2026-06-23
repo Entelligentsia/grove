@@ -4,6 +4,60 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-06-23
+
+### Added
+
+- **`map` tool**: returns a compact structural map of a directory — every
+  definition grouped by file, with each definition's outgoing references
+  (which other symbols it calls/uses). No source bodies, just the dependency
+  graph. Replaces many `symbols`+`source` round-trips with one call (#34).
+- **Breadth control steering**: tool descriptions, MCP `instructions()`,
+  init-written CLAUDE.md, and SKILL.md now actively steer agents toward `map`
+  for architectural questions and away from sequential `source` fan-out (#34).
+- CLI: `grove map <dir> [--kind K] [--name SUB]` with human and `--json` output.
+- MCP: 7th tool `map` with plain `{type: object, properties}` schema (no
+  top-level `anyOf`).
+
+### Fixed
+
+- **`callers`**: include all reference kinds (not just `call`) — type
+  references, implementation references, etc. are now surfaced as structural
+  hits, so heavily-used class/type names return results instead of `[]` (#33).
+- **`callers`**: textual fallback finds whole-word references the tags query
+  misses (type annotations, imports, dynamic dispatch) with provenance
+  (`structural` vs `textual`) so the agent can prioritise (#33).
+- **`symbols`/`definition`/`callers`**: skip generated `.d.ts`/`.d.cts`/`.d.mts`
+  declaration files during directory walks so these tools answer from real
+  source, not machine-generated decls (#32).
+
+## [0.1.5] - 2026-06-22
+
+### Added
+
+- **C grammar navigation**: full symbol bodies (function definitions include
+  the body, not just the declarator), callers with enclosing-function context,
+  and file-scope variable captures (#25, #26, #27).
+- **`definition`**: `file` column in output so multi-file results are
+  self-locating without a follow-up `symbols`.
+- **`struct`/`union` kind alias**: `--kind struct` and `--kind union` match the
+  `class` kind (since tree-sitter tags all struct/union-likes as `class`).
+- **Cross-harness skill** (`skills/grove/SKILL.md` + `.claude-plugin/marketplace.json`):
+  grove's capabilities as an Agent Skill, installable across 70+ harnesses with
+  `npx skills add Entelligentsia/grove`. The skill prefers grove's MCP tools
+  when the host exposes them and falls back to the `grove` CLI otherwise, and
+  self-installs the binary on first use if it's missing (#22).
+- **`grove init --as mcp|skill|both`**: grammar provisioning + `grove.lock`
+  happen for every target; `.mcp.json` + CLAUDE.md are written only for the
+  MCP targets. Default is `mcp` (fully backward-compatible) (#22).
+- **CI/release**: Node 24 pin; cross-compile and release workflow.
+
+### Fixed
+
+- **MCP `source` / `definition`**: dropped the top-level `anyOf` from their
+  input schemas. Some MCP clients can't normalize a top-level `anyOf` and
+  silently drop the tool during registration (#21).
+
 ## [0.1.4] - 2026-06-22
 
 ### Added
@@ -81,6 +135,8 @@ All notable changes to grove are documented here. The format follows
 
 - Initial release.
 
+[0.1.6]: https://github.com/Entelligentsia/grove/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Entelligentsia/grove/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Entelligentsia/grove/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Entelligentsia/grove/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Entelligentsia/grove/compare/v0.1.1...v0.1.2
