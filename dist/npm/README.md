@@ -1,7 +1,7 @@
 # @entelligentsia/grove
 
 **grove** gives coding agents structural, byte-precise, token-cheap access to a
-codebase via tree-sitter, instead of reading whole files. One engine, six tools,
+codebase via tree-sitter, instead of reading whole files. One engine, seven tools,
 two faces — a human CLI (`grove <verb>`) and an MCP server (`grove serve`).
 
 This npm package is a thin installer: on install it downloads the prebuilt
