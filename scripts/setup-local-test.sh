@@ -65,8 +65,8 @@ fi
 
 cat <<EOF
 
-Done. The test beds (../git, ../grove-test) register grove via the vendored
-binary just updated, and resolve grammars from the OS cache just regenerated.
+Done. The test bed (../git) registers grove via the vendored
+binary just updated, and resolves grammars from the OS cache just regenerated.
 
 Next: start a fresh agent session in ../git (so its .mcp.json reloads the new
 server) and exercise the grove tools on the C source.
