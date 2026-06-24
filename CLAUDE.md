@@ -108,16 +108,19 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   workspace crates (they target edition 2024 / rust 1.90). Use crates.io.
 - **Run grammars from the cache or dev stub.** To exercise a language not in the
   dev stub without publishing, `GROVE_REGISTRY=<dir> grove ...` or `grove fetch` it.
-- **Test beds:** `../grove-test` (a ripgrep clone, with `.mcp.json` + `CLAUDE.md`
-  for manual MCP testing — see its `GROVE_TESTING.md`). Rust on ripgrep should
-  yield **3317 definitions** (regression anchor). `../git` (the git source tree)
-  is the C bed — its `.mcp.json` registers grove too.
+- **Test beds:** `../git` (the git source tree) is the local C bed for hands-on
+  MCP poking — its `.mcp.json` registers grove. For systematic regression + eval
+  across languages use the **grove-testbench** harness (`../grove-testbench`):
+  Tier-1 zero-token probes (`scripts/run-probes.sh`) and Tier-2 baseline-vs-grove
+  agent races. The Rust def-count regression anchor (formerly ripgrep's **3317
+  definitions** in the retired `../grove-test` bed) now rides on tokio there
+  (`probes/def-count.tsv`).
 - **Local agent testing:** `scripts/setup-local-test.sh [lang ...]` builds the
-  release binary, installs it over the npm-vendored one the test beds' `.mcp.json`
-  point at, regenerates the requested grammars in the OS cache via the real
+  release binary, installs it over the npm-vendored one the local bed's `.mcp.json`
+  points at, regenerates the requested grammars in the OS cache via the real
   `ingest` pipeline (so `registry-sources.json` `extra_tags` are applied), and
   verifies against `../git`. Re-run after a change, then start a fresh agent
-  session in a test bed so its MCP server reloads.
+  session in the bed so its MCP server reloads.
 - **MCP smoke test** without an agent:
   ```bash
   printf '%s\n' \
