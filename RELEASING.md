@@ -33,9 +33,14 @@ hashes (filled by `update-formula.sh` from the release sidecars), and the tap's
 ## Steps
 
 1. **Branch** `release/vX.Y.Z` off `main`.
-2. **Bump** the four version locations above. Run `cargo build --release --locked`
-   to refresh `Cargo.lock` and prove it still builds locked (release CI uses
-   `--locked`). Run `cargo test --release --locked`.
+2. **Bump** the four version locations above with one command — it edits
+   `Cargo.toml`, refreshes the `Cargo.lock` grove entry, bumps
+   `dist/npm/package.json`, and inserts a dated `CHANGELOG.md` stub:
+   ```sh
+   scripts/bump-version.sh X.Y.Z
+   ```
+   Then fill in the CHANGELOG stub, and run `cargo build --release --locked`
+   (release CI uses `--locked`) and `cargo test --release --locked`.
 3. **Commit** `release: vX.Y.Z`, push, open a PR to `main`, wait for `ci` green,
    merge.
 4. **Tag the merge commit and push** — this is what ships:
