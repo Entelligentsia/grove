@@ -1,6 +1,6 @@
 [package]
 name = "grove"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Structural, byte-precise, token-cheap access to a codebase for coding agents — tree-sitter over a CLI and an MCP server."
 license = "MIT"

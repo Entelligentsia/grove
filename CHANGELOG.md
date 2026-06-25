@@ -4,6 +4,18 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-06-25
+
+### Added
+
+- **`grove init --as grammars`** — a fourth integration target that provisions
+  grammars and writes `grove.lock`, but writes **no** harness glue: no
+  `.mcp.json`, no CLAUDE.md steering block. For embedding hosts (e.g. an editor
+  or agent runtime that registers grove's tools in-process and supplies its own
+  steering), this leaves the project's own files untouched. The existing `mcp`,
+  `skill`, and `both` targets are unchanged — they still write steering, since
+  for a cold agent availability isn't adoption (VISION §6.4.1).
+
 ## [0.1.7] - 2026-06-23
 
 ### Fixed

@@ -32,6 +32,11 @@ pub enum Target {
     Skill,
     /// Both of the above.
     Both,
+    /// Grammars + `grove.lock` only — no `.mcp.json`, no CLAUDE.md steering.
+    /// For embedding hosts (e.g. an editor or agent runtime) that register
+    /// grove's tools themselves and supply their own steering; the project's
+    /// own files are left untouched.
+    Grammars,
 }
 
 impl Target {
@@ -40,6 +45,12 @@ impl Target {
     }
     fn is_skill(self) -> bool {
         matches!(self, Target::Skill | Target::Both)
+    }
+    /// Whether this target writes a CLAUDE.md steering block. Every target but
+    /// `Grammars` does — `Grammars` provisions grammars + the lock and nothing
+    /// else, leaving project-owned files (CLAUDE.md, `.mcp.json`) untouched.
+    fn writes_steering(self) -> bool {
+        !matches!(self, Target::Grammars)
     }
 }
 
@@ -131,6 +142,11 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
         println!("             (it steers your agent to grove's MCP tools when present,");
         println!("              else the grove CLI — same engine either way.)");
     }
+    if !target.writes_steering() {
+        println!("\n  grammars   provisioned + pinned (grove.lock). No project files were");
+        println!("             modified — the embedding host registers grove's tools and");
+        println!("             supplies its own steering.");
+    }
     Ok(())
 }
 
@@ -142,8 +158,12 @@ fn write_harness(root: &Path, target: Target, langs: &[String]) -> Result<Vec<St
     if target.writes_mcp() {
         wrote.push(write_mcp_json(root)?);
     }
-    // Steering for every target — availability isn't adoption (VISION §6.4.1).
-    wrote.push(write_claude_md(root, langs, target)?);
+    // Steering for every target except `Grammars` — availability isn't adoption
+    // (VISION §6.4.1), but embedding hosts supply their own steering and want
+    // project files left untouched.
+    if target.writes_steering() {
+        wrote.push(write_claude_md(root, langs, target)?);
+    }
     let n = registry::write_lock_for(langs, &root.join("grove.lock"))?;
     wrote.push(format!("grove.lock ({n} grammars)"));
     Ok(wrote)
@@ -425,6 +445,23 @@ mod tests {
         assert!(Target::Mcp.writes_mcp() && !Target::Mcp.is_skill());
         assert!(!Target::Skill.writes_mcp() && Target::Skill.is_skill());
         assert!(Target::Both.writes_mcp() && Target::Both.is_skill());
+        // Grammars wires nothing — no mcp, no skill, no steering.
+        assert!(!Target::Grammars.writes_mcp() && !Target::Grammars.is_skill());
+        assert!(!Target::Grammars.writes_steering());
+        assert!(Target::Mcp.writes_steering() && Target::Skill.writes_steering());
+    }
+
+    #[test]
+    fn grammars_target_writes_only_lock_no_steering_no_mcp_json() {
+        let dir = tmp("harness_grammars");
+        let wrote = write_harness(&dir, Target::Grammars, &["rust".into()]).unwrap();
+
+        assert!(dir.join("grove.lock").exists(), "lock is always written");
+        assert!(!dir.join("CLAUDE.md").exists(), "grammars mode writes no steering");
+        assert!(!dir.join(".mcp.json").exists(), "grammars mode writes no .mcp.json");
+        assert_eq!(wrote.len(), 1, "only the lock is reported: {wrote:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
