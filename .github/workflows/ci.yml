@@ -2,8 +2,20 @@ name: ci
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
+    paths-ignore: &docs-paths
+      - "**.md"
+      - "docs/**"
+      - "dist/**"
+      - "LICENSE"
   pull_request:
+    paths-ignore: *docs-paths
+
+# A new push to a branch/PR cancels its still-running CI — only the latest commit
+# is worth building.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

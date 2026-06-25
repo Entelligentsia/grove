@@ -138,6 +138,12 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   (~83% lines; the gaps are network paths in `fetch`/`ingest`/`init` and the
   `serve` stdio loop). Network-dependent paths are tested up to the
   error-before-fetch boundary, not mocked.
+- **Releasing:** see [`RELEASING.md`](RELEASING.md). In short: bump the version in
+  `Cargo.toml` + `Cargo.lock` + `dist/npm/package.json` and add a dated
+  `CHANGELOG.md` section, PR to `main`, then push a `vX.Y.Z` tag — that triggers
+  `release.yml` to build the 5 platform binaries and cut the GitHub Release.
+  Afterwards: `npm publish` from `dist/npm/`, and regenerate the Homebrew tap via
+  `dist/homebrew/update-formula.sh vX.Y.Z`.
 
 ## Conventions
 
