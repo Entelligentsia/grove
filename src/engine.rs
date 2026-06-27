@@ -130,10 +130,19 @@ impl CapturedQuery {
 fn has_supertype_pattern(src: &str) -> bool {
     let b = src.as_bytes();
     let mut in_str = false;
+    let mut in_comment = false; // `;` to end-of-line — query comments often hold `/` ("if/else")
     let is_ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
     for i in 0..b.len() {
-        match b[i] {
+        let c = b[i];
+        if in_comment {
+            if c == b'\n' {
+                in_comment = false;
+            }
+            continue;
+        }
+        match c {
             b'"' if i == 0 || b[i - 1] != b'\\' => in_str = !in_str,
+            b';' if !in_str => in_comment = true,
             b'/' if !in_str => {
                 let prev = i.checked_sub(1).map(|j| b[j]).unwrap_or(0);
                 let next = b.get(i + 1).copied().unwrap_or(0);
@@ -951,6 +960,9 @@ mod tests {
         assert!(!has_supertype_pattern("(identifier) @local.reference"));
         assert!(!has_supertype_pattern("((identifier) @x (#match? @x \"a/b\"))"));
         assert!(!has_supertype_pattern("(call function: (identifier) @name)"));
+        // `/` inside a `;` comment is not supertype syntax (regression: nvim
+        // locals.scm carry comments like "; if/else", "; try/catch").
+        assert!(!has_supertype_pattern("; if/else\n(identifier) @local.reference"));
     }
 
     #[test]
