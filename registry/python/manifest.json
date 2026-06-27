@@ -16,7 +16,8 @@
     ],
     "identifier_kinds": [
       "identifier"
-    ]
+    ],
+    "import_resolution": "dotted_package"
   },
   "source": {
     "repo": "tree-sitter/tree-sitter-python",

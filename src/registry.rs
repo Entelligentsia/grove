@@ -36,6 +36,12 @@ pub struct Profile {
     #[serde(default)]
     #[allow(dead_code)]
     pub call_kinds: Vec<String>,
+    /// Module-path resolution strategy for import-edge go-to-def (ADR 0001
+    /// Step 2): `"dotted_package"` (Python `foo.bar` → `foo/bar.py`) or
+    /// `"relative_path"` (JS/TS `./bar` → `./bar.js`). `None` disables cross-file
+    /// import resolution; the language keeps directory-wide name lookup.
+    #[serde(default)]
+    pub import_resolution: Option<String>,
 }
 
 impl Profile {
@@ -83,6 +89,15 @@ pub struct Grammar {
     pub version: String,
     pub wasm: Arc<Vec<u8>>,
     pub tags_query: Arc<String>,
+    /// Optional `locals.scm` (tree-sitter's standard `@local.scope` /
+    /// `@local.definition` / `@local.reference` query). Drives scope-aware
+    /// go-to-def. `None` when the registry dir ships no `locals.scm` — those
+    /// languages keep the directory-wide name lookup.
+    pub locals_query: Option<Arc<String>>,
+    /// Optional `imports.scm` (grove's `@import.name` / `@import.source` /
+    /// `@import.module` query). Drives import-edge cross-file go-to-def. `None`
+    /// when the registry dir ships no `imports.scm`.
+    pub imports_query: Option<Arc<String>>,
     pub profile: Arc<Profile>,
 }
 
@@ -209,11 +224,24 @@ pub fn resolve(lang: &str) -> Result<Grammar> {
         .with_context(|| format!("reading grammar.wasm for `{lang}`"))?;
     let tags = std::fs::read_to_string(dir.join("tags.scm"))
         .with_context(|| format!("reading tags.scm for `{lang}`"))?;
+    // `locals.scm` / `imports.scm` are optional: present them only if the
+    // registry dir ships them.
+    let read_optional = |fname: &str| -> Result<Option<Arc<String>>> {
+        match std::fs::read_to_string(dir.join(fname)) {
+            Ok(s) => Ok(Some(Arc::new(s))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("reading {fname} for `{lang}`")),
+        }
+    };
+    let locals = read_optional("locals.scm")?;
+    let imports = read_optional("imports.scm")?;
     let grammar = Grammar {
         name: manifest.name.clone(),
         version: manifest.version.clone(),
         wasm: Arc::new(wasm),
         tags_query: Arc::new(tags),
+        locals_query: locals,
+        imports_query: imports,
         profile: Arc::new(manifest.profile.clone()),
     };
     cache()
@@ -316,6 +344,18 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
                 fref["asset"] = serde_json::json!(format!("{}.wasm", m.name));
             }
             files.insert(fname.into(), fref);
+        }
+        // `locals.scm` / `imports.scm` are optional (scope-aware + import-edge
+        // resolution, ADR 0001): record each only when the grammar dir ships it,
+        // so `fetch` pulls it for languages that have it without breaking those
+        // that don't.
+        for fname in ["locals.scm", "imports.scm"] {
+            let path = dir.join(fname);
+            if path.exists() {
+                let bytes = std::fs::read(&path)
+                    .with_context(|| format!("hashing {}/{fname}", m.name))?;
+                files.insert(fname.into(), serde_json::json!({ "sha256": sha256(&bytes) }));
+            }
         }
         let mut entry = serde_json::json!({
             "name": m.name,
@@ -434,6 +474,31 @@ mod tests {
     }
 
     #[test]
+    fn build_index_records_locals_scm_only_when_present() {
+        // Absent by default: the toy registry ships no locals.scm.
+        let dir = toy_registry("no_locals");
+        let catalog = build_index(&dir, None).unwrap();
+        assert!(
+            catalog["grammars"][0]["files"].get("locals.scm").is_none(),
+            "no locals.scm in the dir → none in the catalog"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Present: dropping a locals.scm in the dir surfaces it (hashed) in the
+        // catalog, so `fetch` will pull it (it's repo-served, no asset).
+        let dir = toy_registry("with_locals");
+        std::fs::write(dir.join("toy").join("locals.scm"), "(identifier) @local.reference\n").unwrap();
+        let catalog = build_index(&dir, None).unwrap();
+        let entry = &catalog["grammars"][0]["files"]["locals.scm"];
+        assert!(
+            entry["sha256"].as_str().unwrap().starts_with("sha256:"),
+            "locals.scm hashed into the catalog: {entry}"
+        );
+        assert!(entry.get("asset").is_none(), "locals.scm is repo-served, not a release asset");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn sha256_has_canonical_format() {
         // Known-answer vector for the empty input, pinning the `sha256:` prefix
         // and lowercase hex — the format every producer and verifier shares.
@@ -451,6 +516,8 @@ mod tests {
             version: "0.0.0".into(),
             wasm: Arc::new(bytes.clone()),
             tags_query: Arc::new(String::new()),
+            locals_query: None,
+            imports_query: None,
             profile: Arc::new(Profile::default()),
         };
         // The lockfile field and the index/fetch helper must agree byte-for-byte.

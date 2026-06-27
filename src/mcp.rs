@@ -221,12 +221,12 @@ fn tool_specs() -> Value {
         },
         {
             "name": "definition",
-            "description": "Find where a symbol is defined (go-to-def). Either pass `name` for an exact-name lookup, or `at` (file:line:col, 1-based) to resolve the identifier under a usage site and jump to its definition. Returns JSON definitions with signature, parent, and id.",
+            "description": "Find where a symbol is defined (go-to-def). Two modes. `name`: exact-name lookup across the directory — may return several candidates when a name is reused. `at` (file:line:col, 1-based): resolve the identifier under a *usage site* — the precise mode, preferred whenever you have a position. It is scope-aware (a local/parameter binding wins over a same-named global) and follows import edges across files (an imported symbol resolves to its definition in the target file), so it returns the single binding the cursor actually refers to instead of a candidate list. Falls back to name lookup when it can't resolve (e.g. a re-exported or dynamically imported symbol), so it is never worse than `name`. Returns JSON definitions with signature, parent, and id.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "Exact symbol name to resolve (provide this or `at`)" },
-                    "at": { "type": "string", "description": "Usage site to resolve instead: file:line:col (1-based)" },
+                    "at": { "type": "string", "description": "Usage site to resolve, scope-aware + cross-file: file:line:col (1-based). Prefer this when you have a position." },
                     "dir": { "type": "string", "description": "Directory to search (default: current)" }
                 }
             },

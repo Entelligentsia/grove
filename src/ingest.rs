@@ -32,6 +32,11 @@ struct Spec {
     /// Path to the tags query in the repo at `rev`.
     #[serde(default = "default_tags")]
     tags_path: String,
+    /// Path to the locals query in the repo at `rev` (scope-aware resolution,
+    /// ADR 0001). Optional — many grammars ship one here; if it's absent upstream
+    /// the language simply keeps directory-wide name lookup.
+    #[serde(default = "default_locals")]
+    locals_path: String,
     /// Curated query patterns appended after the upstream `tags.scm`. Lets grove
     /// fill gaps in an upstream query (e.g. C ships no rule for file-scope
     /// variable/array definitions) without forking the whole file. Patterns are
@@ -45,6 +50,10 @@ struct Spec {
 
 fn default_tags() -> String {
     "queries/tags.scm".to_string()
+}
+
+fn default_locals() -> String {
+    "queries/locals.scm".to_string()
 }
 
 /// Ingest one grammar; returns (wasm KB, has_tags). Errors are per-language.
@@ -82,6 +91,15 @@ fn ingest_one(s: &Spec, out: &Path) -> Result<(usize, bool)> {
         }
     }
 
+    // locals.scm is optional too: fetch it if upstream ships one at `locals_path`,
+    // otherwise the language keeps directory-wide name lookup (no scope-aware
+    // go-to-def). A 404 is not an error.
+    let locals_url = format!(
+        "https://raw.githubusercontent.com/{}/{}/{}",
+        s.repo, s.rev, s.locals_path
+    );
+    let locals = fetch::get_bytes(&locals_url).ok();
+
     let manifest = serde_json::json!({
         "name": s.name,
         "version": version,
@@ -94,6 +112,9 @@ fn ingest_one(s: &Spec, out: &Path) -> Result<(usize, bool)> {
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     std::fs::write(dir.join("grammar.wasm"), &wasm)?;
     std::fs::write(dir.join("tags.scm"), &tags)?;
+    if let Some(l) = &locals {
+        std::fs::write(dir.join("locals.scm"), l)?;
+    }
     std::fs::write(
         dir.join("manifest.json"),
         format!("{}\n", serde_json::to_string_pretty(&manifest)?),

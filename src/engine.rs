@@ -72,6 +72,79 @@ struct Loaded {
     language: Language,
     tags_query: Query,
     capture_names: Vec<String>,
+    /// Compiled `locals.scm`, with its capture-name table. `None` when the
+    /// grammar ships no locals query.
+    locals: Option<CapturedQuery>,
+    /// Compiled `imports.scm`, with its capture-name table. `None` when the
+    /// grammar ships no imports query.
+    imports: Option<CapturedQuery>,
+}
+
+/// A compiled query plus its capture-name lookup table.
+struct CapturedQuery {
+    query: Query,
+    capture_names: Vec<String>,
+}
+
+impl CapturedQuery {
+    fn compile(language: &Language, src: &str, what: &str) -> Result<CapturedQuery> {
+        let query = Query::new(language, src).with_context(|| format!("compiling {what} query"))?;
+        let capture_names = query.capture_names().iter().map(|s| s.to_string()).collect();
+        Ok(CapturedQuery { query, capture_names })
+    }
+
+    /// Compile an *optional* query (`locals.scm` / `imports.scm`) without letting
+    /// a bad one break the grammar. These come from the registry and may be
+    /// authored upstream against a different grammar version; a query that fails
+    /// to compile (e.g. references a node kind this grammar doesn't have) must
+    /// degrade to "feature off", never poison the core tools. Returns `None` on
+    /// absence or compile error, warning once on the latter.
+    fn compile_optional(
+        language: &Language,
+        src: &Option<std::sync::Arc<String>>,
+        what: &str,
+    ) -> Option<CapturedQuery> {
+        let src = src.as_ref()?;
+        // Defense-in-depth: tree-sitter *supertype* patterns (`(super/sub)`) can
+        // hard-crash the wasm query engine at *match* time — not catchable like a
+        // compile error. Some upstream `locals.scm` use them. Refuse such a query
+        // outright (feature off) rather than risk a segfault on a hosted file.
+        if has_supertype_pattern(src) {
+            eprintln!("grove: ignoring {what} query (unsupported supertype `(a/b)` syntax)");
+            return None;
+        }
+        match CapturedQuery::compile(language, src, what) {
+            Ok(q) => Some(q),
+            Err(e) => {
+                eprintln!("grove: ignoring invalid {what} query: {e:#}");
+                None
+            }
+        }
+    }
+}
+
+/// Detect tree-sitter supertype node syntax `(name/name` outside string literals.
+/// Queries use `/` only for supertypes; predicate args containing `/` live inside
+/// quotes, which we skip. Conservative — a false positive just disables an
+/// optional feature, never breaks core tools.
+fn has_supertype_pattern(src: &str) -> bool {
+    let b = src.as_bytes();
+    let mut in_str = false;
+    let is_ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    for i in 0..b.len() {
+        match b[i] {
+            b'"' if i == 0 || b[i - 1] != b'\\' => in_str = !in_str,
+            b'/' if !in_str => {
+                let prev = i.checked_sub(1).map(|j| b[j]).unwrap_or(0);
+                let next = b.get(i + 1).copied().unwrap_or(0);
+                if is_ident(prev) && is_ident(next) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 impl Loaded {
@@ -87,6 +160,8 @@ impl Loaded {
             .iter()
             .map(|s| s.to_string())
             .collect();
+        let locals = CapturedQuery::compile_optional(&language, &g.locals_query, "locals");
+        let imports = CapturedQuery::compile_optional(&language, &g.imports_query, "imports");
         let mut parser = Parser::new();
         parser
             .set_wasm_store(store)
@@ -94,7 +169,7 @@ impl Loaded {
         parser
             .set_language(&language)
             .map_err(|e| anyhow!("setting language: {e}"))?;
-        Ok(Loaded { parser, language, tags_query, capture_names })
+        Ok(Loaded { parser, language, tags_query, capture_names, locals, imports })
     }
 }
 
@@ -399,6 +474,155 @@ pub fn identifier_at(
     }
 }
 
+/// Build a `Symbol` for a locally-bound definition. The captured
+/// `@local.definition` node is the binding identifier; line/col anchor on it,
+/// while the byte span expands to its parent statement (the `let`, `parameter`,
+/// or `assignment`) so `source` returns the whole binding, not a bare name.
+fn local_symbol(grammar: &Grammar, rel: &str, name_node: Node, source: &[u8]) -> Symbol {
+    let pos = name_node.start_position();
+    let line = pos.row + 1;
+    let name = name_node.utf8_text(source).unwrap_or("").to_string();
+    let span = name_node.parent().unwrap_or(name_node);
+    Symbol {
+        id: symbol_id(&grammar.name, rel, &name, line),
+        name,
+        kind: "local".to_string(),
+        is_definition: true,
+        file: rel.to_string(),
+        line,
+        col: pos.column + 1,
+        start_byte: span.start_byte(),
+        end_byte: span.end_byte(),
+        signature: line_text(source, name_node.start_byte()),
+        parent: None,
+    }
+}
+
+/// Scope-aware go-to-def: resolve the identifier at `(row, col)` to its nearest
+/// enclosing **local** binding, using the grammar's `locals.scm`.
+///
+/// Returns `Ok(None)` when the grammar ships no locals query, the cursor is not
+/// on an identifier, or the name has no enclosing local definition (a free /
+/// global reference — the caller then falls back to directory-wide lookup).
+/// Innermost enclosing scope wins, so shadowing resolves correctly. This is a
+/// single-file, single-parse, stateless operation — no index.
+pub fn resolve_local_at(
+    grammar: &Grammar,
+    rel: &str,
+    source: &[u8],
+    row: usize,
+    col: usize,
+) -> Result<Option<Symbol>> {
+    with_loaded(grammar, |lg| {
+        let Some(locals) = &lg.locals else {
+            return Ok(None);
+        };
+        let tree = parse_source(&mut lg.parser, source)?;
+        let root = tree.root_node();
+
+        let point = tree_sitter::Point { row, column: col };
+        let Some(ref_node) = root.descendant_for_point_range(point, point) else {
+            return Ok(None);
+        };
+        if !grammar
+            .profile
+            .identifier_kinds
+            .iter()
+            .any(|k| k.as_str() == ref_node.kind())
+        {
+            return Ok(None);
+        }
+        let name = ref_node.utf8_text(source).unwrap_or("");
+        if name.is_empty() {
+            return Ok(None);
+        }
+
+        // Collect scope ranges and definition nodes from the locals query.
+        let mut scopes: Vec<Node> = Vec::new();
+        let mut defs: Vec<Node> = Vec::new();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&locals.query, root, source);
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                // Prefix-match so subtyped captures from upstream files work too
+                // (e.g. julia's `@local.definition.function`, `@local.scope.*`).
+                let cn = locals.capture_names[cap.index as usize].as_str();
+                if cn.starts_with("local.scope") {
+                    scopes.push(cap.node);
+                } else if cn.starts_with("local.definition") {
+                    defs.push(cap.node);
+                }
+            }
+        }
+
+        // Scopes enclosing the reference, innermost (smallest span) first.
+        let (rs, re) = (ref_node.start_byte(), ref_node.end_byte());
+        let mut enclosing: Vec<Node> = scopes
+            .into_iter()
+            .filter(|s| s.start_byte() <= rs && s.end_byte() >= re)
+            .collect();
+        enclosing.sort_by_key(|s| s.end_byte() - s.start_byte());
+
+        for scope in &enclosing {
+            let hit = defs.iter().find(|d| {
+                d.start_byte() >= scope.start_byte()
+                    && d.end_byte() <= scope.end_byte()
+                    && d.utf8_text(source).map(|t| t == name).unwrap_or(false)
+            });
+            if let Some(d) = hit {
+                return Ok(Some(local_symbol(grammar, rel, *d, source)));
+            }
+        }
+        Ok(None)
+    })
+}
+
+/// One name brought into a file by an import statement (ADR 0001 Step 2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportBinding {
+    /// The name as referenced in *this* file — the alias when aliased, else the
+    /// imported name. This is what a cursor on a use resolves against.
+    pub name: String,
+    /// The original name in the target module (what to look up there). Equals
+    /// `name` when the import is not aliased.
+    pub source: String,
+    /// The module path text, verbatim from the import (e.g. `foo.bar`, `./util`).
+    pub module: String,
+}
+
+/// Extract every import binding from a file, via the grammar's `imports.scm`
+/// (`@import.name` / optional `@import.source` / `@import.module`). Returns an
+/// empty vec when the grammar ships no imports query. Pure single-file parse.
+pub fn extract_imports(grammar: &Grammar, source: &[u8]) -> Result<Vec<ImportBinding>> {
+    with_loaded(grammar, |lg| {
+        let Some(imports) = &lg.imports else {
+            return Ok(Vec::new());
+        };
+        let tree = parse_source(&mut lg.parser, source)?;
+        let mut out = Vec::new();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&imports.query, tree.root_node(), source);
+        while let Some(m) = matches.next() {
+            let (mut name, mut src, mut module) = (None, None, None);
+            for cap in m.captures {
+                let text = cap.node.utf8_text(source).unwrap_or("").to_string();
+                match imports.capture_names[cap.index as usize].as_str() {
+                    "import.name" => name = Some(text),
+                    "import.source" => src = Some(text),
+                    "import.module" => module = Some(text),
+                    _ => {}
+                }
+            }
+            // A binding needs at least a bound name and a module to resolve.
+            if let (Some(name), Some(module)) = (name, module) {
+                let source = src.unwrap_or_else(|| name.clone());
+                out.push(ImportBinding { name, source, module });
+            }
+        }
+        Ok(out)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,6 +809,157 @@ mod tests {
         assert_eq!(enc.as_deref(), Some("S::m"), "method qualified by container type");
     }
 
+    /// 0-based (row, col) of a byte offset — mirrors tree-sitter's `Point`.
+    fn row_col(src: &str, byte: usize) -> (usize, usize) {
+        let before = &src[..byte];
+        let row = before.matches('\n').count();
+        let col = byte - before.rfind('\n').map_or(0, |i| i + 1);
+        (row, col)
+    }
+
+    /// The rust grammar *with* its `locals.scm`, or `None` when it resolved from a
+    /// root that ships no locals query (e.g. a populated OS cache on a dev box).
+    /// A clean checkout / CI resolves the dev tree `registry/`, which has it. The
+    /// `GROVE_REGISTRY`-pinned integration suite (`tests/cli.rs`) covers this path
+    /// unconditionally; these unit tests add white-box coverage when available.
+    fn rust_with_locals() -> Option<Grammar> {
+        let g = rust();
+        if g.locals_query.is_none() {
+            eprintln!("skipping: rust grammar resolved without locals.scm (non-dev-stub root)");
+            return None;
+        }
+        Some(g)
+    }
+
+    #[test]
+    fn resolve_local_prefers_the_shadowing_binding() {
+        let Some(g) = rust_with_locals() else { return };
+        // A local `run` shadows the module-level `fn run`. Go-to-def on the *use*
+        // of `run` must land on the local binding (line 3), not the global (line 1).
+        let src = "fn run() {}\nfn caller() {\n    let run = 1;\n    let _x = run;\n}\n";
+        let use_byte = src.rfind("run").unwrap(); // the `run` in `let _x = run;`
+        let (row, col) = row_col(src, use_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col)
+            .unwrap()
+            .expect("a local binding should resolve");
+        assert_eq!(got.name, "run");
+        assert_eq!(got.kind, "local");
+        assert_eq!(got.line, 3, "must resolve to the local `let run`, not the global fn");
+        assert!(got.id.ends_with("@3"), "id carries the local's line, got {}", got.id);
+    }
+
+    #[test]
+    fn resolve_local_returns_none_for_a_global_reference() {
+        let Some(g) = rust_with_locals() else { return };
+        // `helper` has no local binding in scope — resolution must decline so the
+        // caller falls back to the directory-wide lookup.
+        let src = "fn helper() {}\nfn caller() {\n    helper();\n}\n";
+        let call_byte = src.rfind("helper").unwrap();
+        let (row, col) = row_col(src, call_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col).unwrap();
+        assert!(got.is_none(), "a free/global name has no local binding, got {got:?}");
+    }
+
+    #[test]
+    fn resolve_local_resolves_a_parameter() {
+        let Some(g) = rust_with_locals() else { return };
+        // Go-to-def on a use of a parameter resolves to the parameter binding.
+        let src = "fn f(x: i32) -> i32 {\n    x + 1\n}\n";
+        let use_byte = src.rfind('x').unwrap(); // the `x` in `x + 1`
+        let (row, col) = row_col(src, use_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col)
+            .unwrap()
+            .expect("parameter should resolve");
+        assert_eq!(got.name, "x");
+        assert_eq!(got.line, 1, "parameter is declared on line 1");
+    }
+
+    #[test]
+    fn resolve_local_returns_none_off_an_identifier() {
+        let Some(g) = rust_with_locals() else { return };
+        // Cursor on whitespace / punctuation is not an identifier — decline.
+        let src = "fn f() {\n    let y = 1;\n}\n";
+        let (row, col) = row_col(src, src.find('{').unwrap());
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col).unwrap();
+        assert!(got.is_none());
+    }
+
+    /// A grammar *with* its `imports.scm`, or `None` when resolved from a root
+    /// that ships none (e.g. a populated OS cache). The `GROVE_REGISTRY`-pinned
+    /// integration suite covers this path unconditionally.
+    fn lang_with_imports(lang: &str) -> Option<Grammar> {
+        let g = registry::resolve(lang).ok()?;
+        if g.imports_query.is_none() {
+            eprintln!("skipping {lang}: no imports.scm (non-dev-stub root)");
+            return None;
+        }
+        Some(g)
+    }
+
+    #[test]
+    fn extract_imports_python_named_and_aliased() {
+        let Some(g) = lang_with_imports("python") else { return };
+        let src = b"from pkg.util import helper\nfrom pkg.mod import thing as t\n";
+        let imps = extract_imports(&g, src).unwrap();
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "helper".into(),
+                source: "helper".into(),
+                module: "pkg.util".into(),
+            }),
+            "named import: {imps:?}"
+        );
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "t".into(),
+                source: "thing".into(),
+                module: "pkg.mod".into(),
+            }),
+            "aliased import binds the alias, sources the original: {imps:?}"
+        );
+    }
+
+    #[test]
+    fn extract_imports_javascript_named_and_aliased() {
+        let Some(g) = lang_with_imports("javascript") else { return };
+        let src = b"import { compute } from \"./calc\";\nimport { compute as c } from \"./calc\";\n";
+        let imps = extract_imports(&g, src).unwrap();
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "compute".into(),
+                source: "compute".into(),
+                module: "./calc".into(),
+            }),
+            "named import: {imps:?}"
+        );
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "c".into(),
+                source: "compute".into(),
+                module: "./calc".into(),
+            }),
+            "aliased import: {imps:?}"
+        );
+    }
+
+    #[test]
+    fn supertype_pattern_detected_outside_strings() {
+        // Crash-prone tree-sitter supertype syntax is flagged...
+        assert!(has_supertype_pattern("(pattern/identifier) @local.definition"));
+        assert!(has_supertype_pattern("(expression/variable) @local.reference"));
+        // ...but ordinary queries and `/` inside predicate strings are not.
+        assert!(!has_supertype_pattern("(identifier) @local.reference"));
+        assert!(!has_supertype_pattern("((identifier) @x (#match? @x \"a/b\"))"));
+        assert!(!has_supertype_pattern("(call function: (identifier) @name)"));
+    }
+
+    #[test]
+    fn extract_imports_empty_without_query() {
+        // Rust ships no imports.scm in the dev stub → no bindings, no error.
+        let imps = extract_imports(&rust(), b"use foo::bar;\n").unwrap();
+        assert!(imps.is_empty(), "rust has no imports query yet: {imps:?}");
+    }
+
     #[test]
     fn extract_dedups_overlapping_matches() {
         // No symbol range appears twice with the same is_definition flag.
@@ -596,3 +971,4 @@ mod tests {
         }
     }
 }
+

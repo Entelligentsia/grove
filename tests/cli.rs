@@ -144,6 +144,136 @@ fn definition_by_name_and_by_position() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// ADR 0001 Step 1: `definition --at` is scope-aware — a use of a name that has a
+/// local binding resolves to that binding, even when a same-named global exists
+/// (shadowing), and a use of a free/global name still resolves directory-wide.
+#[test]
+fn definition_at_is_scope_aware() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_scope", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A local `run` (line 3) shadows the module-level `fn run` (line 1).
+    std::fs::write(
+        dir.join("lib.rs"),
+        "fn run() {}\nfn caller() {\n    let run = 1;\n    let _x = run;\n}\n",
+    )
+    .unwrap();
+
+    // Cursor on the `run` use in `let _x = run;` (line 4, col 14, 1-based).
+    let local = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:4:14"]);
+    assert!(local.status.success(), "stderr: {}", String::from_utf8_lossy(&local.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&local)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "scope-aware resolution returns the single binding: {v}");
+    assert_eq!(arr[0]["name"], "run");
+    assert_eq!(arr[0]["kind"], "local", "must be the local binding, not the global fn");
+    assert_eq!(arr[0]["line"], 3, "resolves to `let run` on line 3, not `fn run` on line 1");
+
+    // Cursor on the `run` *definition* in `fn run()` (line 1, col 4): no enclosing
+    // local binding, so it falls back to the directory-wide name lookup and finds
+    // the global function definition.
+    let global = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:1:4"]);
+    assert!(global.status.success(), "stderr: {}", String::from_utf8_lossy(&global.stderr));
+    let vg: serde_json::Value = serde_json::from_str(&stdout(&global)).unwrap();
+    assert!(
+        vg.as_array().unwrap().iter().any(|s| s["name"] == "run" && s["kind"] == "function"),
+        "free/global name falls back to the global definition: {vg}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// An optional query (`locals.scm`/`imports.scm`) that fails to compile — e.g. an
+/// upstream file authored against a different grammar version — must never break
+/// the core tools; the feature just stays off (ADR 0001, hosting robustness).
+#[test]
+fn invalid_locals_query_is_non_fatal() {
+    let reg = std::env::temp_dir().join(format!("grove_cli_test_{}_badlocals_reg", std::process::id()));
+    let rust = reg.join("rust");
+    std::fs::create_dir_all(&rust).unwrap();
+    let src_reg = Path::new(DEV_REGISTRY).join("rust");
+    for f in ["grammar.wasm", "tags.scm", "manifest.json"] {
+        std::fs::copy(src_reg.join(f), rust.join(f)).unwrap();
+    }
+    // References a node kind rust's grammar doesn't have → query compile error.
+    std::fs::write(rust.join("locals.scm"), "(this_is_not_a_real_node) @local.scope\n").unwrap();
+
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_badlocals", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("lib.rs"), "fn helper() {}\n").unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["outline", "lib.rs"])
+        .current_dir(&dir)
+        .env("GROVE_REGISTRY", &reg)
+        .output()
+        .expect("run grove");
+    assert!(
+        out.status.success(),
+        "core tools must survive a bad locals query: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout(&out).contains("helper"), "outline still works with a broken locals.scm");
+
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&reg).ok();
+}
+
+/// ADR 0001 Step 2: `definition --at` follows an import edge to the *target file*
+/// — cross-file go-to-def — for Python's `from pkg.mod import name`.
+#[test]
+fn definition_at_resolves_across_files_python() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_imp_py", std::process::id()));
+    let pkg = dir.join("pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("util.py"), "def helper():\n    return 1\n").unwrap();
+    std::fs::write(
+        dir.join("main.py"),
+        "from pkg.util import helper\ndef run():\n    return helper()\n",
+    )
+    .unwrap();
+
+    // The `helper()` call on line 3, col 12 (1-based).
+    let out = grove(&dir, &["--json", "definition", "-d", ".", "--at", "main.py:3:12"]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "resolves to the single target-file def: {v}");
+    assert_eq!(arr[0]["name"], "helper");
+    assert!(
+        arr[0]["file"].as_str().unwrap().ends_with("util.py"),
+        "resolved into the imported file pkg/util.py, not a dir-wide list: {v}"
+    );
+    assert_eq!(arr[0]["line"], 1);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// ADR 0001 Step 2: the JavaScript relative-path strategy resolves an aliased
+/// named import (`import { compute as c } from "./calc"`) to the original symbol
+/// in the target module.
+#[test]
+fn definition_at_resolves_across_files_javascript_aliased() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_imp_js", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("calc.js"), "export function compute(a) {\n  return a * 2;\n}\n").unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        "import { compute as c } from \"./calc\";\nfunction run() {\n  return c(3);\n}\n",
+    )
+    .unwrap();
+
+    // The `c(3)` call on line 3, col 10 (1-based).
+    let out = grove(&dir, &["--json", "definition", "-d", ".", "--at", "app.js:3:10"]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "resolves to the single target-file def: {v}");
+    assert_eq!(arr[0]["name"], "compute", "alias resolves to the original symbol name");
+    assert!(arr[0]["file"].as_str().unwrap().ends_with("calc.js"), "resolved into calc.js: {v}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn languages_lists_the_dev_stub() {
     let dir = fixture("languages");

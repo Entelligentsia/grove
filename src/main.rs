@@ -85,13 +85,19 @@ enum Cmd {
         name_contains: bool,
     },
     /// Find where a symbol is defined (go-to-def), by name or by position.
+    ///
+    /// `name` is an exact-name lookup (may return several candidates). `--at` is
+    /// the precise mode: it resolves the identifier under a usage site,
+    /// scope-aware (a local/parameter shadows a same-named global) and following
+    /// imports across files, falling back to name lookup when it can't resolve.
     Definition {
         /// The symbol name to resolve (omit when using --at).
         name: Option<String>,
         /// Directory to search.
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
-        /// Resolve the identifier at a usage site instead: file:line:col (1-based).
+        /// Resolve the identifier at a usage site: file:line:col (1-based).
+        /// Scope-aware + cross-file; prefer this when you have a position.
         #[arg(long)]
         at: Option<String>,
     },
