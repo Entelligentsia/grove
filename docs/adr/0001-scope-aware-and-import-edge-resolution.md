@@ -134,7 +134,13 @@ surrounding context, so candidate-list degradation is an acceptable floor.
 
 ## Status of implementation
 
-- Step 1: implemented with this ADR (engine `resolve_local_at`, `locals.scm` for
+- Step 1: implemented (engine `resolve_local_at`, `locals.scm` for
   rust/python/javascript, `definition_at` wiring, unit + integration tests).
-- Step 2: documented here; to follow as the next increment, validated on
-  grove-testbench before any stack-graphs decision.
+- Step 2: implemented (engine `extract_imports` + `imports.scm`, ops
+  `resolve_import_at` / `import_candidate_paths` with `dotted_package` and
+  `relative_path` strategies, `import_resolution` manifest field, `definition_at`
+  decision tree local→import→dir-wide, unit + integration tests). Shipped for
+  python/javascript; rust import resolution (`use_path`) is deferred — rust falls
+  back to directory-wide lookup. Next: validate the cross-file hit-rate on
+  grove-testbench before any stack-graphs decision; widen the per-language
+  `locals.scm`/`imports.scm` (match arms, destructuring, `import *`, re-exports).

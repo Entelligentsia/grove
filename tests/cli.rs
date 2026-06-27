@@ -182,6 +182,62 @@ fn definition_at_is_scope_aware() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// ADR 0001 Step 2: `definition --at` follows an import edge to the *target file*
+/// — cross-file go-to-def — for Python's `from pkg.mod import name`.
+#[test]
+fn definition_at_resolves_across_files_python() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_imp_py", std::process::id()));
+    let pkg = dir.join("pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("util.py"), "def helper():\n    return 1\n").unwrap();
+    std::fs::write(
+        dir.join("main.py"),
+        "from pkg.util import helper\ndef run():\n    return helper()\n",
+    )
+    .unwrap();
+
+    // The `helper()` call on line 3, col 12 (1-based).
+    let out = grove(&dir, &["--json", "definition", "-d", ".", "--at", "main.py:3:12"]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "resolves to the single target-file def: {v}");
+    assert_eq!(arr[0]["name"], "helper");
+    assert!(
+        arr[0]["file"].as_str().unwrap().ends_with("util.py"),
+        "resolved into the imported file pkg/util.py, not a dir-wide list: {v}"
+    );
+    assert_eq!(arr[0]["line"], 1);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// ADR 0001 Step 2: the JavaScript relative-path strategy resolves an aliased
+/// named import (`import { compute as c } from "./calc"`) to the original symbol
+/// in the target module.
+#[test]
+fn definition_at_resolves_across_files_javascript_aliased() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_imp_js", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("calc.js"), "export function compute(a) {\n  return a * 2;\n}\n").unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        "import { compute as c } from \"./calc\";\nfunction run() {\n  return c(3);\n}\n",
+    )
+    .unwrap();
+
+    // The `c(3)` call on line 3, col 10 (1-based).
+    let out = grove(&dir, &["--json", "definition", "-d", ".", "--at", "app.js:3:10"]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "resolves to the single target-file def: {v}");
+    assert_eq!(arr[0]["name"], "compute", "alias resolves to the original symbol name");
+    assert!(arr[0]["file"].as_str().unwrap().ends_with("calc.js"), "resolved into calc.js: {v}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn languages_lists_the_dev_stub() {
     let dir = fixture("languages");

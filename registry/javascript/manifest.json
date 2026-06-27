@@ -19,7 +19,8 @@
     "identifier_kinds": [
       "identifier",
       "property_identifier"
-    ]
+    ],
+    "import_resolution": "relative_path"
   },
   "source": {
     "repo": "tree-sitter/tree-sitter-javascript",

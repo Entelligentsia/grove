@@ -74,13 +74,24 @@ struct Loaded {
     capture_names: Vec<String>,
     /// Compiled `locals.scm`, with its capture-name table. `None` when the
     /// grammar ships no locals query.
-    locals: Option<LocalsQuery>,
+    locals: Option<CapturedQuery>,
+    /// Compiled `imports.scm`, with its capture-name table. `None` when the
+    /// grammar ships no imports query.
+    imports: Option<CapturedQuery>,
 }
 
-/// A compiled locals query plus its capture-name lookup table.
-struct LocalsQuery {
+/// A compiled query plus its capture-name lookup table.
+struct CapturedQuery {
     query: Query,
     capture_names: Vec<String>,
+}
+
+impl CapturedQuery {
+    fn compile(language: &Language, src: &str, what: &str) -> Result<CapturedQuery> {
+        let query = Query::new(language, src).with_context(|| format!("compiling {what} query"))?;
+        let capture_names = query.capture_names().iter().map(|s| s.to_string()).collect();
+        Ok(CapturedQuery { query, capture_names })
+    }
 }
 
 impl Loaded {
@@ -97,12 +108,11 @@ impl Loaded {
             .map(|s| s.to_string())
             .collect();
         let locals = match &g.locals_query {
-            Some(src) => {
-                let query = Query::new(&language, src).context("compiling locals query")?;
-                let capture_names =
-                    query.capture_names().iter().map(|s| s.to_string()).collect();
-                Some(LocalsQuery { query, capture_names })
-            }
+            Some(src) => Some(CapturedQuery::compile(&language, src, "locals")?),
+            None => None,
+        };
+        let imports = match &g.imports_query {
+            Some(src) => Some(CapturedQuery::compile(&language, src, "imports")?),
             None => None,
         };
         let mut parser = Parser::new();
@@ -112,7 +122,7 @@ impl Loaded {
         parser
             .set_language(&language)
             .map_err(|e| anyhow!("setting language: {e}"))?;
-        Ok(Loaded { parser, language, tags_query, capture_names, locals })
+        Ok(Loaded { parser, language, tags_query, capture_names, locals, imports })
     }
 }
 
@@ -517,6 +527,52 @@ pub fn resolve_local_at(
     })
 }
 
+/// One name brought into a file by an import statement (ADR 0001 Step 2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportBinding {
+    /// The name as referenced in *this* file — the alias when aliased, else the
+    /// imported name. This is what a cursor on a use resolves against.
+    pub name: String,
+    /// The original name in the target module (what to look up there). Equals
+    /// `name` when the import is not aliased.
+    pub source: String,
+    /// The module path text, verbatim from the import (e.g. `foo.bar`, `./util`).
+    pub module: String,
+}
+
+/// Extract every import binding from a file, via the grammar's `imports.scm`
+/// (`@import.name` / optional `@import.source` / `@import.module`). Returns an
+/// empty vec when the grammar ships no imports query. Pure single-file parse.
+pub fn extract_imports(grammar: &Grammar, source: &[u8]) -> Result<Vec<ImportBinding>> {
+    with_loaded(grammar, |lg| {
+        let Some(imports) = &lg.imports else {
+            return Ok(Vec::new());
+        };
+        let tree = parse_source(&mut lg.parser, source)?;
+        let mut out = Vec::new();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&imports.query, tree.root_node(), source);
+        while let Some(m) = matches.next() {
+            let (mut name, mut src, mut module) = (None, None, None);
+            for cap in m.captures {
+                let text = cap.node.utf8_text(source).unwrap_or("").to_string();
+                match imports.capture_names[cap.index as usize].as_str() {
+                    "import.name" => name = Some(text),
+                    "import.source" => src = Some(text),
+                    "import.module" => module = Some(text),
+                    _ => {}
+                }
+            }
+            // A binding needs at least a bound name and a module to resolve.
+            if let (Some(name), Some(module)) = (name, module) {
+                let source = src.unwrap_or_else(|| name.clone());
+                out.push(ImportBinding { name, source, module });
+            }
+        }
+        Ok(out)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,6 +832,71 @@ mod tests {
         let (row, col) = row_col(src, src.find('{').unwrap());
         let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col).unwrap();
         assert!(got.is_none());
+    }
+
+    /// A grammar *with* its `imports.scm`, or `None` when resolved from a root
+    /// that ships none (e.g. a populated OS cache). The `GROVE_REGISTRY`-pinned
+    /// integration suite covers this path unconditionally.
+    fn lang_with_imports(lang: &str) -> Option<Grammar> {
+        let g = registry::resolve(lang).ok()?;
+        if g.imports_query.is_none() {
+            eprintln!("skipping {lang}: no imports.scm (non-dev-stub root)");
+            return None;
+        }
+        Some(g)
+    }
+
+    #[test]
+    fn extract_imports_python_named_and_aliased() {
+        let Some(g) = lang_with_imports("python") else { return };
+        let src = b"from pkg.util import helper\nfrom pkg.mod import thing as t\n";
+        let imps = extract_imports(&g, src).unwrap();
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "helper".into(),
+                source: "helper".into(),
+                module: "pkg.util".into(),
+            }),
+            "named import: {imps:?}"
+        );
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "t".into(),
+                source: "thing".into(),
+                module: "pkg.mod".into(),
+            }),
+            "aliased import binds the alias, sources the original: {imps:?}"
+        );
+    }
+
+    #[test]
+    fn extract_imports_javascript_named_and_aliased() {
+        let Some(g) = lang_with_imports("javascript") else { return };
+        let src = b"import { compute } from \"./calc\";\nimport { compute as c } from \"./calc\";\n";
+        let imps = extract_imports(&g, src).unwrap();
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "compute".into(),
+                source: "compute".into(),
+                module: "./calc".into(),
+            }),
+            "named import: {imps:?}"
+        );
+        assert!(
+            imps.contains(&ImportBinding {
+                name: "c".into(),
+                source: "compute".into(),
+                module: "./calc".into(),
+            }),
+            "aliased import: {imps:?}"
+        );
+    }
+
+    #[test]
+    fn extract_imports_empty_without_query() {
+        // Rust ships no imports.scm in the dev stub → no bindings, no error.
+        let imps = extract_imports(&rust(), b"use foo::bar;\n").unwrap();
+        assert!(imps.is_empty(), "rust has no imports query yet: {imps:?}");
     }
 
     #[test]

@@ -36,6 +36,12 @@ pub struct Profile {
     #[serde(default)]
     #[allow(dead_code)]
     pub call_kinds: Vec<String>,
+    /// Module-path resolution strategy for import-edge go-to-def (ADR 0001
+    /// Step 2): `"dotted_package"` (Python `foo.bar` → `foo/bar.py`) or
+    /// `"relative_path"` (JS/TS `./bar` → `./bar.js`). `None` disables cross-file
+    /// import resolution; the language keeps directory-wide name lookup.
+    #[serde(default)]
+    pub import_resolution: Option<String>,
 }
 
 impl Profile {
@@ -88,6 +94,10 @@ pub struct Grammar {
     /// go-to-def. `None` when the registry dir ships no `locals.scm` — those
     /// languages keep the directory-wide name lookup.
     pub locals_query: Option<Arc<String>>,
+    /// Optional `imports.scm` (grove's `@import.name` / `@import.source` /
+    /// `@import.module` query). Drives import-edge cross-file go-to-def. `None`
+    /// when the registry dir ships no `imports.scm`.
+    pub imports_query: Option<Arc<String>>,
     pub profile: Arc<Profile>,
 }
 
@@ -214,18 +224,24 @@ pub fn resolve(lang: &str) -> Result<Grammar> {
         .with_context(|| format!("reading grammar.wasm for `{lang}`"))?;
     let tags = std::fs::read_to_string(dir.join("tags.scm"))
         .with_context(|| format!("reading tags.scm for `{lang}`"))?;
-    // `locals.scm` is optional: present it only if the registry dir ships one.
-    let locals = match std::fs::read_to_string(dir.join("locals.scm")) {
-        Ok(s) => Some(Arc::new(s)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e).with_context(|| format!("reading locals.scm for `{lang}`")),
+    // `locals.scm` / `imports.scm` are optional: present them only if the
+    // registry dir ships them.
+    let read_optional = |fname: &str| -> Result<Option<Arc<String>>> {
+        match std::fs::read_to_string(dir.join(fname)) {
+            Ok(s) => Ok(Some(Arc::new(s))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("reading {fname} for `{lang}`")),
+        }
     };
+    let locals = read_optional("locals.scm")?;
+    let imports = read_optional("imports.scm")?;
     let grammar = Grammar {
         name: manifest.name.clone(),
         version: manifest.version.clone(),
         wasm: Arc::new(wasm),
         tags_query: Arc::new(tags),
         locals_query: locals,
+        imports_query: imports,
         profile: Arc::new(manifest.profile.clone()),
     };
     cache()
@@ -329,14 +345,17 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
             }
             files.insert(fname.into(), fref);
         }
-        // `locals.scm` is optional (scope-aware resolution, ADR 0001): record it
-        // only when the grammar dir ships one, so `fetch` pulls it for languages
-        // that have it without breaking those that don't.
-        let locals = dir.join("locals.scm");
-        if locals.exists() {
-            let bytes = std::fs::read(&locals)
-                .with_context(|| format!("hashing {}/locals.scm", m.name))?;
-            files.insert("locals.scm".into(), serde_json::json!({ "sha256": sha256(&bytes) }));
+        // `locals.scm` / `imports.scm` are optional (scope-aware + import-edge
+        // resolution, ADR 0001): record each only when the grammar dir ships it,
+        // so `fetch` pulls it for languages that have it without breaking those
+        // that don't.
+        for fname in ["locals.scm", "imports.scm"] {
+            let path = dir.join(fname);
+            if path.exists() {
+                let bytes = std::fs::read(&path)
+                    .with_context(|| format!("hashing {}/{fname}", m.name))?;
+                files.insert(fname.into(), serde_json::json!({ "sha256": sha256(&bytes) }));
+            }
         }
         let mut entry = serde_json::json!({
             "name": m.name,
@@ -498,6 +517,7 @@ mod tests {
             wasm: Arc::new(bytes.clone()),
             tags_query: Arc::new(String::new()),
             locals_query: None,
+            imports_query: None,
             profile: Arc::new(Profile::default()),
         };
         // The lockfile field and the index/fetch helper must agree byte-for-byte.

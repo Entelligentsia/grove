@@ -529,8 +529,123 @@ pub fn definition_at(file: &Path, row: usize, col: usize, dir: &Path) -> Result<
     if let Some(local) = engine::resolve_local_at(&grammar, &rel(file), &src, row, col)? {
         return Ok((name, vec![local]));
     }
+    // Import-edge next (ADR 0001 Step 2): if the name is brought in by an import,
+    // resolve it to the definition in the target file — cross-file go-to-def
+    // without an index. Falls through to directory-wide lookup on any miss.
+    let imported = resolve_import_at(file, &name, dir, &grammar, &src)?;
+    if !imported.is_empty() {
+        return Ok((name, imported));
+    }
     let defs = definition(dir, &name)?;
     Ok((name, defs))
+}
+
+/// Resolve `name` to a definition in the file an import binds it from. Returns an
+/// empty vec when the language has no import-resolution strategy, `name` isn't
+/// imported here, the module doesn't resolve to a file on disk, or that file has
+/// no matching top-level definition — every case the caller treats as "fall back
+/// to directory-wide lookup". Parses at most one extra file (the target), so the
+/// whole operation stays stateless and bounded by import depth, not repo size.
+fn resolve_import_at(
+    file: &Path,
+    name: &str,
+    dir: &Path,
+    grammar: &Grammar,
+    src: &[u8],
+) -> Result<Vec<Symbol>> {
+    let Some(strategy) = grammar.profile.import_resolution.as_deref() else {
+        return Ok(Vec::new());
+    };
+    let Some(binding) = engine::extract_imports(grammar, src)?
+        .into_iter()
+        .find(|b| b.name == name)
+    else {
+        return Ok(Vec::new());
+    };
+    for cand in import_candidate_paths(strategy, &binding.module, file, dir) {
+        if !cand.is_file() {
+            continue;
+        }
+        let tsrc = read(&cand)?;
+        let trel = rel(&cand);
+        let defs: Vec<Symbol> = engine::extract(grammar, &trel, &tsrc)?
+            .into_iter()
+            .filter(|s| s.is_definition && s.name == binding.source)
+            .collect();
+        if !defs.is_empty() {
+            return Ok(defs);
+        }
+    }
+    Ok(Vec::new())
+}
+
+/// Candidate file paths a module path could resolve to, by strategy. The first
+/// that exists and contains the imported definition wins. Pure path arithmetic —
+/// no IO here.
+fn import_candidate_paths(
+    strategy: &str,
+    module: &str,
+    current_file: &Path,
+    dir: &Path,
+) -> Vec<PathBuf> {
+    match strategy {
+        // Python: `foo.bar` → `<root>/foo/bar.py` | `<root>/foo/bar/__init__.py`.
+        // Leading dots are relative to the current file's package: one dot = the
+        // file's own directory, each extra dot climbs one more.
+        "dotted_package" => {
+            let dots = module.chars().take_while(|&c| c == '.').count();
+            let rest = &module[dots..];
+            let parts: Vec<&str> = rest.split('.').filter(|p| !p.is_empty()).collect();
+            let mut base = if dots == 0 {
+                dir.to_path_buf()
+            } else {
+                let mut b = current_file.parent().unwrap_or(dir).to_path_buf();
+                for _ in 0..dots.saturating_sub(1) {
+                    b = b.parent().map(Path::to_path_buf).unwrap_or(b);
+                }
+                b
+            };
+            for p in &parts {
+                base.push(p);
+            }
+            vec![base.with_extension("py"), base.join("__init__.py")]
+        }
+        // JS/TS: only relative specifiers resolve to a file; bare specifiers
+        // (`react`) are package imports we don't chase. `./util` → `./util.js` |
+        // `./util.jsx` | `./util/index.js`.
+        "relative_path" => {
+            if !module.starts_with('.') {
+                return Vec::new();
+            }
+            let joined = normalize(&current_file.parent().unwrap_or(dir).join(module));
+            if joined.extension().is_some() {
+                return vec![joined];
+            }
+            vec![
+                joined.with_extension("js"),
+                joined.with_extension("jsx"),
+                joined.join("index.js"),
+            ]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Lexically normalize a path, resolving `.` and `..` without touching the disk
+/// (so `a/b/../util` → `a/util`). Symlink-blind, which is fine for module paths.
+fn normalize(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1089,5 +1204,71 @@ mod tests {
             "call_beta references beta, got {:?}", call_beta.references);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_candidates_dotted_package_absolute() {
+        let got = import_candidate_paths(
+            "dotted_package",
+            "pkg.util",
+            Path::new("/proj/main.py"),
+            Path::new("/proj"),
+        );
+        assert_eq!(
+            got,
+            vec![
+                PathBuf::from("/proj/pkg/util.py"),
+                PathBuf::from("/proj/pkg/util/__init__.py"),
+            ]
+        );
+    }
+
+    #[test]
+    fn import_candidates_dotted_package_relative_dots() {
+        let file = Path::new("/proj/pkg/sibling.py");
+        // One dot = the file's own package directory.
+        assert_eq!(
+            import_candidate_paths("dotted_package", ".util", file, Path::new("/proj")),
+            vec![
+                PathBuf::from("/proj/pkg/util.py"),
+                PathBuf::from("/proj/pkg/util/__init__.py"),
+            ]
+        );
+        // Two dots climb one further up.
+        assert_eq!(
+            import_candidate_paths("dotted_package", "..util", file, Path::new("/proj"))[0],
+            PathBuf::from("/proj/util.py")
+        );
+    }
+
+    #[test]
+    fn import_candidates_relative_path_js() {
+        let file = Path::new("/proj/src/app.js");
+        assert_eq!(
+            import_candidate_paths("relative_path", "./calc", file, Path::new("/proj")),
+            vec![
+                PathBuf::from("/proj/src/calc.js"),
+                PathBuf::from("/proj/src/calc.jsx"),
+                PathBuf::from("/proj/src/calc/index.js"),
+            ]
+        );
+        // `..` is normalized lexically.
+        assert_eq!(
+            import_candidate_paths("relative_path", "../lib/calc", file, Path::new("/proj"))[0],
+            PathBuf::from("/proj/lib/calc.js")
+        );
+        // Bare specifiers (package imports) are not chased to a file.
+        assert!(import_candidate_paths("relative_path", "react", file, Path::new("/proj")).is_empty());
+    }
+
+    #[test]
+    fn import_candidates_unknown_strategy_is_empty() {
+        assert!(import_candidate_paths("nope", "x", Path::new("/p/a.py"), Path::new("/p")).is_empty());
+    }
+
+    #[test]
+    fn normalize_resolves_dot_and_dotdot() {
+        assert_eq!(normalize(Path::new("/a/b/../util")), PathBuf::from("/a/util"));
+        assert_eq!(normalize(Path::new("/a/./b")), PathBuf::from("/a/b"));
     }
 }
