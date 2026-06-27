@@ -3,17 +3,17 @@ name: grove
 description: >
   Byte-precise, token-cheap code navigation via tree-sitter — outline a file,
   find or define a symbol, read one symbol's body, find callers, map a directory's
-  dependency graph, go-to-def, and syntax-check after edits. The required first move for any where-is /
-  what's-in / who-calls question, in any language grove has a grammar for —
-  before grep, rg, read, cat, or sed.
+  dependency graph, go-to-def, and syntax-check after edits. The first move for any
+  where-is / what's-in / who-calls question, in any language grove has a grammar
+  for — with grep, rg, and read kept for text search and quick facts.
 ---
 
 # grove
 
-grove is the **canonical procedure** for code navigation in this project. Use
-grove's MCP tools (`mcp__grove__*`) when they're available this session;
-otherwise use the `grove` CLI (`--json` for machine-readable output). Same
-engine — every `grove <verb>` below is the `mcp__grove__<verb>` tool.
+grove is the **canonical procedure for structural code navigation** in this
+project. Use grove's MCP tools (`mcp__grove__*`) when they're available this
+session; otherwise use the `grove` CLI (`--json` for machine-readable output).
+Same engine — every `grove <verb>` below is the `mcp__grove__<verb>` tool.
 
 **If the `mcp__grove__*` tools are deferred** (listed by name, schemas not yet
 loaded), load all seven in a **single** ToolSearch before you start, not one at a
@@ -23,20 +23,39 @@ The procedure chains (e.g. `symbols` → `source`), so fetching schemas on deman
 forces serial round-trips — you won't know you need `source` until `symbols`
 returns. Batch them up front and the whole navigation runs without a stall.
 
-## You MUST use grove before grep/read
+## grove for structure, shell for the rest
 
-`grep`, `rg`, `read`, `cat`, and `sed` on a source file are **fallbacks**, used
-only after grove has been tried and returned insufficient content. Running
-`grep -rn '<symbol>'`, or reading a whole source file, as your first action on a
-code question is a steering violation.
+grove and your shell tools (`grep`, `rg`, `read`, `cat`, `ls`, `find`) are
+**partners** — use each for what it does best, and combine them when that is the
+shortest path to a grounded answer.
 
-**Trigger — check before every tool call.** If the prompt contains any of — a
-file path, a function / type / struct / macro name, or the words "where is",
-"what does X define", "who calls", "show me", "find", "list", "outline" — your
-FIRST tool call MUST be a grove command. If none of those lexically appear,
-grove is optional.
+**Reach for grove when the target is a named symbol or a structural relationship.**
+If the prompt names a file, a function / type / struct / macro, or asks "where is",
+"who calls", "what's in", "how does this connect" — grove answers it precisely and
+token-cheap, and returns a stable `symbol-id` to pass forward. Start there instead
+of grepping for the symbol or reading the whole file.
 
-## Procedure
+**Reach for the shell when grove can't see the target — it's the right tool, not a
+fallback:**
+- **Text, not a symbol** — a string literal, a log / error message, a config key, a
+  macro's *value*, a constant, a flag, a `TODO` → `grep -rn` / `rg`. grove finds
+  *named definitions*, not arbitrary text, and (today) has no text-search tool.
+- **Non-code / unparsed files** — Makefiles, `*.conf`, YAML / JSON data, docs →
+  `grep` / `read`. (css / html / json grammars `check` but yield no symbols.)
+- **A quick fact** — does a path exist, list a dir (`ls`), count lines (`wc -l`),
+  find files by name (`find`, `git ls-files`), read a genuinely small file → shell.
+  A grove round-trip to confirm one line is wasted motion.
+
+**Combine — often the shortest path** (grove and the shell share 1-based lines and
+the same bytes):
+- `grep -rn '<text>'` to find the line a literal or call site sits on → `grove
+  definition --at <file:line:col>` to resolve the enclosing / target symbol.
+- `grove outline <file>` for the shape → a **bounded** `read` (`offset`/`limit` from
+  the outline) to grab a contiguous block of small adjacent symbols when that beats
+  N `source` calls.
+- `grove symbols` / `map` to locate the subsystem → `grep` to pin a constant inside.
+
+## Procedure (symbol / structure questions)
 
 1. Identify the named symbol and/or file in the prompt.
 2. File but no symbol → `grove outline <file>` (add `--detail 0` on files > 500 lines).
@@ -57,18 +76,24 @@ grove is optional.
 For questions about how code connects across a directory, prefer `map` — it
 returns every definition plus which other symbols each one references, in a
 single call. Use `source` only for the few load-bearing definitions you need to
-read in full. Do **not** fetch many sources in sequence to build a picture that
+read in full. Don't fetch many sources in sequence to build a picture that
 `map` gives in one call.
 
-## Don't / Do
+## For symbol work: Don't / Do
 
-| ❌ Don't | ✅ Do |
+When the target *is* a named symbol, grove beats grep+read — it returns the exact
+body with a stable id, no whole-file read, no false hits from comments or strings:
+
+| ❌ Don't (for a symbol) | ✅ Do |
 |---|---|
 | `grep -n 'cmd_struct' git.c` then `read git.c` | `grove outline git.c` → `grove source <id>` |
 | `grep -rn 'refs_be_files' refs/` | `grove symbols refs/ --name refs_be_files` → `grove source <id>` |
 | `read builtin/commit.c` (whole 1700-line file) | `grove outline builtin/commit.c` → `grove source <id>` for the one symbol |
 | `grep -rn 'struct ref_storage_be' .` | `grove symbols . --name ref_storage_be` → `grove source <id>` |
 | 7× `source` calls to understand a subsystem | `grove map <dir>` — one call, definitions + references, no bodies |
+
+(Searching for the *text* `refs_be_files` — a log line, a comment, a config value —
+is the opposite case: that's what `grep` is for.)
 
 ## Cross-file / "used across the codebase"
 
@@ -78,16 +103,18 @@ read in full. Do **not** fetch many sources in sequence to build a picture that
 - "every file that defines a backend/registry of type T": `grove outline
   <header>` to read the struct, then `grove symbols <dir> --kind <kind>` for the
   concrete instances.
-- Do NOT `grep -rn '<typename>' .` as a substitute — grep returns string
-  matches, grove returns semantic definitions.
+- For a type's *definition*, prefer `grove symbols --name <type>` over
+  `grep -rn '<typename>' .` — grep returns string matches (comments, casts, every
+  mention), grove returns the semantic definition. (Want every textual mention?
+  Then grep is the right tool.)
 
 ## Trace a parameter's shape (dynamically-typed languages)
 
 "What is the type/shape of the `batch` argument inside `panouploaddb.createBatch`?"
 On a **dynamically-typed** codebase grove has no type system, so you reconstruct
-the shape by a short backward slice — **~3 hops, all grove tools, no grep and no
-whole-file `read`**. (On a statically-typed language this is usually one hop:
-`grove source <id>` — the type is already in the signature grove slices.)
+the shape by a short backward slice — **~3 hops, mostly grove tools**. (On a
+statically-typed language this is usually one hop: `grove source <id>` — the type
+is already in the signature grove slices.)
 
 Procedure:
 
@@ -121,11 +148,10 @@ keep on the **dynamically-typed, full-profile** subset (JS/Python/Ruby/PHP/…);
 on statically-typed full-profile languages (Rust/Go/…) `source` already carries
 the type and the slice is unnecessary.
 
-**Steering.** Resolve names with `grove symbols --name <exact>` (exact by
-default; `--name-contains` only for deliberate fuzzy exploration) and read
-bodies with `grove source <id>`. Do **not** `grep -rn '<constructor>'` to chase
-a `require`, and do **not** `read` a whole file to find a call site — that is
-the fallback this procedure exists to avoid.
+**Resolve names with grove.** Use `grove symbols --name <exact>` (exact by
+default; `--name-contains` only for deliberate fuzzy exploration) and read bodies
+with `grove source <id>` — that's cheaper and more precise than `grep -rn
+'<constructor>'` + a whole-file `read` to chase a `require` to its definition.
 
 ## Recovery — grove returned partial/empty output
 
@@ -133,17 +159,20 @@ the fallback this procedure exists to avoid.
   has a grammar (`grove languages`); a language with no tags query (e.g. css,
   html, json) still `check`s but yields no symbols.
 - Genuinely partial body → `read <file>` with `offset=<start-row>` and
-  `limit=<next-symbol-row − start-row>` from `grove outline --detail 2`. Never
-  `read` the whole file.
-- **A single grove miss does NOT justify switching to grep for later
-  questions.** Recover, then continue with grove.
+  `limit=<next-symbol-row − start-row>` from `grove outline --detail 2`.
+- For continued *symbol* questions, recover with grove (re-run `source` by id)
+  rather than dropping to grep — but if the target turns out to be text or a
+  non-code file, the shell was the right tool all along.
 
-## Why this, not grep/read
+## When grove, when shell
 
 `read` on a 1700-line file floods context with ~50 KB you don't need; `grep`
-returns string matches that miss struct/function boundaries. grove returns one
-symbol's exact bytes with a stable id you pass forward. `callers`/`definition`
-are name-based (not receiver-type resolved).
+returns string matches that miss struct/function boundaries and conflate
+same-named symbols. For a **symbol**, grove returns its exact bytes with a stable
+id you pass forward (`callers`/`definition` are name-based, not receiver-type
+resolved). For **text, a non-code file, or a quick fact**, the shell is faster and
+correct. Most real questions want grove to navigate and the shell to confirm — use
+both.
 
 ## Setup — only if grove isn't available
 

@@ -242,11 +242,13 @@ fn write_claude_md(root: &Path, langs: &[String], target: Target) -> Result<Stri
 }
 
 /// The steering block, tailored to how the agent reaches grove. The MCP target
-/// carries the full imperative procedure inline (there is no skill file to defer
-/// to); the skill target is a thin invariant + trigger + ban list that defers to
-/// SKILL.md as the single source of truth. Both are imperative and lexically
-/// triggered — a hortative "prefer grove" loses to the model's grep prior, and a
-/// cold agent without any block defaults to grep/whole-file reads (VISION §6.4.1).
+/// carries the full route-by-task guide inline (there is no skill file to defer
+/// to); the skill target is a thin version that defers to SKILL.md as the single
+/// source of truth. Both route by task — grove for named symbols / structure, the
+/// shell for text / non-code / quick facts, combining freely — rather than banning
+/// grep: a cold agent with no block at all defaults to grep / whole-file reads
+/// (VISION §6.4.1), and an over-rigid "grove or violation" block overcorrects into
+/// costly source fan-outs for things the shell does cheaply.
 fn claude_section(langs: &[String], target: Target) -> String {
     let langs = langs.join(", ");
     if target.writes_mcp() {
@@ -255,83 +257,57 @@ fn claude_section(langs: &[String], target: Target) -> String {
         let p = format!("mcp__{MCP_SERVER_KEY}__");
         format!(
             "{CLAUDE_START}
-## INVARIANT — code navigation goes through grove
+## Code navigation: grove for structure, shell for the rest
 
-Every where-is / what's-in / who-calls action in this project goes through the
-**grove** MCP server (tree-sitter backed; languages: {langs}). This is not a
-preference. `grep`, `rg`, `read`, `cat`, and `sed` on a source file are
-FALLBACKS, allowed only after grove has been tried and returned insufficient
-content. Running `grep -rn '<symbol>'`, or reading a whole source file, as your
-first action on a code question is a steering violation.
+**grove** is a tree-sitter engine for *structural* code questions — byte-precise,
+token-cheap (languages: {langs}). Its tools are **deferred** MCP tools; load them in
+one ToolSearch when a code question lands (don't default to a search agent or grep):
+`{p}outline`, `{p}symbols`, `{p}source`, `{p}callers`, `{p}definition`, `{p}map`, `{p}check`.
 
-The grove tools are **deferred** MCP tools — the moment a code question arrives,
-load their schemas with ToolSearch (do not default to a search agent or grep):
-`{p}outline`, `{p}symbols`, `{p}source`, `{p}callers`, `{p}definition`, `{p}check`, `{p}map`.
+**Use grove for named symbols and relationships** (every result carries a stable
+`symbol-id`, `<lang>:<relpath>#<name>@<row>`, to pass forward; lines 1-based):
+- What's in a file (skeleton, not the whole file) → `{p}outline` (`detail:0` if > 500 lines).
+- Where a fn / type / struct / macro is defined → `{p}symbols` with `name` → `{p}source` with the id.
+- One symbol's exact body → `{p}source`.
+- Who calls it → `{p}callers`.
+- Go-to-def from a usage (scope-aware, follows imports cross-file) → `{p}definition` with `at` (file:line:col).
+- How a directory connects → `{p}map` (one call; prefer over many `{p}source`).
+- Syntax after an edit → `{p}check`.
 
-**Trigger — check before every tool call.** If the prompt contains any of — a
-file path, a function / type / struct / macro name, or the words \"where is\",
-\"what does X define\", \"who calls\", \"show me\", \"find\", \"list\",
-\"outline\" — your FIRST tool call MUST be a grove tool. Otherwise grove is optional.
+**Use the shell — the right tool, not a fallback — when grove can't see the target:**
+- Text, not a symbol (a string, log / error message, config key, a macro's *value*,
+  a constant, a flag, a TODO) → `grep -rn` / `rg`. grove finds definitions, not text.
+- Non-code files (Makefiles, configs, data, docs) → `grep` / `read`.
+- A quick fact (path exists, `ls`, `wc -l`, `find`, read a small file) → shell.
 
-**Procedure.**
-1. File but no symbol → `{p}outline` (pass `detail:0` on files > 500 lines).
-2. Symbol but no file → `{p}symbols` with `name`.
-3. Take the `symbol-id` (`<lang>:<relpath>#<name>@<row>`) from the result.
-4. `{p}source` with that **id** → exactly that symbol's body.
-5. \"who calls\" → `{p}callers`; \"where defined\" → `{p}definition`. When you
-   have a position (a use site), call `{p}definition` with `at` (file:line:col):
-   it is scope-aware and follows imports across files, returning the one binding
-   the cursor refers to, not a list. Use `name` only when you have no position.
-6. After an edit → `{p}check`.
-7. **Broad/architectural questions** → `{p}map` (directory dependency graph in one call).
+**Combine** (same 1-based lines, same bytes): `grep` a literal's line → `{p}definition`
+`at` to resolve its symbol · `{p}outline` → bounded `read` (`offset`/`limit`) for
+adjacent symbols · `{p}map` / `{p}symbols` to locate → `grep` a constant inside.
 
-**Breadth control.** For questions about how code connects across a directory,
-prefer `{p}map` — it returns every definition plus its outgoing references in
-one call. Use `{p}source` only for the few load-bearing definitions you need
-to read in full. Do NOT fetch many sources in sequence to build a picture that
-`{p}map` gives in a single call.
-
-**Cross-file.** To jump from a *use* of an imported symbol to its definition in
-another file, call `{p}definition` with `at` (file:line:col) — it follows the
-import edge and returns the one target. To survey a name tree-wide, `{p}symbols`
-over the root → `{p}callers` (use sites) → `{p}source` per definition. Do NOT
-`grep -rn '<type>' .` instead — grep returns string matches, grove returns
-semantic definitions.
-
-**Recovery (partial/truncated output).** Re-run `{p}source` with the `symbol-id`
-form to force body extraction; still partial → `read` with `offset`/`limit` from
-the outline, never the whole file. A single grove miss does NOT justify switching
-to grep for later questions — re-run with the id form and continue.
-
-`read` on a 1700-line file floods context with ~50 KB you don't need; `grep`
-misses struct/function boundaries. `{p}callers`/`{p}definition` are name-based
-(not receiver-type resolved).
+Rule of thumb: want a **symbol** → grove first (don't `grep` / `read` for it). Want
+**text or a quick fact** → shell. Combining is fine.
 {CLAUDE_END}"
         )
     } else {
         format!(
             "{CLAUDE_START}
-## INVARIANT — code navigation goes through grove
+## Code navigation: grove for structure, shell for the rest
 
-Every where-is / what's-in / who-calls action in this project goes through
-**grove** (tree-sitter backed; languages: {langs}). This is not a preference.
-`grep`, `rg`, `read`, `cat`, and `sed` on a source file are FALLBACKS, allowed
-only after grove has been tried. Running `grep -rn '<symbol>'`, or reading a
-whole source file, as your first action on a code question is a steering violation.
+**grove** (tree-sitter backed; languages: {langs}) answers *structural* code
+questions — where a symbol is defined, who calls it, what's in a file, how a
+directory connects, syntax-check after edits — byte-precise and token-cheap. For a
+**named symbol or a structural relationship**, reach for grove (the **grove skill**,
+or the `grove` CLI — same engine) before `grep` or a whole-file `read`.
 
-**Trigger — check before every tool call.** If the prompt contains any of — a
-file path, a function / type / struct / macro name, or the words \"where is\",
-\"what does X define\", \"who calls\", \"show me\", \"find\", \"list\",
-\"outline\" — your FIRST action MUST be a grove command, via the **grove skill**
-(or the `grove` CLI — same engine). Otherwise grove is optional.
+Use the shell where grove can't see the target — it's the right tool, not a fallback:
+**text** (a string, log / error message, config key, constant, flag, TODO) → `grep` / `rg`;
+**non-code files** (Makefiles, configs, data, docs) → `grep` / `read`; a **quick fact**
+(path exists, `ls`, `wc -l`, `find`) → shell. Combining is fine — grove to navigate,
+the shell to pin a literal or read a small region.
 
-**The procedure, recovery rule, cross-file recipe, and full command surface live
-in the grove skill — invoke/read it before answering any triggered question.** It
-is the single source of truth; do not rely on remembered flags.
-
-`read` on a large file floods context with bytes you don't need; `grep` misses
-struct/function boundaries. grove returns one symbol's exact bytes with a stable
-id you pass forward.
+**The procedure, recovery rule, and full command surface live in the grove skill —
+read it before answering a structural question.** It is the single source of truth;
+don't rely on remembered flags.
 {CLAUDE_END}"
         )
     }
@@ -358,22 +334,26 @@ mod tests {
     }
 
     #[test]
-    fn claude_section_skill_is_thin_imperative_and_defers_to_skill() {
+    fn claude_section_skill_is_thin_and_defers_to_skill() {
         let s = claude_section(&["rust".into()], Target::Skill);
         assert!(s.starts_with(CLAUDE_START));
         assert!(s.trim_end().ends_with(CLAUDE_END));
         assert!(s.contains("grove skill"), "skill steering defers to the skill");
-        assert!(s.contains("MUST"), "steering is imperative, not hortative");
-        assert!(s.contains("FALLBACK"), "steering carries the grep/read ban");
+        assert!(s.contains("single source of truth"), "defers to SKILL.md, not remembered flags");
+        assert!(s.contains("grep"), "routes text search to the shell");
         assert!(!s.contains("mcp__grove__"), "skill steering must not name MCP tools");
     }
 
     #[test]
-    fn claude_section_mcp_is_imperative_with_trigger_and_ban() {
+    fn claude_section_mcp_routes_grove_and_shell() {
         let s = claude_section(&["rust".into()], Target::Mcp);
-        assert!(s.contains("MUST"), "imperative trigger");
-        assert!(s.contains("FALLBACK"), "grep/read ban list");
-        assert!(s.contains("steering violation"), "names the forbidden first move");
+        // grove for structure: tools named, with the symbol-first rule of thumb.
+        assert!(s.contains("mcp__grove__source"), "names the grove tools");
+        assert!(s.contains("symbol"), "routes symbol work to grove");
+        // shell is a first-class partner, not a banned fallback.
+        assert!(s.contains("grep"), "routes text/quick-fact work to the shell");
+        assert!(s.contains("Combine"), "blesses combining grove + shell");
+        assert!(!s.contains("steering violation"), "no prohibitive framing");
     }
 
     #[test]
