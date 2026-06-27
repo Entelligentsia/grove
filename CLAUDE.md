@@ -178,7 +178,9 @@ Conventions — into GitHub Actions); **registry CI** (automate ingest→index�
 publish on new tree-sitter releases).
 Tier 2 — complete the loop: **`map`** (repo orient — highest agent value) and
 **`grep`** (scope-aware); **adoption/eval** (E0/E1 + token-savings harness).
-Tier 3 — depth: scope-aware `callers`/`definition` via the tags `locals` query;
+Tier 3 — depth: scope-aware `definition --at` via the `locals` query is **done**
+(ADR 0001 Step 1, `engine::resolve_local_at`); next is import-edge cross-file
+resolution (ADR 0001 Step 2) and scope-aware `callers`;
 staleness/incremental (`Tree::edit` + watcher); more agent adapters
 (Codex/Cursor `AGENTS.md`); `grove add <repo>` for BYO grammars; profiles/tags for
 the 12 minimal-profile languages (bash/julia/haskell ship no upstream tags).

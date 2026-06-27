@@ -4,6 +4,21 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Scope-aware `definition --at`** (ADR 0001, Step 1) — go-to-def from a usage
+  position now resolves a name to its nearest enclosing **local** binding
+  (parameter or `let`/assignment) before falling back to the directory-wide name
+  lookup. A shadowing local correctly wins over a same-named global, so the
+  result is the one binding the cursor refers to instead of a candidate list of
+  every same-named symbol. Driven by an optional `locals.scm` (tree-sitter's
+  standard `@local.scope` / `@local.definition` / `@local.reference` query) added
+  per registry dir; grammars without one keep the previous behavior. Shipped for
+  the rust/python/javascript dev stub; `ingest`/`index`/`fetch` now carry
+  `locals.scm` through to the hosted registry.
+
 ## [0.1.8] - 2026-06-25
 
 ### Added

@@ -521,6 +521,14 @@ pub fn definition_at(file: &Path, row: usize, col: usize, dir: &Path) -> Result<
         engine::identifier_at(root, row, col, &src, profile)
     })?
     .with_context(|| format!("no identifier at {}:{row}:{col}", file.display()))?;
+    // Scope-aware first (ADR 0001 Step 1): if the cursor's identifier binds to a
+    // local definition in an enclosing scope, that single binding *is* the
+    // answer — a shadowing local must win over a same-named global. Only when
+    // there is no local binding do we fall back to the directory-wide name
+    // lookup (the historical behavior, also the floor for free/global names).
+    if let Some(local) = engine::resolve_local_at(&grammar, &rel(file), &src, row, col)? {
+        return Ok((name, vec![local]));
+    }
     let defs = definition(dir, &name)?;
     Ok((name, defs))
 }

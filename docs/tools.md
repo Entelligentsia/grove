@@ -12,7 +12,7 @@ agent-facing structured shape.
 | Verify | `grove check <file>` | ERROR / MISSING nodes (exit 1 if any) — post-edit syntax check |
 | Trace | `grove callers <name> [-d <dir>]` | call sites of a symbol, each with its enclosing function |
 | Map | `grove map <dir> [--kind K] [--name SUB] [--name-contains]` | directory dependency graph: definitions + outgoing references, no source bodies |
-| Trace | `grove definition <name> [-d <dir>]` or `grove definition --at <file:line:col>` | go-to-def, by name or from a usage position (`line`/`col` are 1-based) |
+| Trace | `grove definition <name> [-d <dir>]` or `grove definition --at <file:line:col>` | go-to-def, by name or from a usage position (`line`/`col` are 1-based). `--at` is scope-aware: a use of a locally-bound name resolves to that binding (shadowing a same-named global), falling back to directory-wide lookup for free/global names |
 
 ## Conventions
 

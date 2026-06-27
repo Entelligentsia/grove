@@ -144,6 +144,44 @@ fn definition_by_name_and_by_position() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// ADR 0001 Step 1: `definition --at` is scope-aware — a use of a name that has a
+/// local binding resolves to that binding, even when a same-named global exists
+/// (shadowing), and a use of a free/global name still resolves directory-wide.
+#[test]
+fn definition_at_is_scope_aware() {
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_scope", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A local `run` (line 3) shadows the module-level `fn run` (line 1).
+    std::fs::write(
+        dir.join("lib.rs"),
+        "fn run() {}\nfn caller() {\n    let run = 1;\n    let _x = run;\n}\n",
+    )
+    .unwrap();
+
+    // Cursor on the `run` use in `let _x = run;` (line 4, col 14, 1-based).
+    let local = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:4:14"]);
+    assert!(local.status.success(), "stderr: {}", String::from_utf8_lossy(&local.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&local)).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "scope-aware resolution returns the single binding: {v}");
+    assert_eq!(arr[0]["name"], "run");
+    assert_eq!(arr[0]["kind"], "local", "must be the local binding, not the global fn");
+    assert_eq!(arr[0]["line"], 3, "resolves to `let run` on line 3, not `fn run` on line 1");
+
+    // Cursor on the `run` *definition* in `fn run()` (line 1, col 4): no enclosing
+    // local binding, so it falls back to the directory-wide name lookup and finds
+    // the global function definition.
+    let global = grove(&dir, &["--json", "definition", "-d", ".", "--at", "lib.rs:1:4"]);
+    assert!(global.status.success(), "stderr: {}", String::from_utf8_lossy(&global.stderr));
+    let vg: serde_json::Value = serde_json::from_str(&stdout(&global)).unwrap();
+    assert!(
+        vg.as_array().unwrap().iter().any(|s| s["name"] == "run" && s["kind"] == "function"),
+        "free/global name falls back to the global definition: {vg}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn languages_lists_the_dev_stub() {
     let dir = fixture("languages");

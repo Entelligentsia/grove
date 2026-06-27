@@ -72,6 +72,15 @@ struct Loaded {
     language: Language,
     tags_query: Query,
     capture_names: Vec<String>,
+    /// Compiled `locals.scm`, with its capture-name table. `None` when the
+    /// grammar ships no locals query.
+    locals: Option<LocalsQuery>,
+}
+
+/// A compiled locals query plus its capture-name lookup table.
+struct LocalsQuery {
+    query: Query,
+    capture_names: Vec<String>,
 }
 
 impl Loaded {
@@ -87,6 +96,15 @@ impl Loaded {
             .iter()
             .map(|s| s.to_string())
             .collect();
+        let locals = match &g.locals_query {
+            Some(src) => {
+                let query = Query::new(&language, src).context("compiling locals query")?;
+                let capture_names =
+                    query.capture_names().iter().map(|s| s.to_string()).collect();
+                Some(LocalsQuery { query, capture_names })
+            }
+            None => None,
+        };
         let mut parser = Parser::new();
         parser
             .set_wasm_store(store)
@@ -94,7 +112,7 @@ impl Loaded {
         parser
             .set_language(&language)
             .map_err(|e| anyhow!("setting language: {e}"))?;
-        Ok(Loaded { parser, language, tags_query, capture_names })
+        Ok(Loaded { parser, language, tags_query, capture_names, locals })
     }
 }
 
@@ -399,6 +417,106 @@ pub fn identifier_at(
     }
 }
 
+/// Build a `Symbol` for a locally-bound definition. The captured
+/// `@local.definition` node is the binding identifier; line/col anchor on it,
+/// while the byte span expands to its parent statement (the `let`, `parameter`,
+/// or `assignment`) so `source` returns the whole binding, not a bare name.
+fn local_symbol(grammar: &Grammar, rel: &str, name_node: Node, source: &[u8]) -> Symbol {
+    let pos = name_node.start_position();
+    let line = pos.row + 1;
+    let name = name_node.utf8_text(source).unwrap_or("").to_string();
+    let span = name_node.parent().unwrap_or(name_node);
+    Symbol {
+        id: symbol_id(&grammar.name, rel, &name, line),
+        name,
+        kind: "local".to_string(),
+        is_definition: true,
+        file: rel.to_string(),
+        line,
+        col: pos.column + 1,
+        start_byte: span.start_byte(),
+        end_byte: span.end_byte(),
+        signature: line_text(source, name_node.start_byte()),
+        parent: None,
+    }
+}
+
+/// Scope-aware go-to-def: resolve the identifier at `(row, col)` to its nearest
+/// enclosing **local** binding, using the grammar's `locals.scm`.
+///
+/// Returns `Ok(None)` when the grammar ships no locals query, the cursor is not
+/// on an identifier, or the name has no enclosing local definition (a free /
+/// global reference — the caller then falls back to directory-wide lookup).
+/// Innermost enclosing scope wins, so shadowing resolves correctly. This is a
+/// single-file, single-parse, stateless operation — no index.
+pub fn resolve_local_at(
+    grammar: &Grammar,
+    rel: &str,
+    source: &[u8],
+    row: usize,
+    col: usize,
+) -> Result<Option<Symbol>> {
+    with_loaded(grammar, |lg| {
+        let Some(locals) = &lg.locals else {
+            return Ok(None);
+        };
+        let tree = parse_source(&mut lg.parser, source)?;
+        let root = tree.root_node();
+
+        let point = tree_sitter::Point { row, column: col };
+        let Some(ref_node) = root.descendant_for_point_range(point, point) else {
+            return Ok(None);
+        };
+        if !grammar
+            .profile
+            .identifier_kinds
+            .iter()
+            .any(|k| k.as_str() == ref_node.kind())
+        {
+            return Ok(None);
+        }
+        let name = ref_node.utf8_text(source).unwrap_or("");
+        if name.is_empty() {
+            return Ok(None);
+        }
+
+        // Collect scope ranges and definition nodes from the locals query.
+        let mut scopes: Vec<Node> = Vec::new();
+        let mut defs: Vec<Node> = Vec::new();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&locals.query, root, source);
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                match locals.capture_names[cap.index as usize].as_str() {
+                    "local.scope" => scopes.push(cap.node),
+                    "local.definition" => defs.push(cap.node),
+                    _ => {}
+                }
+            }
+        }
+
+        // Scopes enclosing the reference, innermost (smallest span) first.
+        let (rs, re) = (ref_node.start_byte(), ref_node.end_byte());
+        let mut enclosing: Vec<Node> = scopes
+            .into_iter()
+            .filter(|s| s.start_byte() <= rs && s.end_byte() >= re)
+            .collect();
+        enclosing.sort_by_key(|s| s.end_byte() - s.start_byte());
+
+        for scope in &enclosing {
+            let hit = defs.iter().find(|d| {
+                d.start_byte() >= scope.start_byte()
+                    && d.end_byte() <= scope.end_byte()
+                    && d.utf8_text(source).map(|t| t == name).unwrap_or(false)
+            });
+            if let Some(d) = hit {
+                return Ok(Some(local_symbol(grammar, rel, *d, source)));
+            }
+        }
+        Ok(None)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,6 +703,81 @@ mod tests {
         assert_eq!(enc.as_deref(), Some("S::m"), "method qualified by container type");
     }
 
+    /// 0-based (row, col) of a byte offset — mirrors tree-sitter's `Point`.
+    fn row_col(src: &str, byte: usize) -> (usize, usize) {
+        let before = &src[..byte];
+        let row = before.matches('\n').count();
+        let col = byte - before.rfind('\n').map_or(0, |i| i + 1);
+        (row, col)
+    }
+
+    /// The rust grammar *with* its `locals.scm`, or `None` when it resolved from a
+    /// root that ships no locals query (e.g. a populated OS cache on a dev box).
+    /// A clean checkout / CI resolves the dev tree `registry/`, which has it. The
+    /// `GROVE_REGISTRY`-pinned integration suite (`tests/cli.rs`) covers this path
+    /// unconditionally; these unit tests add white-box coverage when available.
+    fn rust_with_locals() -> Option<Grammar> {
+        let g = rust();
+        if g.locals_query.is_none() {
+            eprintln!("skipping: rust grammar resolved without locals.scm (non-dev-stub root)");
+            return None;
+        }
+        Some(g)
+    }
+
+    #[test]
+    fn resolve_local_prefers_the_shadowing_binding() {
+        let Some(g) = rust_with_locals() else { return };
+        // A local `run` shadows the module-level `fn run`. Go-to-def on the *use*
+        // of `run` must land on the local binding (line 3), not the global (line 1).
+        let src = "fn run() {}\nfn caller() {\n    let run = 1;\n    let _x = run;\n}\n";
+        let use_byte = src.rfind("run").unwrap(); // the `run` in `let _x = run;`
+        let (row, col) = row_col(src, use_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col)
+            .unwrap()
+            .expect("a local binding should resolve");
+        assert_eq!(got.name, "run");
+        assert_eq!(got.kind, "local");
+        assert_eq!(got.line, 3, "must resolve to the local `let run`, not the global fn");
+        assert!(got.id.ends_with("@3"), "id carries the local's line, got {}", got.id);
+    }
+
+    #[test]
+    fn resolve_local_returns_none_for_a_global_reference() {
+        let Some(g) = rust_with_locals() else { return };
+        // `helper` has no local binding in scope — resolution must decline so the
+        // caller falls back to the directory-wide lookup.
+        let src = "fn helper() {}\nfn caller() {\n    helper();\n}\n";
+        let call_byte = src.rfind("helper").unwrap();
+        let (row, col) = row_col(src, call_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col).unwrap();
+        assert!(got.is_none(), "a free/global name has no local binding, got {got:?}");
+    }
+
+    #[test]
+    fn resolve_local_resolves_a_parameter() {
+        let Some(g) = rust_with_locals() else { return };
+        // Go-to-def on a use of a parameter resolves to the parameter binding.
+        let src = "fn f(x: i32) -> i32 {\n    x + 1\n}\n";
+        let use_byte = src.rfind('x').unwrap(); // the `x` in `x + 1`
+        let (row, col) = row_col(src, use_byte);
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col)
+            .unwrap()
+            .expect("parameter should resolve");
+        assert_eq!(got.name, "x");
+        assert_eq!(got.line, 1, "parameter is declared on line 1");
+    }
+
+    #[test]
+    fn resolve_local_returns_none_off_an_identifier() {
+        let Some(g) = rust_with_locals() else { return };
+        // Cursor on whitespace / punctuation is not an identifier — decline.
+        let src = "fn f() {\n    let y = 1;\n}\n";
+        let (row, col) = row_col(src, src.find('{').unwrap());
+        let got = resolve_local_at(&g, "demo.rs", src.as_bytes(), row, col).unwrap();
+        assert!(got.is_none());
+    }
+
     #[test]
     fn extract_dedups_overlapping_matches() {
         // No symbol range appears twice with the same is_definition flag.
@@ -596,3 +789,4 @@ mod tests {
         }
     }
 }
+

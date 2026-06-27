@@ -83,6 +83,11 @@ pub struct Grammar {
     pub version: String,
     pub wasm: Arc<Vec<u8>>,
     pub tags_query: Arc<String>,
+    /// Optional `locals.scm` (tree-sitter's standard `@local.scope` /
+    /// `@local.definition` / `@local.reference` query). Drives scope-aware
+    /// go-to-def. `None` when the registry dir ships no `locals.scm` — those
+    /// languages keep the directory-wide name lookup.
+    pub locals_query: Option<Arc<String>>,
     pub profile: Arc<Profile>,
 }
 
@@ -209,11 +214,18 @@ pub fn resolve(lang: &str) -> Result<Grammar> {
         .with_context(|| format!("reading grammar.wasm for `{lang}`"))?;
     let tags = std::fs::read_to_string(dir.join("tags.scm"))
         .with_context(|| format!("reading tags.scm for `{lang}`"))?;
+    // `locals.scm` is optional: present it only if the registry dir ships one.
+    let locals = match std::fs::read_to_string(dir.join("locals.scm")) {
+        Ok(s) => Some(Arc::new(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading locals.scm for `{lang}`")),
+    };
     let grammar = Grammar {
         name: manifest.name.clone(),
         version: manifest.version.clone(),
         wasm: Arc::new(wasm),
         tags_query: Arc::new(tags),
+        locals_query: locals,
         profile: Arc::new(manifest.profile.clone()),
     };
     cache()
@@ -316,6 +328,15 @@ pub fn build_index(root: &Path, release_base: Option<&str>) -> Result<serde_json
                 fref["asset"] = serde_json::json!(format!("{}.wasm", m.name));
             }
             files.insert(fname.into(), fref);
+        }
+        // `locals.scm` is optional (scope-aware resolution, ADR 0001): record it
+        // only when the grammar dir ships one, so `fetch` pulls it for languages
+        // that have it without breaking those that don't.
+        let locals = dir.join("locals.scm");
+        if locals.exists() {
+            let bytes = std::fs::read(&locals)
+                .with_context(|| format!("hashing {}/locals.scm", m.name))?;
+            files.insert("locals.scm".into(), serde_json::json!({ "sha256": sha256(&bytes) }));
         }
         let mut entry = serde_json::json!({
             "name": m.name,
@@ -434,6 +455,31 @@ mod tests {
     }
 
     #[test]
+    fn build_index_records_locals_scm_only_when_present() {
+        // Absent by default: the toy registry ships no locals.scm.
+        let dir = toy_registry("no_locals");
+        let catalog = build_index(&dir, None).unwrap();
+        assert!(
+            catalog["grammars"][0]["files"].get("locals.scm").is_none(),
+            "no locals.scm in the dir → none in the catalog"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Present: dropping a locals.scm in the dir surfaces it (hashed) in the
+        // catalog, so `fetch` will pull it (it's repo-served, no asset).
+        let dir = toy_registry("with_locals");
+        std::fs::write(dir.join("toy").join("locals.scm"), "(identifier) @local.reference\n").unwrap();
+        let catalog = build_index(&dir, None).unwrap();
+        let entry = &catalog["grammars"][0]["files"]["locals.scm"];
+        assert!(
+            entry["sha256"].as_str().unwrap().starts_with("sha256:"),
+            "locals.scm hashed into the catalog: {entry}"
+        );
+        assert!(entry.get("asset").is_none(), "locals.scm is repo-served, not a release asset");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn sha256_has_canonical_format() {
         // Known-answer vector for the empty input, pinning the `sha256:` prefix
         // and lowercase hex — the format every producer and verifier shares.
@@ -451,6 +497,7 @@ mod tests {
             version: "0.0.0".into(),
             wasm: Arc::new(bytes.clone()),
             tags_query: Arc::new(String::new()),
+            locals_query: None,
             profile: Arc::new(Profile::default()),
         };
         // The lockfile field and the index/fetch helper must agree byte-for-byte.
