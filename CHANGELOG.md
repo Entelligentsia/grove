@@ -4,7 +4,7 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.9] - 2026-06-27
 
 ### Added
 
@@ -31,6 +31,23 @@ All notable changes to grove are documented here. The format follows
   directory-wide fallback). Shipped for python/javascript; carried through
   `ingest`/`index`/`fetch`. Out of scope (degrades to the candidate list):
   method/receiver typing, multi-hop re-exports, wildcard/dynamic imports.
+
+### Changed
+
+- **MCP/CLI/steering descriptions** now advertise `definition --at` as the
+  precise, scope-aware, cross-file mode (no tool signatures changed) so agents
+  reach for it from a usage position instead of a name lookup.
+
+### Robustness
+
+- Optional registry queries (`locals.scm`/`imports.scm`) compile **non-fatally**
+  and their captures are **prefix-matched**, so a query authored against a
+  different grammar version (or using subtyped captures like
+  `@local.definition.function`) degrades gracefully instead of breaking the
+  grammar's core tools.
+- grove now **refuses tree-sitter supertype query syntax** (`(a/b)`) in optional
+  queries, which can otherwise hard-crash the wasm query engine at match time —
+  so a hosted registry file can no longer segfault grove.
 
 ## [0.1.8] - 2026-06-25
 
