@@ -4,6 +4,26 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-06-27
+
+### Fixed
+
+- **Supertype-guard no longer false-positives on `/` in query comments.** The
+  guard added in 0.1.9 (which disables `locals.scm`/`imports.scm` using
+  crash-prone tree-sitter supertype syntax `(a/b)`) skipped string literals but
+  not `;` comments, so a comment like `; if/else` or `; try/catch` wrongly
+  disabled an otherwise-valid query. It now tracks `;`-to-end-of-line comments.
+  This unblocks scope-aware resolution for hosted `locals.scm` whose comments
+  contain `/` (e.g. java, c, cpp).
+
+### Notes
+
+- With this fix, the hosted registry's newly added `locals.scm` for **python,
+  go, java, c#, c, cpp, rust** take effect (`grove fetch` + `definition --at`),
+  bringing scope-aware go-to-def to 11 languages total (with the existing ruby,
+  scala, julia, javascript). Each was verified to resolve a shadowed local
+  line-exact against the pinned grammar.
+
 ## [0.1.9] - 2026-06-27
 
 ### Added
