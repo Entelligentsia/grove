@@ -92,6 +92,27 @@ impl CapturedQuery {
         let capture_names = query.capture_names().iter().map(|s| s.to_string()).collect();
         Ok(CapturedQuery { query, capture_names })
     }
+
+    /// Compile an *optional* query (`locals.scm` / `imports.scm`) without letting
+    /// a bad one break the grammar. These come from the registry and may be
+    /// authored upstream against a different grammar version; a query that fails
+    /// to compile (e.g. references a node kind this grammar doesn't have) must
+    /// degrade to "feature off", never poison the core tools. Returns `None` on
+    /// absence or compile error, warning once on the latter.
+    fn compile_optional(
+        language: &Language,
+        src: &Option<std::sync::Arc<String>>,
+        what: &str,
+    ) -> Option<CapturedQuery> {
+        let src = src.as_ref()?;
+        match CapturedQuery::compile(language, src, what) {
+            Ok(q) => Some(q),
+            Err(e) => {
+                eprintln!("grove: ignoring invalid {what} query: {e:#}");
+                None
+            }
+        }
+    }
 }
 
 impl Loaded {
@@ -107,14 +128,8 @@ impl Loaded {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let locals = match &g.locals_query {
-            Some(src) => Some(CapturedQuery::compile(&language, src, "locals")?),
-            None => None,
-        };
-        let imports = match &g.imports_query {
-            Some(src) => Some(CapturedQuery::compile(&language, src, "imports")?),
-            None => None,
-        };
+        let locals = CapturedQuery::compile_optional(&language, &g.locals_query, "locals");
+        let imports = CapturedQuery::compile_optional(&language, &g.imports_query, "imports");
         let mut parser = Parser::new();
         parser
             .set_wasm_store(store)
@@ -497,10 +512,13 @@ pub fn resolve_local_at(
         let mut matches = cursor.matches(&locals.query, root, source);
         while let Some(m) = matches.next() {
             for cap in m.captures {
-                match locals.capture_names[cap.index as usize].as_str() {
-                    "local.scope" => scopes.push(cap.node),
-                    "local.definition" => defs.push(cap.node),
-                    _ => {}
+                // Prefix-match so subtyped captures from upstream files work too
+                // (e.g. julia's `@local.definition.function`, `@local.scope.*`).
+                let cn = locals.capture_names[cap.index as usize].as_str();
+                if cn.starts_with("local.scope") {
+                    scopes.push(cap.node);
+                } else if cn.starts_with("local.definition") {
+                    defs.push(cap.node);
                 }
             }
         }

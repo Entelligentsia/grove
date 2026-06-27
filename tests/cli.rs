@@ -182,6 +182,42 @@ fn definition_at_is_scope_aware() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// An optional query (`locals.scm`/`imports.scm`) that fails to compile — e.g. an
+/// upstream file authored against a different grammar version — must never break
+/// the core tools; the feature just stays off (ADR 0001, hosting robustness).
+#[test]
+fn invalid_locals_query_is_non_fatal() {
+    let reg = std::env::temp_dir().join(format!("grove_cli_test_{}_badlocals_reg", std::process::id()));
+    let rust = reg.join("rust");
+    std::fs::create_dir_all(&rust).unwrap();
+    let src_reg = Path::new(DEV_REGISTRY).join("rust");
+    for f in ["grammar.wasm", "tags.scm", "manifest.json"] {
+        std::fs::copy(src_reg.join(f), rust.join(f)).unwrap();
+    }
+    // References a node kind rust's grammar doesn't have → query compile error.
+    std::fs::write(rust.join("locals.scm"), "(this_is_not_a_real_node) @local.scope\n").unwrap();
+
+    let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_badlocals", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("lib.rs"), "fn helper() {}\n").unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["outline", "lib.rs"])
+        .current_dir(&dir)
+        .env("GROVE_REGISTRY", &reg)
+        .output()
+        .expect("run grove");
+    assert!(
+        out.status.success(),
+        "core tools must survive a bad locals query: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout(&out).contains("helper"), "outline still works with a broken locals.scm");
+
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&reg).ok();
+}
+
 /// ADR 0001 Step 2: `definition --at` follows an import edge to the *target file*
 /// — cross-file go-to-def — for Python's `from pkg.mod import name`.
 #[test]
