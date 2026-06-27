@@ -105,6 +105,14 @@ impl CapturedQuery {
         what: &str,
     ) -> Option<CapturedQuery> {
         let src = src.as_ref()?;
+        // Defense-in-depth: tree-sitter *supertype* patterns (`(super/sub)`) can
+        // hard-crash the wasm query engine at *match* time — not catchable like a
+        // compile error. Some upstream `locals.scm` use them. Refuse such a query
+        // outright (feature off) rather than risk a segfault on a hosted file.
+        if has_supertype_pattern(src) {
+            eprintln!("grove: ignoring {what} query (unsupported supertype `(a/b)` syntax)");
+            return None;
+        }
         match CapturedQuery::compile(language, src, what) {
             Ok(q) => Some(q),
             Err(e) => {
@@ -113,6 +121,30 @@ impl CapturedQuery {
             }
         }
     }
+}
+
+/// Detect tree-sitter supertype node syntax `(name/name` outside string literals.
+/// Queries use `/` only for supertypes; predicate args containing `/` live inside
+/// quotes, which we skip. Conservative — a false positive just disables an
+/// optional feature, never breaks core tools.
+fn has_supertype_pattern(src: &str) -> bool {
+    let b = src.as_bytes();
+    let mut in_str = false;
+    let is_ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    for i in 0..b.len() {
+        match b[i] {
+            b'"' if i == 0 || b[i - 1] != b'\\' => in_str = !in_str,
+            b'/' if !in_str => {
+                let prev = i.checked_sub(1).map(|j| b[j]).unwrap_or(0);
+                let next = b.get(i + 1).copied().unwrap_or(0);
+                if is_ident(prev) && is_ident(next) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 impl Loaded {
@@ -908,6 +940,17 @@ mod tests {
             }),
             "aliased import: {imps:?}"
         );
+    }
+
+    #[test]
+    fn supertype_pattern_detected_outside_strings() {
+        // Crash-prone tree-sitter supertype syntax is flagged...
+        assert!(has_supertype_pattern("(pattern/identifier) @local.definition"));
+        assert!(has_supertype_pattern("(expression/variable) @local.reference"));
+        // ...but ordinary queries and `/` inside predicate strings are not.
+        assert!(!has_supertype_pattern("(identifier) @local.reference"));
+        assert!(!has_supertype_pattern("((identifier) @x (#match? @x \"a/b\"))"));
+        assert!(!has_supertype_pattern("(call function: (identifier) @name)"));
     }
 
     #[test]
