@@ -4,6 +4,34 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-06-27
+
+### Changed
+
+- **Route-by-task steering** (`grove init` CLAUDE.md block and the `grove`
+  skill's `SKILL.md`). Both surfaces previously framed code navigation as an
+  "INVARIANT — grove or it's a steering violation", relegating
+  `grep`/`rg`/`read`/`cat`/`sed` to fallbacks allowed only after grove was
+  tried. With grove's current 7-tool surface (no text-search tool yet), that
+  over-rigid framing pushed the model into costly one-symbol-at-a-time `source`
+  fan-outs for things the shell does cheaply, and gave no guidance for
+  text/non-code/quick-fact work or for combining grove with the shell. The
+  steering now **routes by task**: grove for named symbols and structural
+  relationships (where-defined, who-calls, what's-in-a-file, how-a-dir-connects,
+  post-edit check), the shell for text / non-code files / quick facts ("the
+  right tool, not a fallback"), and an explicit **combine** path (grep a
+  literal's line → `definition --at`; `outline` → bounded read; `map`/`symbols`
+  → grep a constant inside). The useful procedure (outline→source chains, stable
+  symbol-ids, `map` breadth control, the shape-slice, profile gate, recovery,
+  setup) is preserved.
+
+### Notes
+
+- Validated in the `nav-3way` testbench: on `L4-grove-redis` the reworked
+  steering cut context ~41% (560k → 329k tokens) with no loss of answer
+  completeness — the model combined 20 grove calls with 3 greps + 2 bounded
+  reads instead of 36 `source` calls.
+
 ## [0.1.10] - 2026-06-27
 
 ### Fixed
