@@ -278,7 +278,10 @@ file path, a function / type / struct / macro name, or the words \"where is\",
 2. Symbol but no file → `{p}symbols` with `name`.
 3. Take the `symbol-id` (`<lang>:<relpath>#<name>@<row>`) from the result.
 4. `{p}source` with that **id** → exactly that symbol's body.
-5. \"who calls\" → `{p}callers`; \"where defined\" → `{p}definition`.
+5. \"who calls\" → `{p}callers`; \"where defined\" → `{p}definition`. When you
+   have a position (a use site), call `{p}definition` with `at` (file:line:col):
+   it is scope-aware and follows imports across files, returning the one binding
+   the cursor refers to, not a list. Use `name` only when you have no position.
 6. After an edit → `{p}check`.
 7. **Broad/architectural questions** → `{p}map` (directory dependency graph in one call).
 
@@ -288,9 +291,12 @@ one call. Use `{p}source` only for the few load-bearing definitions you need
 to read in full. Do NOT fetch many sources in sequence to build a picture that
 `{p}map` gives in a single call.
 
-**Cross-file.** `{p}symbols` over the root (definitions tree-wide) → `{p}callers`
-(use sites) → `{p}source` per definition. Do NOT `grep -rn '<type>' .` instead —
-grep returns string matches, grove returns semantic definitions.
+**Cross-file.** To jump from a *use* of an imported symbol to its definition in
+another file, call `{p}definition` with `at` (file:line:col) — it follows the
+import edge and returns the one target. To survey a name tree-wide, `{p}symbols`
+over the root → `{p}callers` (use sites) → `{p}source` per definition. Do NOT
+`grep -rn '<type>' .` instead — grep returns string matches, grove returns
+semantic definitions.
 
 **Recovery (partial/truncated output).** Re-run `{p}source` with the `symbol-id`
 form to force body extraction; still partial → `read` with `offset`/`limit` from
