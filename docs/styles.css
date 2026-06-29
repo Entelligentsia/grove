@@ -660,4 +660,29 @@ h1, h2, h3, h4 {
   .nav-menu {
     display: none;
   }
+  
+  /* Fix vertical prompts showcase on mobile */
+  .prompts-showcase {
+    min-height: 420px;
+  }
+  .prompts-title {
+    padding: 1rem;
+    font-size: 0.8rem;
+  }
+  .prompt-card {
+    padding: 1.25rem 1.25rem;
+    margin: 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .prompt-card span {
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .prompt-metrics {
+    font-size: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
 }
