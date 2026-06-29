@@ -1,0 +1,28 @@
+Title: Show HN: Grove – AST-based structural sight for coding agents (no LSPs required)
+
+Hi HN, 
+
+I’ve been building autonomous coding agents and kept running into the same bottleneck: giving an agent structural awareness of a large codebase is painfully inefficient. 
+
+Most people try to solve this by hooking the agent up to a Language Server (LSP). But LSPs were built for IDEs. They require complex configurations, dependency resolution, and massive cache warm-ups (e.g., waiting 45 minutes to build a compilation database for Redis just so the agent can find a reference). The alternative is letting the agent use regex grep and cat, which balloons context windows and leads to massive hallucination on dense architectural traces. 
+
+I built Grove to solve this. It’s a fast, standalone Rust binary that bundles 27 Tree-sitter WASM grammars into 7 primitive CLI tools (outline, source, map, symbols, etc.). 
+
+The hypothesis was that agents don't actually need semantic LSP analysis if they have access to a fast, language-agnostic AST parser combined with their own reasoning engine. 
+
+To prove it, I built a reproducible testbench and ran complex, cross-cutting architectural traces (L4/L5 complexity) across massive repos: Bitcoin (C++), Redis (C), Laravel (PHP), TypeScript, and Django (Python). 
+
+The data was pretty undeniable:
+* Token efficiency: On the TypeScript L5 trace, standard grep/cat consumed 2.43M context tokens. Grove completed the exact same trace using 570K tokens (4.3x cheaper).
+* Accuracy: Text search drifted badly on C++ and C repos (dropping to 0.80 grounding). Grove consistently hit 1.00 line-exact grounding because it parses the actual syntax tree.
+* Cold Start: 200% more efficient overall compared to the LSP arm, entirely because Grove bypasses the brutal cache warm-up and indexing phases. It's a true zero-compile cold start. 
+
+It works as both a CLI tool and an MCP server. It’s a one-line install (npm install -g @entelligentsia/grove or via Homebrew/Cargo) and a one-line init. 
+
+If you are currently wrestling with LSPs just to give your agents context, I’d love for you to try ripping them out and using Grove instead. 
+
+Repo: https://github.com/Entelligentsia/grove
+Website & Data: https://entelligentsia.github.io/grove/
+The Testbench (for independent evaluation): https://entelligentsia.github.io/is-grep-enough/
+
+Would love to hear your thoughts, feedback, or any edge cases where you think an LSP is still strictly necessary for an LLM!
