@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S01-T03",
+  "sprintId": "GROVE-S01",
+  "title": "Split init.rs — provision_project (core) vs harness (CLI)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T03",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S01-T02"
+  ],
+  "description": "Extract project provisioning into core/src/init.rs as pub fn provision_project(root: &Path, dry_run: bool) -> Result<Vec<String>> (extension scan + grammar fetch to OS cache + grove.lock; must NOT write .mcp.json or CLAUDE.md). Keep the agent-harness logic in cli/src/init.rs (Target enum Mcp/Skill, .mcp.json + CLAUDE.md writers), calling grove_core::init::provision_project() first. grove init --as mcp|skill|both [--dry-run] must behave identically (same files, same dry-run output), verified by tests/cli.rs."
+}

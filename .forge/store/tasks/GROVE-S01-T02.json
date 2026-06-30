@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S01-T02",
+  "sprintId": "GROVE-S01",
+  "title": "Extract grove-core library; rewire CLI to consume it",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T02",
+  "estimate": "L",
+  "dependencies": [
+    "GROVE-S01-T01"
+  ],
+  "description": "Create core/ (package grove-core) and move engine.rs, ops.rs, registry.rs, fetch.rs, ingest.rs into core/src. Add core/src/lib.rs exposing them as pub mod. cli depends on grove-core = { path = ../core }; rewire main.rs/mcp.rs (and remaining cli modules) from crate::ops:: to grove_core::ops:: etc. Remove clap from grove-core deps (serde_json stays — ops::project and registry require it). Acceptance: cargo tree -p grove-core shows no clap; workspace builds + tests green; clippy clean; binary still grove."
+}

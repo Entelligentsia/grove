@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S01-T04",
+  "sprintId": "GROVE-S01",
+  "title": "Curate public API, docs, and standalone library smoke test",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T04",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S01-T03"
+  ],
+  "description": "Curate grove-core lib.rs into a deliberate public surface: re-export ops, init::provision_project, and the Symbol/Defect/etc. return types, with /// doc comments sufficient for docs.rs. Prove it with a throwaway external crate that depends on grove-core and compiles+runs ops::symbols(...) and init::provision_project(...) — the library smoke test (one of the four backward-compat bars). Nice-to-have: core/README.md and an examples/ program using the issue analyze_project snippet."
+}

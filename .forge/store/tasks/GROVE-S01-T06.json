@@ -1,0 +1,13 @@
+{
+  "taskId": "GROVE-S01-T06",
+  "sprintId": "GROVE-S01",
+  "title": "crates.io publication readiness for grove-core + grove",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T06",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S01-T04",
+    "GROVE-S01-T05"
+  ],
+  "description": "Add required publish metadata (description, license, repository, readme, keywords, categories) to core/Cargo.toml and cli/Cargo.toml. Make grove depend on grove-core by version (path + version so the published CLI resolves the published lib). cargo publish --dry-run -p grove-core and -p grove must both succeed. Confirm crate-name availability/ownership on crates.io for grove and grove-core; if taken, surface a fallback owned/namespaced name for a decision before publishing. This is the final gate."
+}

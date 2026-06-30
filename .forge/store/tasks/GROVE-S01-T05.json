@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S01-T05",
+  "sprintId": "GROVE-S01",
+  "title": "Make CI & release tooling workspace-aware",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T05",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S01-T02"
+  ],
+  "description": "Update .github/workflows/release.yml to build the workspace and still emit the grove binary for all 5 targets (cargo build --release --locked -p grove; tar path target/<target>/release/grove unchanged). Update ci.yml to cargo build/test --release --locked --workspace. Rework scripts/bump-version.sh to bump version in BOTH core/Cargo.toml and cli/Cargo.toml (plus Cargo.lock + dist/npm/package.json) in lockstep (root no longer has [package]). Verify setup-local-test.sh, dist/npm, and dist/homebrew/update-formula.sh still resolve target/release/grove. Validate with a release dry-run before any tag."
+}

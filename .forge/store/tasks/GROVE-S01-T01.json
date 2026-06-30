@@ -1,0 +1,10 @@
+{
+  "taskId": "GROVE-S01-T01",
+  "sprintId": "GROVE-S01",
+  "title": "Establish Cargo workspace; relocate crate into cli/",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S01/GROVE-S01-T01",
+  "estimate": "M",
+  "dependencies": [],
+  "description": "Convert the repo to a virtual Cargo workspace. Create a root Cargo.toml with no [package] section listing member cli (core added in T02). Move src/, tests/, and the current [dependencies] into cli/ as package grove (binary still grove). Keep a single shared Cargo.lock at the root. cargo build/test --release --locked --workspace must stay green and produce target/release/grove."
+}

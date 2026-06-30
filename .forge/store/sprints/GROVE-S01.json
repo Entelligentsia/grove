@@ -1,0 +1,36 @@
+{
+  "sprintId": "GROVE-S01",
+  "title": "Refactor grove into a Cargo workspace (grove-core library + grove CLI)",
+  "status": "active",
+  "path": "engineering/sprints/GROVE-S01",
+  "taskIds": [
+    "GROVE-S01-T01",
+    "GROVE-S01-T02",
+    "GROVE-S01-T03",
+    "GROVE-S01-T04",
+    "GROVE-S01-T05",
+    "GROVE-S01-T06"
+  ],
+  "createdAt": "2026-06-30T15:10:00Z",
+  "executionMode": "sequential",
+  "goal": "Split the single grove binary crate into a Cargo workspace with a clap-free grove-core library and a thin grove CLI, publish both to crates.io, and preserve zero end-user impact.",
+  "description": "Tracks GitHub issue #50. Migrate the binary-only crate to a virtual workspace: core/ (grove-core, public lib API over engine/ops/registry/fetch/ingest + provision_project) and cli/ (grove, retains binary name; main.rs + mcp.rs + agent-harness init). Update CI/release tooling and publish grove-core to crates.io.",
+  "dependencies": {
+    "GROVE-S01-T02": [
+      "GROVE-S01-T01"
+    ],
+    "GROVE-S01-T03": [
+      "GROVE-S01-T02"
+    ],
+    "GROVE-S01-T04": [
+      "GROVE-S01-T03"
+    ],
+    "GROVE-S01-T05": [
+      "GROVE-S01-T02"
+    ],
+    "GROVE-S01-T06": [
+      "GROVE-S01-T04",
+      "GROVE-S01-T05"
+    ]
+  }
+}
