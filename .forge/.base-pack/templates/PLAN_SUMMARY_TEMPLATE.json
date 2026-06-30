@@ -1,0 +1,11 @@
+{
+  "objective": "<one sentence — what this plan delivers>",
+  "key_changes": [
+    "<bullet 1 — files changed, key decisions>",
+    "<bullet 2>",
+    "<bullet 3>"
+  ],
+  "verdict": "n/a",
+  "written_at": "<ISO 8601 timestamp>",
+  "artifact_ref": "PLAN.md"
+}

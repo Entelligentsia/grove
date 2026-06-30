@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/_defs/phaseSummary.schema.json",
+  "title": "PhaseSummary",
+  "description": "Shared shape for terse structured summaries of phase artifacts. Single-sourced under _defs/ and $ref'd from task.schema.json and bug.schema.json. Optional bug-only `route` field is permitted on every $ref site but only meaningful on the triage phase summary written by meta-fix-bug.md.",
+  "type": "object",
+  "required": ["objective", "written_at"],
+  "properties": {
+    "objective":   { "type": "string", "maxLength": 280 },
+    "key_changes": { "type": "array", "items": { "type": "string", "maxLength": 200 }, "maxItems": 12 },
+    "findings":    { "type": "array", "items": { "type": "string", "maxLength": 200 }, "maxItems": 12 },
+    "verdict":     { "type": "string", "enum": ["approved", "revision", "n/a"] },
+    "written_at":  { "type": "string", "format": "date-time" },
+    "artifact_ref":{ "type": "string", "description": "Relative path to the full artifact" },
+    "route":       { "type": "string", "enum": ["A", "B"], "description": "Fix-bug pipeline route decision. Only set on the triage phase summary by meta-fix-bug.md. A = short-circuit (skip plan-fix + review-plan); B = full loop (default). Optional and meaningless on non-triage phases — see meta-fix-bug.md § Triage Judgement." }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "built_at": "2026-06-30T13:42:39.797Z",
+  "source_hash": "sha256:74ddd65005b3c027115f0d37bbd197bd787480d7a662434b67237930e6f8c738",
+  "sources": [
+    {
+      "path": "engineering/architecture/INDEX.md",
+      "size": 737,
+      "mtime": "2026-06-30T13:41:27.180Z"
+    },
+    {
+      "path": "engineering/architecture/database.md",
+      "size": 5042,
+      "mtime": "2026-06-30T13:38:57.526Z"
+    },
+    {
+      "path": "engineering/architecture/deployment.md",
+      "size": 3270,
+      "mtime": "2026-06-30T13:39:39.259Z"
+    },
+    {
+      "path": "engineering/architecture/entity-model.md",
+      "size": 5891,
+      "mtime": "2026-06-30T13:42:26.180Z"
+    },
+    {
+      "path": "engineering/architecture/processes.md",
+      "size": 3294,
+      "mtime": "2026-06-30T13:38:27.817Z"
+    },
+    {
+      "path": "engineering/architecture/routing.md",
+      "size": 4138,
+      "mtime": "2026-06-30T13:39:19.246Z"
+    },
+    {
+      "path": "engineering/architecture/stack-checklist.md",
+      "size": 4112,
+      "mtime": "2026-06-30T13:42:26.181Z"
+    },
+    {
+      "path": "engineering/architecture/stack.md",
+      "size": 2548,
+      "mtime": "2026-06-30T13:38:18.442Z"
+    }
+  ],
+  "summary_path": "/home/boni/src/grove-engineering/grove/.forge/cache/context-pack.md"
+}

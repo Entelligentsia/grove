@@ -1,0 +1,10 @@
+{
+  "project": {
+    "name": "grove",
+    "prefix": "GROVE"
+  },
+  "knowledgeBase": {
+    "path": "engineering",
+    "indexFile": "engineering/MASTER_INDEX.md"
+  }
+}

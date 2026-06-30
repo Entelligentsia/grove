@@ -1,0 +1,67 @@
+{
+  "version": "1.6.4",
+  "generated": "2026-06-28",
+  "note": "Authoritative enum catalog. Source: build-enum-catalog.cjs. Regenerate via node forge/tools/build-manifest.cjs.",
+  "enums": {
+    "task.status": [
+      "draft",
+      "planned",
+      "plan-approved",
+      "implementing",
+      "implemented",
+      "review-approved",
+      "approved",
+      "committed",
+      "plan-revision-required",
+      "code-revision-required",
+      "blocked",
+      "escalated",
+      "abandoned"
+    ],
+    "sprint.status": [
+      "planning",
+      "active",
+      "completed",
+      "retrospective-done",
+      "blocked",
+      "partially-completed",
+      "abandoned"
+    ],
+    "bug.status": [
+      "reported",
+      "triaged",
+      "in-progress",
+      "fixed"
+    ]
+  },
+  "commandNames": [
+    "forge:new-sprint",
+    "forge:plan",
+    "forge:review-plan",
+    "forge:implement",
+    "forge:review-code",
+    "forge:fix-bug",
+    "forge:plan-sprint",
+    "forge:run-task",
+    "forge:run-sprint",
+    "forge:retro",
+    "forge:approve",
+    "forge:commit",
+    "forge:check-agent",
+    "forge:validate",
+    "forge:init",
+    "forge:health",
+    "forge:rebuild",
+    "forge:update",
+    "forge:add-task",
+    "forge:add-pipeline",
+    "forge:remove",
+    "forge:report-bug",
+    "forge:search",
+    "forge:repair",
+    "forge:config",
+    "forge:ask",
+    "forge:store-custodian",
+    "forge:refresh-kb-links"
+  ]
+}

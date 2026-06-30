@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/event.schema.json",
+  "title": "Event",
+  "type": "object",
+  "required": [
+    "eventId", "sprintId", "role", "action",
+    "startTimestamp", "endTimestamp", "durationMinutes", "model", "provider"
+  ],
+  "properties": {
+    "eventId":         { "type": "string" },
+    "taskId":          { "type": "string" },
+    "bugId":          { "type": "string" },
+    "sprintId":        { "type": "string" },
+    "role":            { "type": "string" },
+    "action":          { "type": "string" },
+    "phase":           { "type": "string" },
+    "iteration":       { "type": "integer", "minimum": 1 },
+    "startTimestamp":  { "type": "string", "format": "date-time" },
+    "endTimestamp":    { "type": "string", "format": "date-time" },
+    "durationMinutes": { "type": "number", "minimum": 0 },
+    "model":           { "type": "string" },
+    "provider":        { "type": "string", "maxLength": 60 },
+    "verdict":            { "type": "string" },
+    "notes":              { "type": "string" },
+    "inputTokens":        { "type": "integer", "minimum": 0 },
+    "outputTokens":       { "type": "integer", "minimum": 0 },
+    "cacheReadTokens":    { "type": "integer", "minimum": 0 },
+    "cacheWriteTokens":   { "type": "integer", "minimum": 0 },
+    "tokenSource":        { "type": "string",  "enum": ["reported", "estimated"] },
+
+    "resolution": {
+      "type": "object",
+      "properties": {
+        "status":      { "type": "string", "enum": ["open", "resolved", "wontfix", "deferred"] },
+        "resolvedBy":  { "type": "string" },
+        "resolvedAt":  { "type": "string", "format": "date-time" },
+        "proposalRef": { "type": "string" },
+        "bugRef":       { "type": "string" }
+      },
+      "required": ["status"],
+      "additionalProperties": false
+    },
+
+    "type":     {
+      "type": "string",
+      "enum": [
+        "friction",
+        "task-planned",
+        "plan-complete",
+        "plan-approved",
+        "task-implemented",
+        "review-passed",
+        "review-failed",
+        "task-approved",
+        "task-validated",
+        "task-committed",
+        "sprint-start",
+        "sprint-complete",
+        "sprint-halted",
+        "task-dispatch",
+
+        "bug-triaged", "fix-planned", "fix-review-passed", "fix-review-failed",
+        "fix-implemented", "fix-code-review-passed", "fix-code-review-failed",
+        "fix-approved", "fix-revision-requested", "bug-committed",
+        "bug-commit-failed", "bug-skipped",
+
+        "skill_usage"
+      ]
+    },
+    "workflow": { "type": "string" },
+    "persona":  { "type": "string" },
+    "issue":    { "type": "string" },
+    "subkind":  {
+      "type": "string",
+      "pattern": "^(skill_unused|skill_failed|skill_missing|skill_stale|skill_redundant|x_[a-z_]+)$"
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "trajectory_excerpt": { "type": "string" },
+        "tool_errors":        { "type": "array", "items": { "type": "string" } },
+        "retrieval_score":    { "type": "number", "minimum": 0, "maximum": 1 },
+        "skillId":            { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "taskCount":            { "type": "integer", "minimum": 0 },
+    "completedTaskIds":     { "type": "array", "items": { "type": "string" } },
+    "pausedAfterTaskIndex": { "type": "integer", "minimum": 0 },
+    "haltedAtTaskIndex":    { "type": "integer", "minimum": 0 },
+    "haltedAtTaskId":       { "type": "string" },
+    "lastError":            { "type": "string" },
+    "waveCount":            { "type": "integer", "minimum": 1 },
+    "maxConcurrency":       { "type": "integer", "minimum": 1 },
+
+    "skillId":                { "type": "string", "minLength": 1 },
+    "retrieved":              { "type": "boolean" },
+    "used":                   { "type": "boolean" },
+    "tool_call_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "retrieval_score":        { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if":   { "properties": { "type": { "const": "friction" } }, "required": ["type"] },
+      "then": { "required": ["workflow", "persona", "issue"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "task-planned", "plan-complete", "plan-approved",
+              "task-implemented", "review-passed", "review-failed",
+              "task-approved", "task-validated", "task-committed"
+            ]
+          }
+        },
+        "required": ["type"]
+      },
+      "then": { "required": ["taskId", "phase", "iteration"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "bug-triaged", "fix-planned", "fix-review-passed", "fix-review-failed",
+              "fix-implemented", "fix-code-review-passed", "fix-code-review-failed",
+              "fix-approved", "fix-revision-requested", "bug-committed",
+              "bug-commit-failed"
+            ]
+          }
+        },
+        "required": ["type"]
+      },
+      "then": { "required": ["bugId", "phase", "iteration"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "bug-skipped" } }, "required": ["type"] },
+      "then": { "required": ["bugId"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "sprint-start" } }, "required": ["type"] },
+      "then": {
+        "required": [
+          "eventId", "sprintId", "role", "action",
+          "startTimestamp", "endTimestamp", "durationMinutes",
+          "model", "provider",
+          "taskCount"
+        ],
+        "properties": {
+          "taskCount": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "sprint-complete" } }, "required": ["type"] },
+      "then": {
+        "required": [
+          "eventId", "sprintId", "role", "action",
+          "startTimestamp", "endTimestamp", "durationMinutes",
+          "model", "provider",
+          "taskCount", "completedTaskIds", "verdict"
+        ],
+        "properties": {
+          "taskCount":            { "type": "integer", "minimum": 0 },
+          "completedTaskIds":     { "type": "array", "items": { "type": "string" } },
+          "verdict":              { "type": "string", "enum": ["complete", "partial"] },
+          "pausedAfterTaskIndex": { "type": "integer", "minimum": 0 },
+          "waveCount":            { "type": "integer", "minimum": 1 },
+          "maxConcurrency":       { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "sprint-halted" } }, "required": ["type"] },
+      "then": {
+        "required": [
+          "eventId", "sprintId", "role", "action",
+          "startTimestamp", "endTimestamp", "durationMinutes",
+          "model", "provider",
+          "haltedAtTaskIndex", "haltedAtTaskId", "lastError"
+        ],
+        "properties": {
+          "haltedAtTaskIndex": { "type": "integer", "minimum": 0 },
+          "haltedAtTaskId":    { "type": "string" },
+          "lastError":         { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "skill_usage" } }, "required": ["type"] },
+      "then": {
+        "required": [
+          "eventId", "sprintId", "taskId",
+          "skillId", "retrieved", "used",
+          "tool_call_success_rate", "retrieval_score"
+        ]
+      }
+    }
+  ]
+}

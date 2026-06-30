@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/_defs/locator.schema.json",
+  "title": "ArtifactLocator",
+  "description": "Backend-agnostic artifact locator (ADR doc/decisions/artifact-resolution-abstraction.md, issue #111 Phase 3). Single-sourced under _defs/ and $ref'd from task/bug/sprint schemas. `record.path` remains the required back-compat alias during migration; `locator` is the forward-looking form so a non-fs backend (s3/cms/db) is a drop-in. `ref` is an opaque, backend-specific reference (a URI is a fine encoding): fs → 'engineering/sprints/<dir>/<task>/', s3 → 's3://bucket/key', cms → 'cms://collection/<id>', db → 'blob:<uuid>'.",
+  "type": "object",
+  "required": ["backend", "ref"],
+  "properties": {
+    "backend": { "type": "string", "description": "Storage backend identifier — e.g. fs, s3, gcs, azure, cms, db." },
+    "ref":     { "type": "string", "description": "Opaque backend-specific reference (URI-encodable)." }
+  },
+  "additionalProperties": false
+}

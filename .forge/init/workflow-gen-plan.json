@@ -1,0 +1,17 @@
+[
+  {"id": "architect_sprint_intake",            "meta": "meta-new-sprint.md",              "persona": "product-manager"},
+  {"id": "architect_sprint_plan",              "meta": "meta-plan-sprint.md",             "persona": "architect"},
+  {"id": "architect_approve",                  "meta": "meta-approve.md",                 "persona": "architect"},
+  {"id": "architect_review_sprint_completion", "meta": "meta-review-sprint-completion.md","persona": "architect"},
+  {"id": "plan_task",                          "meta": "meta-plan-task.md",               "persona": "architect"},
+  {"id": "implement_plan",                     "meta": "meta-implement.md",               "persona": "engineer"},
+  {"id": "update_plan",                        "meta": "meta-update-plan.md",             "persona": "architect"},
+  {"id": "update_implementation",              "meta": "meta-update-implementation.md",   "persona": "engineer"},
+  {"id": "commit_task",                        "meta": "meta-commit.md",                  "persona": "engineer"},
+  {"id": "review_plan",                        "meta": "meta-review-plan.md",             "persona": "supervisor"},
+  {"id": "review_code",                        "meta": "meta-review-implementation.md",   "persona": "supervisor"},
+  {"id": "collator_agent",                     "meta": "meta-collate.md",                 "persona": "collator"},
+  {"id": "sprint_retrospective",               "meta": "meta-retro.md",                   "persona": "architect"},
+  {"id": "validate_task",                      "meta": "meta-validate.md",               "persona": "qa-engineer"},
+  {"id": "quiz_agent",                         "meta": "meta-check-agent.md",             "persona": "qa-engineer"}
+]

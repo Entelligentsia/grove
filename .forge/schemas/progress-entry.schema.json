@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/progress-entry.schema.json",
+  "title": "Progress Entry",
+  "description": "One line of progress.log, parsed from pipe-delimited fields: timestamp|agentName|bannerKey|status|detail",
+  "type": "object",
+  "required": ["timestamp", "agentName", "bannerKey", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "agentName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+    "bannerKey": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$" },
+    "status":    { "type": "string", "enum": ["start", "progress", "done", "error"] },
+    "detail":    { "type": "string", "maxLength": 500 }
+  }
+}

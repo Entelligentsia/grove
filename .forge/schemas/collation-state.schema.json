@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/collation-state.schema.json",
+  "title": "Collation State",
+  "description": "Last-collation watermark written to .forge/store/COLLATION_STATE.json",
+  "type": "object",
+  "required": ["collatedAt", "featureCount", "sprintCount", "taskCount", "bugCount"],
+  "additionalProperties": false,
+  "properties": {
+    "collatedAt":   { "type": "string",  "format": "date-time" },
+    "featureCount": { "type": "integer", "minimum": 0 },
+    "sprintCount":  { "type": "integer", "minimum": 0 },
+    "taskCount":    { "type": "integer", "minimum": 0 },
+    "bugCount":     { "type": "integer", "minimum": 0 }
+  }
+}

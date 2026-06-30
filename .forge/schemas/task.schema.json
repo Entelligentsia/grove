@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/task.schema.json",
+  "title": "Task",
+  "type": "object",
+  "required": ["taskId", "sprintId", "title", "status", "path"],
+  "properties": {
+    "taskId":               { "type": "string" },
+    "feature_id":           { "type": ["string", "null"] },
+    "sprintId":             { "type": "string" },
+    "title":                { "type": "string" },
+    "description":          { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft", "planned", "plan-approved", "implementing",
+        "implemented", "review-approved", "approved", "committed",
+        "plan-revision-required", "code-revision-required", "blocked", "escalated", "abandoned"
+      ]
+    },
+    "path":                 { "type": "string" },
+    "locator":              { "$ref": "_defs/locator.schema.json" },
+    "estimate":             { "type": "string", "enum": ["S", "M", "L", "XL"] },
+    "dependencies":         { "type": "array", "items": { "type": "string" } },
+    "knowledgeUpdates":     { "type": "array" },
+    "planIterations":       { "type": "integer", "minimum": 0 },
+    "codeReviewIterations": { "type": "integer", "minimum": 0 },
+    "assignedModel":        { "type": "string" },
+    "pipeline":             { "type": "string" },
+    "summaries": {
+      "type": "object",
+      "description": "Terse structured summaries of phase artifacts. Optional; full artifacts on disk remain authoritative.",
+      "properties": {
+        "plan":           { "$ref": "_defs/phaseSummary.schema.json" },
+        "review_plan":    { "$ref": "_defs/phaseSummary.schema.json" },
+        "implementation": { "$ref": "_defs/phaseSummary.schema.json" },
+        "code_review":    { "$ref": "_defs/phaseSummary.schema.json" },
+        "validation":     { "$ref": "_defs/phaseSummary.schema.json" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

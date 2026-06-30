@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Entelligentsia/forge/schemas/payload-manifest.schema.json",
+  "title": "Forge Payload Manifest",
+  "description": "Declarative inventory of every artifact the Forge payload ships: source path (under forge/forge/) -> bundle path (dist/forge-payload/) -> install destination (bootstrapped project root) -> removal owner (uninstall grouping). Replaces the hand-maintained copy lists in build-payload.cjs / bootstrap.ts / uninstall.ts (FORGE-S32). The owner enum and select shape are provisional pending FORGE-S32-T03 consumer wiring.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "_doc": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/entry" }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "bundle", "owner", "kind"],
+      "if": {
+        "properties": { "bundleOnly": { "const": true } },
+        "required": ["bundleOnly"]
+      },
+      "then": {
+        "not": { "required": ["install"] }
+      },
+      "else": {
+        "required": ["install"]
+      },
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Repo-relative path under forge/forge/ (file or directory root)."
+        },
+        "bundle": {
+          "type": "string",
+          "description": "Destination path inside dist/forge-payload/ that build-payload.cjs emits."
+        },
+        "install": {
+          "type": "string",
+          "description": "Destination inside a bootstrapped project, relative to project root (e.g. .forge/tools/, .claude/commands/forge/). Required unless bundleOnly:true (the if/then/else contract); forbidden when bundleOnly:true."
+        },
+        "bundleOnly": {
+          "type": "boolean",
+          "description": "True when the artifact ships to dist/forge-payload/ for tool/migration-engine resolution but is NOT installed into a bootstrapped project's tree. Such entries MUST NOT declare install (enforced by the if/then/else contract and check-payload-manifest.cjs). FORGE-BUG-044."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Removal owner consumed by uninstall.ts, encoding the per-subtree removal grouping.",
+          "enum": ["forge-scaffold", "claude-commands", "claude-assets", "workflows"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["file", "dir"]
+        },
+        "synthesized": {
+          "type": "boolean",
+          "description": "True when build-payload.cjs generates this artifact rather than copying it from source (e.g. tools/package.json CJS scope marker). Source-drift checks skip the missing-source assertion for synthesized entries."
+        },
+        "select": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Selection filter for dir entries, mirroring build-payload.cjs Pass-2 logic.",
+          "properties": {
+            "recursive": {
+              "type": "boolean",
+              "description": "When false, only top-level files are selected; subdirectories are not descended."
+            },
+            "ext": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Allowed file-name suffixes (e.g. .cjs, .schema.json)."
+            },
+            "include": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Explicit allowlist of names for curated subtrees (tools/, skills/). Curated entries are forward-checked only; unlisted siblings are NOT orphans."
+            },
+            "exclude": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Path segments or file names to skip (e.g. __tests__, README.md)."
+            },
+            "prefix": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Required file-name prefixes (e.g. discover-, wfl-, phase-)."
+            }
+          }
+        },
+        "note": {
+          "type": "string",
+          "description": "Free-text rationale, preserving the inline citation comments that today live in build-payload.cjs (FORGE-BUG-030 marker, forge-cli#25 defects, etc.)."
+        }
+      }
+    }
+  }
+}

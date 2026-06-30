@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/event-sidecar.schema.json",
+  "title": "Event Sidecar",
+  "description": "Subset of event schema — token/cost/duration fields written by agents before canonical merge. All fields other than eventId are optional; presence enforcement happens on the canonical event, not the sidecar.",
+  "type": "object",
+  "required": ["eventId"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId":          { "type": "string", "minLength": 1 },
+    "inputTokens":      { "type": "integer", "minimum": 0 },
+    "outputTokens":     { "type": "integer", "minimum": 0 },
+    "cacheReadTokens":  { "type": "integer", "minimum": 0 },
+    "cacheWriteTokens": { "type": "integer", "minimum": 0 },
+    "model":            { "type": "string",  "maxLength": 120 },
+    "provider":         { "type": "string",  "maxLength": 60 },
+    "durationMinutes":  { "type": "number",  "minimum": 0 },
+    "startTimestamp":   { "type": "string",  "format": "date-time" },
+    "endTimestamp":     { "type": "string",  "format": "date-time" },
+    "tokenSource":      { "type": "string",  "enum": ["reported", "estimated"] }
+  }
+}

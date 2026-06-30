@@ -2,7 +2,15 @@
   "mcpServers": {
     "grove": {
       "command": "/home/boni/src/grove/target/release/grove",
-      "args": ["serve"]
+      "args": [
+        "serve"
+      ]
+    },
+    "forge": {
+      "command": "node",
+      "args": [
+        ".forge/mcp/server.cjs"
+      ]
     }
   }
 }

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/proposal.schema.json",
+  "title": "EnhancementProposal",
+  "description": "A single Phase 2 enrichment proposal emitted by /forge:enhance. Each record carries an op classification (insert/update/delete a skill artifact), the target file path, and a diff body. Foundation for the T03 judge, T05 delete detection, T06 compression gate, and T07 queue drain.",
+  "type": "object",
+  "required": ["op", "target_path", "diff_body"],
+  "properties": {
+    "proposalId":         { "type": "string", "minLength": 1 },
+    "op": {
+      "type": "string",
+      "enum": ["insert_skill", "update_skill", "delete_skill"],
+      "description": "Three-op classification: insert a new skill artifact, update an existing one, or delete an existing one."
+    },
+    "target_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repository-relative path to the artifact being inserted, updated, or deleted (e.g. forge/skills/engineer-skills.md)."
+    },
+    "diff_body": {
+      "type": "string",
+      "description": "Unified-diff body or full file body for inserts. For delete_skill this may be empty — the op + target_path is sufficient."
+    },
+    "rationale":          { "type": "string" },
+    "sourceFrictionIds":  { "type": "array", "items": { "type": "string" } },
+    "generated_at":       { "type": "string", "format": "date-time" },
+    "sprintId":           { "type": "string" },
+    "recurrence_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "FORGE-S24-T04 — count of distinct tasks within the same sprint that emitted a matching (subkind, evidence.skillId) friction event, including the originating task. Always >= 1."
+    },
+    "recurrence_task_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "FORGE-S24-T04 — taskOrder-sorted list of task IDs that contributed to recurrence_count. Empty when the originating friction event cannot be resolved from sourceFrictionIds."
+    }
+  },
+  "additionalProperties": false
+}

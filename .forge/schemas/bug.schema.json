@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/bug.schema.json",
+  "title": "Bug",
+  "type": "object",
+  "required": ["bugId", "title", "severity", "status", "path", "reportedAt"],
+  "properties": {
+    "bugId":               { "type": "string" },
+    "title":               { "type": "string" },
+    "description":         { "type": "string" },
+    "severity":            { "type": "string", "enum": ["critical", "major", "minor"] },
+    "status":              { "type": "string", "enum": ["reported", "triaged", "in-progress", "fixed"] },
+    "path":                { "type": "string" },
+    "locator":             { "$ref": "_defs/locator.schema.json" },
+    "rootCauseCategory": {
+      "type": "string",
+      "enum": ["validation", "auth", "business-rule", "data-integrity", "race-condition", "integration", "configuration", "regression"]
+    },
+    "similarBugs":         { "type": "array", "items": { "type": "string" } },
+    "checklistItemAdded":  { "type": "boolean" },
+    "businessRuleUpdated": { "type": "boolean" },
+    "githubIssue":         { "type": "string", "format": "uri" },
+    "reportedAt":          { "type": "string", "format": "date-time" },
+    "resolvedAt":          { "type": "string", "format": "date-time" },
+    "summaries": {
+      "type": "object",
+      "description": "Terse structured summaries of phase artifacts. Optional; full artifacts on disk remain authoritative.",
+      "properties": {
+        "plan":           { "$ref": "_defs/phaseSummary.schema.json" },
+        "triage":         { "$ref": "_defs/phaseSummary.schema.json" },
+        "review_plan":    { "$ref": "_defs/phaseSummary.schema.json" },
+        "implementation": { "$ref": "_defs/phaseSummary.schema.json" },
+        "code_review":    { "$ref": "_defs/phaseSummary.schema.json" },
+        "validation":     { "$ref": "_defs/phaseSummary.schema.json" },
+        "approve":        { "$ref": "_defs/phaseSummary.schema.json" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,58 @@
+{
+  "version": "1",
+  "project": {
+    "name": "grove",
+    "prefix": "GROVE"
+  },
+  "stack": {
+    "primary": [
+      "rust"
+    ],
+    "test": "cargo-test",
+    "build": "cargo",
+    "lint": "clippy"
+  },
+  "commands": {
+    "test": "cargo test --release --locked",
+    "build": "cargo build --release --locked",
+    "lint": "cargo clippy -- -D warnings"
+  },
+  "paths": {
+    "engineering": "engineering",
+    "store": ".forge/store",
+    "workflows": ".forge/workflows",
+    "commands": ".claude/commands/forge",
+    "templates": ".forge/templates",
+    "forgeRoot": "/home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload",
+    "forgeRef": "1.6.4",
+    "customCommands": "engineering/commands"
+  },
+  "mode": "full",
+  "installedSkills": [
+    "agent-sdk-dev",
+    "clangd-lsp",
+    "frontend-design",
+    "huggingface-best",
+    "pyright-lsp",
+    "skill-creator",
+    "streetview-panorama-js",
+    "stripe-integration",
+    "typescript-lsp",
+    "vue-best-practices"
+  ],
+  "calibrationBaseline": {
+    "lastCalibrated": "2026-06-30T13:42:39.282Z",
+    "version": "1.6.4",
+    "masterIndexHash": "c9b0b32876338a16e898c09906d440d16222101d0551fd60fa47cbcf6cb83454",
+    "sprintsCovered": []
+  },
+  "pipeline": {
+    "maxReviewIterations": 3
+  },
+  "sprint": {
+    "execution": {
+      "mode": "sequential",
+      "maxConcurrentAgents": 3
+    }
+  }
+}

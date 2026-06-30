@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forge/sprint.schema.json",
+  "title": "Sprint",
+  "type": "object",
+  "required": ["sprintId", "title", "status", "taskIds", "createdAt"],
+  "properties": {
+    "sprintId":       { "type": "string" },
+    "feature_id":     { "type": ["string", "null"] },
+    "title":          { "type": "string" },
+    "description":    { "type": "string" },
+    "goal":            { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["planning", "active", "completed", "retrospective-done", "blocked", "partially-completed", "abandoned"]
+    },
+    "taskIds":        { "type": "array", "items": { "type": "string" } },
+    "dependencies":   { "type": "object" },
+    "executionMode":  { "type": "string", "enum": ["sequential", "wave-parallel", "full-parallel"] },
+    "createdAt":      { "type": "string", "format": "date-time" },
+    "completedAt":    { "type": "string", "format": "date-time" },
+    "path":           { "type": "string" },
+    "locator":        { "$ref": "_defs/locator.schema.json" },
+    "humanEstimates": { "type": "object" },
+    "features":       { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

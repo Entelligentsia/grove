@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project-context.schema.json",
+  "title": "Project Context",
+  "description": "Machine-readable bridge file produced by the Discover phase (Phase 2) of the Forge init flow. Governs project-context.json written by the Phase 2 Discover agent and read by the T03 substitution tool. Distinct from project-overlay.schema.json, which is a per-spawn runtime context overlay; this schema captures persistent project metadata discovered at init/migrate time.",
+  "type": "object",
+  "required": ["project"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string", "description": "Human-readable project name" },
+        "prefix":      { "type": "string", "description": "Short identifier prefix (e.g. MYAPP)" },
+        "description": { "type": "string", "description": "Brief project description", "default": "" },
+        "stack": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Technology stack in display order (e.g. [\"Express 4.22\", \"MongoDB 7\"])",
+          "default": []
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Primary project lifecycle commands",
+          "properties": {
+            "test":   { "type": "string", "default": "" },
+            "build":  { "type": "string", "default": "" },
+            "deploy": { "type": "string", "default": "" }
+          }
+        }
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frameworks": {
+          "type": "object",
+          "additionalProperties": false,
+          "x-placeholder": "STACK_SUMMARY",
+          "description": "Primary frameworks by tier. Rendered as 'backend + frontend + database' string by T03 substitution tool.",
+          "properties": {
+            "backend":  { "type": "string", "default": "" },
+            "frontend": { "type": "string", "default": "" },
+            "database": { "type": "string", "default": "" }
+          }
+        },
+        "dataAccess": {
+          "type": "string",
+          "description": "Data access pattern (e.g. 'Mongoose ODM')",
+          "default": ""
+        },
+        "deployment": {
+          "type": "string",
+          "description": "Deployment target summary (e.g. 'AWS ECS')",
+          "default": ""
+        },
+        "keyDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "x-placeholder": "KEY_DIRECTORIES",
+          "description": "Key source directories joined to 'routes/, admin-app/, ...' by T03.",
+          "default": []
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Domain entity names (e.g. [\"User\", \"Order\", \"Product\"])",
+      "default": []
+    },
+    "conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branching": {
+          "type": "string",
+          "x-placeholder": "BRANCHING_CONVENTION",
+          "description": "Branching strategy description (e.g. 'feature/TASK-ID-slug'). Direct string substitution by T03.",
+          "default": ""
+        },
+        "taskIdFormat": {
+          "type": "string",
+          "description": "Task ID format pattern (e.g. 'PROJ-###')",
+          "default": ""
+        }
+      }
+    },
+    "impactCategories": {
+      "type": "array",
+      "items": { "type": "string" },
+      "x-placeholder": "IMPACT_CATEGORIES",
+      "description": "Impact/risk category labels joined to comma-separated string by T03.",
+      "default": []
+    },
+    "technicalDebt": {
+      "type": "array",
+      "items": { "type": "string" },
+      "x-placeholder": "TECHNICAL_DEBT",
+      "description": "Known technical debt items joined to comma-separated string by T03.",
+      "default": []
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environments": {
+          "type": "array",
+          "x-placeholder": "DEPLOYMENT_ENVIRONMENTS",
+          "description": "Deployment environment definitions rendered as a markdown table by T03.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name":     { "type": "string", "default": "" },
+              "frontend": { "type": "string", "default": "" },
+              "backend":  { "type": "string", "default": "" },
+              "region":   { "type": "string", "default": "" }
+            }
+          },
+          "default": []
+        },
+        "impactNotes": {
+          "type": "string",
+          "description": "Freeform deployment impact notes",
+          "default": ""
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "x-placeholder": "VERIFICATION_COMMANDS",
+      "additionalProperties": false,
+      "description": "Full verification command suite. Rendered as 'npm run type-check, npm test, npm run build' by T03.",
+      "properties": {
+        "typeCheck":   { "type": "string", "default": "" },
+        "lint":        { "type": "string", "default": "" },
+        "test":        { "type": "string", "default": "" },
+        "build":       { "type": "string", "default": "" },
+        "infraBuild":  { "type": "string", "default": "" }
+      }
+    },
+    "skillWiring": {
+      "type": "array",
+      "x-placeholder": "SKILL_DIRECTIVES",
+      "description": "Skill-to-persona wiring. Rendered as 'skill → persona1, persona2' lines by T03. Mirrors config.json skillWiring so T03 has a single source.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skill"],
+        "properties": {
+          "skill":    { "type": "string" },
+          "personas": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+          }
+        }
+      },
+      "default": []
+    }
+  }
+}

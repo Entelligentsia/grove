@@ -1,0 +1,16 @@
+{
+  "bootstrappedAt": "2026-06-30T12:51:54.195Z",
+  "payloadVersion": "1.6.4",
+  "payloadIntegrityHash": "ea0cbd89c6ec533ed8c45bf5106b8166ca5ba69a113b7516bef0d7fb1d9d7dc7",
+  "steps": [
+    "scaffold",
+    "vendor-tools",
+    "vendor-hooks",
+    "vendor-schemas",
+    "vendor-commands",
+    "vendor-forge-root",
+    "vendor-claude-assets",
+    "install-workflows",
+    "write-mcp-json"
+  ]
+}

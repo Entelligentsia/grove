@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "structure-versions.schema.json",
+  "title": "Structure Versions",
+  "description": "Tracks versioned structural snapshots of .forge/ elements. Lives at .forge/structure-versions.json (NOT under .forge/store/). Composition model: Working Artifact = base@pluginVersion + snapshot@currentSnapshot + user_enhancements. Snapshot-array invariant: snapshots is ordered ascending by index; currentSnapshot always equals snapshots[snapshots.length - 1].index. Idempotency: manage-versions.cjs init is a no-op if the file already exists.",
+  "type": "object",
+  "required": ["basePackVersion", "overlayToolVersion", "currentSnapshot", "snapshots"],
+  "additionalProperties": false,
+  "properties": {
+    "basePackVersion": {
+      "type": "string",
+      "description": "Plugin version at materialization time. Ties the snapshot set to a specific base-pack release."
+    },
+    "overlayToolVersion": {
+      "type": "string",
+      "description": "Version of project-overlay.schema.json at materialization time. Independent of structural drift; lets /forge:update detect runtime-contract drift."
+    },
+    "currentSnapshot": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Index of the snapshot that produced the current .forge/ working set. Always equals snapshots[snapshots.length - 1].index."
+    },
+    "snapshots": {
+      "type": "array",
+      "description": "Ordered list of snapshots, ascending by index. Index 0 is always the base-pack snapshot.",
+      "items": {
+        "type": "object",
+        "required": ["index", "createdAt", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "description": "Origin of the snapshot: 'base-pack', 'post-init', 'post-sprint:SPRINT_ID', 'manual'"
+          },
+          "enhancedElements": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Relative paths of .forge/ elements modified in this snapshot. Empty for snapshot 0.",
+            "default": []
+          },
+          "archivePath": {
+            "type": ["string", "null"],
+            "description": "Path to the archive directory for this snapshot, e.g. .forge/archive/snap-1/. Null for snapshot 0 (nothing to archive before first enhancement)."
+          }
+        }
+      }
+    }
+  }
+}
