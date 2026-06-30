@@ -15,10 +15,8 @@ name = "grove"
 path = "src/main.rs"
 
 [dependencies]
-# Engine — wasm feature lets us load grammars from the registry at runtime,
-# with no grammar compiled into this binary.
-tree-sitter = { version = "0.25", features = ["wasm"] }
-streaming-iterator = "0.1"
+# Core library — AST engine, registry, fetch, ingest.
+grove-core = { path = "../core" }
 
 # CLI + output
 clap = { version = "4", features = ["derive"] }
@@ -28,13 +26,4 @@ serde_json = "1"
 # Gitignore-aware file walking (same crate ripgrep uses)
 ignore = "0.4"
 anyhow = "1"
-
-# Content hashing for the lockfile
-sha2 = "0.10"
-
-# OS-native cache/config directories
-dirs = "5"
-
-# HTTP client for `grove fetch` (blocking, rustls)
-ureq = "2"
 

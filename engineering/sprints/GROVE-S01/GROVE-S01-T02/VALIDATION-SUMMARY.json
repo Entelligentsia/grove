@@ -1,0 +1,17 @@
+{
+  "objective": "Validate the 6 acceptance criteria for extracting grove-core from the grove binary and rewiring the CLI to consume it via grove_core::.",
+  "key_changes": [
+    "AC#1 PASS: grove-core package, edition 2021, in workspace members; lib.rs exposes pub mod engine/ops/registry/fetch/ingest.",
+    "AC#2 PASS: engine/ops/registry/fetch/ingest physically moved to core/src/; all 5 gone from cli/src/ (now only init/main/mcp).",
+    "AC#3 PASS: cli/Cargo.toml has grove-core path dep; main.rs/mcp.rs/init.rs use grove_core::; no engine:: refs in main.rs.",
+    "AC#4 PASS: cargo tree -p grove-core is clap-free (grep -i clap empty).",
+    "AC#5 PASS: core/Cargo.toml carries exactly the 9 core deps (serde features=[derive]); clap lives only in cli/Cargo.toml.",
+    "AC#6 PASS: build --workspace green; 134 tests pass (32 cli + 17 integ + 85 core, 0 failed); clippy -D warnings exit 0; binary grove 0.1.11; dev-stub=3, default=21 unchanged.",
+    "Both prior revisions confirmed present: REVISION 1 (main.rs drops engine), REVISION 2 (core serde derive feature).",
+    "Regression anchors hold: tests/cli.rs integration suite green; binary identity and registry counts preserved.",
+    "Scope note: init.rs provisioning split (Step 3) and library smoke test deferred to T03 — correctly not validated here."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

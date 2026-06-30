@@ -1,0 +1,17 @@
+{
+  "objective": "Extract grove-core library crate from the grove binary and rewire the CLI to consume it via grove_core::, addressing the two required revisions from the adversarial plan review.",
+  "key_changes": [
+    "REVISION 1 (review defect): main.rs import is now use grove_core::{ops, registry, fetch, ingest} — engine dropped (unused, would trip clippy -D warnings and fail AC#7).",
+    "REVISION 2 (review advisory): core/Cargo.toml serde dep explicitly carries features=[\"derive\"] — moved modules (registry.rs, ops.rs) use #[derive(Serialize/Deserialize)].",
+    "Updated Approach §1 (serde derive note), §3 (engine-exclusion rationale), the Files-to-Modify rows for core/Cargo.toml and main.rs, and the Acceptance-Criteria list to match both revisions.",
+    "Scaffold core/ package grove-core (edition 2021), core/src/lib.rs exposes pub mod engine/ops/registry/fetch/ingest; add core to root workspace members.",
+    "git mv engine.rs/ops.rs/registry.rs/fetch.rs/ingest.rs from cli/src/ to core/src/ — intra-core crate:: refs stay valid (reviewer-verified none target init/mcp).",
+    "Rewire three CLI consumers: main.rs (drop 5 mod decls + add grove_core import), mcp.rs and init.rs (use crate::{...} -> use grove_core::{...}).",
+    "Partition deps: core gets full engine dep set (clap-free); cli adds grove-core path dep and drops core-only deps (tree-sitter, streaming-iterator, sha2, dirs, ureq).",
+    "Testing: workspace build/test/clippy green, cargo tree -p grove-core clap-free (AC#4), binary still grove, dev-stub counts unchanged, incremental core-first compile.",
+    "Verified both review claims against the live codebase: main.rs has zero engine:: path refs; registry.rs/ops.rs contain serde derive macros."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

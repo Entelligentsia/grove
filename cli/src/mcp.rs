@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::{ops, registry};
+use grove_core::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");

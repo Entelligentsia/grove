@@ -3,13 +3,10 @@
 //! The same operations are exposed as a human CLI (`grove outline …`) and as an
 //! MCP server (`grove serve`). Both call `ops`; neither owns engine logic.
 
-mod engine;
-mod fetch;
-mod ingest;
+use grove_core::{ops, registry, fetch, ingest};
+
 mod init;
 mod mcp;
-mod ops;
-mod registry;
 
 use std::path::PathBuf;
 

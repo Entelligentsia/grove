@@ -1,0 +1,18 @@
+{
+  "objective": "Review the T02 implementation extracting grove-core from the grove binary and rewiring the CLI to consume it via grove_core::.",
+  "key_changes": [
+    "All 9 acceptance criteria independently re-verified against live codebase and toolchain output (not trusted from PROGRESS).",
+    "REVISION 1 applied: main.rs imports {ops,registry,fetch,ingest} with no engine; grep engine:: in main.rs is empty.",
+    "REVISION 2 applied: core/Cargo.toml serde carries features=[\"derive\"]; required by moved modules' Serialize/Deserialize derives.",
+    "5 modules physically moved to core/src/ (git mv); cli/src/ now only init/main/mcp; intra-core crate:: refs target only moved modules.",
+    "cargo tree -p grove-core is clap-free (AC#4); clap lives only in the CLI crate.",
+    "Dep partitioning clean: no leftover dropped-dep uses in cli/src; all retained deps used; Cargo.lock regenerated with grove-core entry.",
+    "Integration tests (cli/tests/cli.rs) spawn the binary via CARGO_BIN_EXE_grove — no crate refs; unaffected by the move; 17 pass.",
+    "Re-ran build/test/clippy myself: 134 tests pass (32 cli + 17 integ + 85 core); clippy -D warnings clean; binary still grove 0.1.11.",
+    "Advisory only: cli/Cargo.toml serde derive feature technically unused in CLI (only trait bound T: serde::Serialize at mcp.rs:329); harmless, matches plan, no action.",
+    "Pure mechanical extraction; no security surface touched; no engine logic rewritten."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

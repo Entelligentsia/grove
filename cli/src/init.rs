@@ -13,7 +13,7 @@ use clap::ValueEnum;
 use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
-use crate::{fetch, registry};
+use grove_core::{fetch, registry};
 
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";

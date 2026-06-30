@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on extracting grove-core library crate and rewiring the CLI to consume it via grove_core::.",
+  "key_changes": [
+    "Two-crate lib+binary split sound: core/ holds reusable clap-free engine; cli/ is thin clap shell. Matches stack.md posture.",
+    "AC#4 holds: cargo tree -p grove-core is clap-free; clap lives only in cli/Cargo.toml. CLI concern correctly isolated.",
+    "Dep partition clean: core carries 9 engine deps with serde derive feature (REVISION 2); cli retains clap/serde/serde_json/ignore/anyhow + grove-core path dep.",
+    "REVISION 1 applied: main.rs imports {ops,registry,fetch,ingest} excluding engine; no engine:: refs remain; avoids clippy unused_imports.",
+    "Consumer rewiring correct: mcp.rs and init.rs use grove_core::; intra-core crate:: refs target only moved modules; no visibility bumps needed.",
+    "Toolchain green: clippy -D warnings exit 0; 134 tests pass (32 cli + 17 integ + 85 core); binary still grove 0.1.11; registry counts unchanged.",
+    "Pure mechanical extraction via git mv; no engine logic rewritten; history preserved; no security surface touched.",
+    "No operational impact: no version bump, binary identity unchanged, Cargo.lock regenerated and checked in, distribution channels unaffected.",
+    "Deferred to T03: init.rs provisioning split and library smoke test — correctly held back from T02.",
+    "Advisory (no action): cli/Cargo.toml serde derive feature technically unused in CLI (only trait bound at mcp.rs:329); harmless, matches plan."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

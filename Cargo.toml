@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli"]
+members = ["core", "cli"]
 resolver = "2"
 
 # Slim, self-contained release binaries for distribution.

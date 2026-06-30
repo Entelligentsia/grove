@@ -1,0 +1,19 @@
+{
+  "objective": "Adversarially re-review the revised T02 plan to extract grove-core and rewire the CLI, confirming both prior revisions landed and re-verifying all load-bearing claims against the live codebase.",
+  "key_changes": [
+    "REVISION 1 applied: main.rs import is use grove_core::{ops,registry,fetch,ingest} — engine dropped; propagated across Approach, Files-to-Modify, and AC list.",
+    "Re-verified: grep 'engine::' in main.rs returns nothing; only doc-comments + mod decl; no crate-level allow(unused_imports). Fix correct.",
+    "REVISION 2 applied: core/Cargo.toml serde carries features=[\"derive\"]; noted in Approach §1, table row, and AC list.",
+    "Re-verified: registry.rs derives Deserialize (×3), ops.rs derives Serialize (×4) — derive feature required to compile.",
+    "VERIFIED intra-core crate:: refs target only moved modules (registry/engine/fetch); none reference init/mcp — verbatim move holds.",
+    "NEW visibility audit: every item main.rs/mcp.rs/init.rs access cross-crate (ops::, registry::, fetch::, ingest::) is already pub — no visibility bump needed.",
+    "VERIFIED core dep set complete: all 9 deps used by moved modules; no clap:: in any moved module (AC#4 achievable).",
+    "VERIFIED cli dep trim: retained deps all used in resident files; dropped deps all unused (tree-sitter hits are doc-strings only).",
+    "VERIFIED mcp.rs:14 and init.rs:16 are exactly the use crate::{...} lines the plan rewrites; main.rs uses mod decls not use crate::.",
+    "VERIFIED integration tests run binary as subprocess — no crate:: refs; unaffected by the move.",
+    "Architecture sound (two-crate lib+binary), no security surface touched, operational impact accurate; testing strategy adequate and stack-matched."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

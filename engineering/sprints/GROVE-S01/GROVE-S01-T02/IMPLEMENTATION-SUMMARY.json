@@ -1,0 +1,31 @@
+{
+  "objective": "Extract the grove-core library crate from the grove binary (engine, ops, registry, fetch, ingest) and rewire the CLI to consume it via grove_core::.",
+  "key_changes": [
+    "Scaffolded core/ crate grove-core (edition 2021): Cargo.toml with full engine deps (clap-free, serde derive) and src/lib.rs exposing pub mod engine/ops/registry/fetch/ingest.",
+    "Registered the new crate in the root workspace: Cargo.toml members [\"cli\"] -> [\"core\", \"cli\"].",
+    "git mv'd engine.rs/ops.rs/registry.rs/fetch.rs/ingest.rs from cli/src/ to core/src/ (history preserved); intra-core crate:: refs stayed valid with no edits.",
+    "Rewired main.rs: dropped 5 mod decls, kept mod init/mcp, added use grove_core::{ops, registry, fetch, ingest} (engine excluded per REVISION 1 to avoid clippy unused_imports).",
+    "Rewired mcp.rs and init.rs: use crate::{...} -> use grove_core::{...}.",
+    "Partitioned deps: cli/Cargo.toml gains grove-core path dep, keeps clap/serde/serde_json/ignore/anyhow; dropped tree-sitter/streaming-iterator/sha2/dirs/ureq (now core-only).",
+    "Regenerated Cargo.lock for the new grove-core package entry (offline).",
+    "Verified green: workspace build --locked; 134 tests pass (32 cli + 17 integ + 85 core); clippy -D warnings clean; cargo tree -p grove-core clap-free; binary still grove 0.1.11; 21 languages unchanged."
+  ],
+  "files_changed": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "core/Cargo.toml",
+    "core/src/lib.rs",
+    "core/src/engine.rs",
+    "core/src/ops.rs",
+    "core/src/registry.rs",
+    "core/src/fetch.rs",
+    "core/src/ingest.rs",
+    "cli/Cargo.toml",
+    "cli/src/main.rs",
+    "cli/src/mcp.rs",
+    "cli/src/init.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T23:25:00Z",
+  "artifact_ref": "PROGRESS.md"
+}
