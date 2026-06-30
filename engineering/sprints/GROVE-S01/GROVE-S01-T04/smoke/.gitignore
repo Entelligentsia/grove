@@ -1,0 +1,3 @@
+# Build artifacts for the standalone smoke crate — Cargo.lock IS committed
+# (durable no-clap provenance, AC4), but the compiled target/ tree is not.
+/target

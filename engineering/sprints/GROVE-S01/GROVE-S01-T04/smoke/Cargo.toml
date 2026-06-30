@@ -1,0 +1,14 @@
+[package]
+name = "grove-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Consume grove-core the way an external library user would: by path, with no
+# CLI in sight. The relative path climbs to the repo root, then into `core/`.
+grove-core = { path = "../../../../../core" }
+
+# Empty [workspace] table: detach from the parent workspace so this throwaway
+# crate resolves its own Cargo.lock and is never built/published as a member.
+[workspace]

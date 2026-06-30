@@ -1,0 +1,19 @@
+{
+  "objective": "Curate grove-core's public API (root re-exports + docs.rs-quality doc comments) and prove it from outside the workspace via a standalone, reproducible library smoke crate.",
+  "key_changes": [
+    "Expand core/src/lib.rs //! crate doc and add curated pub use re-exports: Symbol, Defect, CallSite, MapEntry, FileMap, SourceResult, provision_project.",
+    "Keep all six pub mod declarations (engine/init/ops/registry/fetch/ingest) — cli imports registry/fetch/ingest directly, so the change is additive/non-breaking.",
+    "Expand terse one-liner /// docs on ops public fns into what/params/return form; verify/polish init::provision_project docs.",
+    "Do not leak internal helpers (Loaded, CapturedQuery, Index, Sources, Spec, Catalog) — already private.",
+    "Build standalone smoke crate under the task dir: grove-core path dep + empty [workspace] table to detach from parent workspace.",
+    "REVISION 1 (grammar resolution): smoke main.rs sets GROVE_REGISTRY to repo registry/ before ops::symbols; dev_root() = <crate>/registry is non-existent so not a fallback — makes AC3 reproducible.",
+    "REVISION 2 (sample language): sample tree uses Rust .rs files; repo registry/ ships a verified rust grammar (grammar.wasm + tags.scm).",
+    "provision_project(dry_run=true) needs no grammar and returns Ok(Vec::new()) — evidence is its printed narration, not a non-empty vec.",
+    "Commit the smoke crate's Cargo.lock as durable AC4 no-clap provenance (cargo tree + lockfile).",
+    "Testing: workspace cargo test --release --locked + clippy -D warnings green; cargo doc -p grove-core --no-deps; smoke cargo run captured in PROGRESS.",
+    "Operational impact: material (additive public-API change), semver-additive; version/publish decision owned by T06; smoke crate never published."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

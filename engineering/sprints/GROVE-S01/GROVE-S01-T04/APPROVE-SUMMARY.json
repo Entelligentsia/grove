@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on GROVE-S01-T04: curated grove-core public API (root re-exports + docs.rs-quality docs) and a standalone library smoke crate proving external consumability without clap.",
+  "key_changes": [
+    "AC1 PASS: lib.rs re-exports 7 curated types + provision_project; six pub mod preserved (additive); internal helpers remain private — not leaked.",
+    "AC2 PASS: ops fns expanded to what/params/return docs; provision_project already adequate; cargo doc --no-deps no warnings; no_run example compiles.",
+    "AC3 PASS: standalone smoke crate (empty [workspace]) runs ops::symbols (4 defs) + provision_project(dry_run) with GROVE_REGISTRY -> repo registry/.",
+    "AC4 PASS: grep -c clap Cargo.lock = 0; cargo tree no clap node; smoke Cargo.lock committed as durable no-clap provenance.",
+    "AC5 PASS: cargo test --release --locked = 87 passed + 1 doctest; cargo clippy -D warnings clean; cargo doc no warnings.",
+    "Alignment: reinforces library/CLI separation per stack.md — grove-core stays clap-free; curated re-exports give ergonomic root surface.",
+    "Grammar resolution: GROVE_REGISTRY short-circuits registry_root() before cache cascade — reproducible on any machine.",
+    "Cross-cutting: no impact on other modules — all changes additive; no existing behavior altered; no migration required.",
+    "Operational impact: material but semver-additive; version/publish decision deferred to T06; smoke crate publish=false.",
+    "Advisory: stray root .gitignore and unrelated cli/src/* src/* deletions in working tree — NOT T04; commit must scope to T04 files only."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T12:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}
