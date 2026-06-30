@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on the init.rs split: clap-free grove_core::init::provision_project (scan+fetch+grove.lock) vs CLI-side harness (Target/.mcp.json/CLAUDE.md), with grove init behavior unchanged.",
+  "key_changes": [
+    "Clean core/CLI seam: provision_project is a clap-free library API taking only (&Path, bool); Target enum + ValueEnum + harness writers stay CLI-side — correct architectural separation.",
+    "Empty-Vec short-circuit contract is sound: all 4 terminal paths (no-files, dry-run, offline-missing, no-cached-grammars) narrate in core and return Ok(Vec::new()), telling CLI to stop.",
+    "Design deviation approved: write_harness sources steering langs via registry::locked_langs instead of a passed-in slice — cleaner decoupling, control flow guarantees lock exists first.",
+    "wrote order preserved: .mcp.json -> CLAUDE.md -> grove.lock via wrote.extend(provisioned).",
+    "No cross-cutting impact: only additive pub surfaces (pub mod init, pub fn locked_langs); no other modules touched.",
+    "Independently re-verified green: build, clippy -D warnings, 137 tests (87+32+18), cargo tree -p grove-core clap-free.",
+    "AC4 e2e regression guard present at cli/tests/cli.rs:323.",
+    "No operational impact: no version bump, no migration, no schema change, no new input surface; grove init output byte-for-byte unchanged.",
+    "Advisory A1 (e2e covers mcp/grammars/dry-run directly, skill/both via unit tests) is non-blocking.",
+    "Advisory A2 (locked_langs silent-empty on missing grammars key) is low risk — write_lock_for always emits the array."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T12:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

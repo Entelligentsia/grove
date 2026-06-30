@@ -1,0 +1,27 @@
+{
+  "objective": "Split init.rs so grammar provisioning (scan+fetch+grove.lock) becomes the clap-free grove_core::init::provision_project API while the agent harness (.mcp.json + CLAUDE.md + Target enum) stays CLI-side, with grove init behavior byte-for-byte unchanged.",
+  "key_changes": [
+    "New core/src/init.rs: pub fn provision_project(root, dry_run) -> Result<Vec<String>>; moved extension_map + is_cached helpers into core.",
+    "core/src/lib.rs gains `pub mod init;` exposing provisioning to the library and CLI.",
+    "Contract: provision_project returns the wrote-actions on success, empty Vec on any short-circuit (dry-run / no files / no cached grammars), telling the CLI to stop.",
+    "cli/src/init.rs run() prints the scanning header, calls provision_project, returns early on empty, else writes harness; wrote = harness-writes ++ provision-actions.",
+    "write_harness reduced to harness-only (.mcp.json + CLAUDE.md), no longer writes the lock and no longer takes a langs slice.",
+    "core/src/registry.rs gains pub fn locked_langs(path) reader; CLI sources the CLAUDE.md steering language list from the lock core just wrote.",
+    "Pruned now-unused CLI imports (WalkBuilder, BTreeMap, HashMap, grove_core::{fetch, registry}) and added them to core, clearing the clippy advisory.",
+    "Preserved the fetch .context('auto-fetching detected grammars') string verbatim in the move.",
+    "CLI harness unit tests reworked to assert harness-only writes (grammars=0, skill=1, mcp/both=2); renamed grammars_target_writes_only_lock.",
+    "Added 2 core-side provision unit tests (empty-project + dry-run short-circuits) covering the moved lock path.",
+    "Added cli/tests/cli.rs e2e init test (mcp / grammars / --dry-run) as the AC4 regression guard; deterministic offline via XDG_CACHE_HOME + dead GROVE_REGISTRY_URL.",
+    "Verified: build/test --release --locked --workspace green (87+32+18), clippy -D warnings clean, cargo tree -p grove-core clap-free."
+  ],
+  "files_changed": [
+    "core/src/init.rs",
+    "core/src/lib.rs",
+    "core/src/registry.rs",
+    "cli/src/init.rs",
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

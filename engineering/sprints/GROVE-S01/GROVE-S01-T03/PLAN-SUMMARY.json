@@ -1,0 +1,19 @@
+{
+  "objective": "Split init.rs so grammar provisioning (scan + fetch + grove.lock) becomes a clap-free grove_core::init::provision_project API, while the agent harness (.mcp.json + CLAUDE.md + Target enum) stays CLI-side, with grove init behavior unchanged.",
+  "key_changes": [
+    "New core/src/init.rs: pub fn provision_project(root, dry_run) -> Result<Vec<String>>; moves extension_map + is_cached helpers into core.",
+    "core/src/lib.rs gains `pub mod init;` exposing provisioning to library consumers and the CLI.",
+    "Contract: provision_project returns provisioning wrote-actions on success, empty Vec on any short-circuit (dry-run / no files / no cached grammars) telling the CLI to stop.",
+    "cli/src/init.rs run() prints the scanning header (names target), calls provision_project, returns early if empty, else writes harness and assembles the combined wrote block.",
+    "write_harness reduced to harness-only (.mcp.json + CLAUDE.md); the grove.lock write moves to core provision_project.",
+    "Target enum + clap::ValueEnum derive, write_mcp_json, write_claude_md, claude_section, and CLAUDE_*/MCP_* constants stay CLI-side.",
+    "stdout preserved by keeping the narration boundary identical: provision narrates detected/fetching/dry-run/terminals; CLI prints header + wrote/ready/skill/grammars trailers in today's order.",
+    "Existing write_harness target unit tests updated to assert harness-only writes (mcp/both=2, skill=1, grammars=0); lock coverage moves to a core-side test.",
+    "cli/tests/cli.rs extended with an end-to-end grove init per-target + --dry-run check gating identical files + stdout shape (AC4).",
+    "grove-core stays clap-free: provision_project takes root+dry_run only, no Target/ValueEnum; verified via cargo tree -p grove-core.",
+    "Not a material/version-bumping change: grove.lock, .mcp.json, CLAUDE.md outputs are byte-for-byte unchanged."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

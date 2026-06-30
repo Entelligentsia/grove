@@ -1,0 +1,16 @@
+{
+  "objective": "Reviewed the plan to split cli/src/init.rs into a clap-free grove_core::init::provision_project API (scan+fetch+lock) and a CLI-side harness (Target/.mcp.json/CLAUDE.md) with grove init behavior unchanged.",
+  "key_changes": [
+    "AC1-5 verified against actual code: registry::write_lock_for, fetch::catalog_grammars, registry::manifests/cache_root all pub in core; moved helpers depend on no clap/Target.",
+    "AC4 stdout trace confirmed: wrote = harness-writes ++ provision-actions = [.mcp.json, CLAUDE.md, grove.lock]; all four short-circuit terminals print in provision and return empty Vec.",
+    "No ordering hazard: write_mcp_json and write_claude_md do not read grove.lock, so moving the lock write earlier into provision_project is safe.",
+    "clap-free invariant holds: core/Cargo.toml has no clap; provision_project takes (&Path, bool).",
+    "Advisory: unused imports (WalkBuilder, BTreeMap, HashMap, grove_core::{fetch,registry}) will be clippy-blocking after the move — prune in cli, add to core.",
+    "Advisory: no existing e2e grove init test in cli/tests/cli.rs; run() orchestration is untested — AC4 needs an explicit pre-refactor baseline capture step.",
+    "Advisory: provision_project emits stdout/stderr narration — deliberate per AC4, not a silent library API.",
+    "Advisory: rename grammars_target_writes_only_lock test and preserve fetch error .context string in the move."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

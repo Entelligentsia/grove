@@ -1,0 +1,14 @@
+{
+  "objective": "Validated the init.rs split: clap-free grove_core::init::provision_project (scan+fetch+grove.lock) vs CLI-side harness (Target/.mcp.json/CLAUDE.md), with grove init behavior unchanged.",
+  "key_changes": [
+    "AC1 PASS: provision_project(&Path,bool)->Result<Vec<String>> in core/src/init.rs; pub mod init in lib.rs; scans+fetches+writes grove.lock; writes no harness files; short-circuits return empty Vec.",
+    "AC2 PASS: cli/src/init.rs retains Target enum + clap ValueEnum derive + write_mcp_json + write_claude_md; harness stays CLI-side.",
+    "AC3 PASS: run() calls provision_project first, early-exits on empty, then write_harness; wrote = harness ++ provisioned in .mcp.json->CLAUDE.md->grove.lock order.",
+    "AC4 PASS: e2e init_provisions_and_wires_harness_per_target asserts files+stdout order per target (mcp/grammars/dry-run); deterministic offline.",
+    "AC5 PASS: build clean, clippy -D warnings clean, 137 tests pass (32+18+87), cargo tree -p grove-core clap-free.",
+    "No regressions: all pre-existing unit + e2e tests green; edge cases (empty/dry-run/offline/grammars-only/idempotent/invalid-json) covered."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

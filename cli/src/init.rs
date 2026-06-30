@@ -5,15 +5,14 @@
 //! `grove.lock` pinning the grammars the project needs. Idempotent: re-running
 //! updates the grove pieces without clobbering anything else.
 
-use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
-use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
-use grove_core::{fetch, registry};
+use grove_core::init::provision_project;
+use grove_core::registry;
 
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";
@@ -62,69 +61,22 @@ const MCP_SERVER_KEY: &str = "grove";
 pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     println!("grove init  scanning {} (as {:?})\n", root.display(), target);
 
-    // 1. Build an extension→language map. Prefer the hosted catalog so we detect
-    //    languages whose grammar isn't fetched yet (otherwise a project's main
-    //    language is silently skipped); fall back to cached grammars offline.
-    let (ext_map, online) = extension_map();
-
-    // 2. Count project files per language.
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for entry in WalkBuilder::new(root).build().flatten() {
-        let p = entry.path();
-        if p.is_file() {
-            if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                if let Some(lang) = ext_map.get(ext) {
-                    *counts.entry(lang.clone()).or_default() += 1;
-                }
-            }
-        }
-    }
-
-    if counts.is_empty() {
-        println!("  no files matched a known grammar.");
-        println!("  nothing to do.");
-        return Ok(());
-    }
-    for (lang, n) in &counts {
-        println!("  detected   {:<10} {} files", lang, n);
-    }
-    let langs: Vec<String> = counts.keys().cloned().collect();
-
-    if dry_run {
-        println!("\n  (dry run — no files written)");
+    // Provision grammars + the lock (clap-free core). An empty return is the
+    // contract for "nothing provisioned" — a dry-run / no-files / no-cached-
+    // grammars short-circuit; core already printed its terminal line, so stop.
+    let provisioned = provision_project(root, dry_run)?;
+    if provisioned.is_empty() {
         return Ok(());
     }
 
-    // 3. Auto-fetch any detected grammar the cache doesn't have yet, so the
-    //    tools work the moment init finishes. (Checked against the filesystem,
-    //    not the in-memory registry index, which we must not build before the
-    //    fetch lands — it is cached on first access.)
-    let missing: Vec<String> = langs.iter().filter(|l| !is_cached(l)).cloned().collect();
-    if !missing.is_empty() {
-        if online {
-            println!("\n  fetching   {} grammar(s): {}\n", missing.len(), missing.join(", "));
-            fetch::run(&missing, false).context("auto-fetching detected grammars")?;
-        } else {
-            println!(
-                "\n  note       {} not cached: {}\n             offline — run `grove fetch {}` to enable them.",
-                if missing.len() == 1 { "language" } else { "languages" },
-                missing.join(", "),
-                missing.join(" "),
-            );
-        }
-    }
-
-    // 4. Provision grammars (every target) + write the harness glue. The lock
-    //    and a CLAUDE.md steering block are written for every target; `.mcp.json`
-    //    only for MCP targets. Steering is not optional: without it a cold agent
-    //    ignores grove and falls back to grep/whole-file reads (VISION §6.4.1).
-    //    The skill artifact itself still comes from the skills tool, not init.
-    let langs: Vec<String> = langs.into_iter().filter(|l| is_cached(l)).collect();
-    if langs.is_empty() {
-        println!("\n  no grammars available — nothing written.");
-        return Ok(());
-    }
-    let wrote = write_harness(root, target, &langs)?;
+    // Write the harness glue for the chosen target, then report harness writes
+    // first and the provisioning actions after — preserving today's `wrote`
+    // order: `.mcp.json`, `CLAUDE.md`, `grove.lock`. Steering is not optional:
+    // without it a cold agent ignores grove and falls back to grep/whole-file
+    // reads (VISION §6.4.1). The skill artifact itself still comes from the
+    // skills tool, not init.
+    let mut wrote = write_harness(root, target)?;
+    wrote.extend(provisioned);
 
     println!("\n  wrote");
     for w in &wrote {
@@ -150,10 +102,12 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// Write the harness glue for `target` and pin `grove.lock`. The lock and a
-/// CLAUDE.md steering block are written for every target; `.mcp.json` only for
-/// MCP targets. Returns a human list of what was written, in order.
-fn write_harness(root: &Path, target: Target, langs: &[String]) -> Result<Vec<String>> {
+/// Write the harness glue for `target`: `.mcp.json` (MCP targets) and a
+/// `CLAUDE.md` steering block (every target but `Grammars`). Grammar
+/// provisioning + the `grove.lock` write live in `grove_core::init`. The
+/// `langs` for steering come from the lock that core just wrote. Returns a
+/// human list of what was written, in order.
+fn write_harness(root: &Path, target: Target) -> Result<Vec<String>> {
     let mut wrote = Vec::new();
     if target.writes_mcp() {
         wrote.push(write_mcp_json(root)?);
@@ -162,43 +116,10 @@ fn write_harness(root: &Path, target: Target, langs: &[String]) -> Result<Vec<St
     // (VISION §6.4.1), but embedding hosts supply their own steering and want
     // project files left untouched.
     if target.writes_steering() {
-        wrote.push(write_claude_md(root, langs, target)?);
+        let langs = registry::locked_langs(&root.join("grove.lock"))?;
+        wrote.push(write_claude_md(root, &langs, target)?);
     }
-    let n = registry::write_lock_for(langs, &root.join("grove.lock"))?;
-    wrote.push(format!("grove.lock ({n} grammars)"));
     Ok(wrote)
-}
-
-/// Extension→language map and whether it came from the hosted catalog (`true`,
-/// covering all languages) or — when offline — the local cache (`false`).
-fn extension_map() -> (HashMap<String, String>, bool) {
-    match fetch::catalog_grammars() {
-        Ok(grammars) => {
-            let mut m = HashMap::new();
-            for g in &grammars {
-                for ext in &g.extensions {
-                    m.insert(ext.clone(), g.name.clone());
-                }
-            }
-            (m, true)
-        }
-        Err(e) => {
-            eprintln!("  note: catalog unavailable ({e}); detecting from cached grammars only.");
-            let mut m = HashMap::new();
-            for man in registry::manifests() {
-                for ext in &man.extensions {
-                    m.insert(ext.clone(), man.name.clone());
-                }
-            }
-            (m, false)
-        }
-    }
-}
-
-/// True if `lang`'s grammar is already in the OS cache. Checks the filesystem
-/// directly so it never triggers the (once-initialised) in-memory registry index.
-fn is_cached(lang: &str) -> bool {
-    registry::cache_root().is_some_and(|c| c.join(lang).join("grammar.wasm").exists())
 }
 
 /// Add (or refresh) the grove MCP server in `.mcp.json`, preserving other servers.
@@ -437,56 +358,69 @@ mod tests {
         assert!(Target::Mcp.writes_steering() && Target::Skill.writes_steering());
     }
 
-    #[test]
-    fn grammars_target_writes_only_lock_no_steering_no_mcp_json() {
-        let dir = tmp("harness_grammars");
-        let wrote = write_harness(&dir, Target::Grammars, &["rust".into()]).unwrap();
+    /// `write_harness` is harness-only now: grammar provisioning + the
+    /// `grove.lock` write moved to `grove_core::init::provision_project`, so
+    /// these tests seed a lock first (the source of steering's language list)
+    /// and assert only the harness files (`.mcp.json` / `CLAUDE.md`).
+    fn seed_lock(dir: &Path) {
+        std::fs::write(
+            dir.join("grove.lock"),
+            r#"{"version":1,"grammars":[{"name":"rust","version":"1","wasm":"x"}]}"#,
+        )
+        .unwrap();
+    }
 
-        assert!(dir.join("grove.lock").exists(), "lock is always written");
+    #[test]
+    fn grammars_target_writes_no_harness_files() {
+        let dir = tmp("harness_grammars");
+        seed_lock(&dir);
+        let wrote = write_harness(&dir, Target::Grammars).unwrap();
+
         assert!(!dir.join("CLAUDE.md").exists(), "grammars mode writes no steering");
         assert!(!dir.join(".mcp.json").exists(), "grammars mode writes no .mcp.json");
-        assert_eq!(wrote.len(), 1, "only the lock is reported: {wrote:?}");
+        assert!(wrote.is_empty(), "no harness writes reported: {wrote:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn skill_target_writes_lock_and_steering_but_no_mcp_json() {
+    fn skill_target_writes_steering_but_no_mcp_json() {
         let dir = tmp("harness_skill");
-        let wrote = write_harness(&dir, Target::Skill, &["rust".into()]).unwrap();
+        seed_lock(&dir);
+        let wrote = write_harness(&dir, Target::Skill).unwrap();
 
-        assert!(dir.join("grove.lock").exists(), "lock is always written");
         assert!(dir.join("CLAUDE.md").exists(), "skill mode writes steering");
         assert!(!dir.join(".mcp.json").exists(), "skill mode writes no .mcp.json");
-        assert_eq!(wrote.len(), 2, "steering + lock reported: {wrote:?}");
+        assert_eq!(wrote.len(), 1, "only steering reported: {wrote:?}");
 
         // steering must point at the skill/CLI, not MCP tools that don't exist here
         let steer = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        assert!(steer.contains("rust"), "steering names the locked language");
         assert!(!steer.contains("mcp__grove__"), "skill steering names no MCP tools");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn mcp_target_writes_all_three() {
+    fn mcp_target_writes_mcp_json_and_steering() {
         let dir = tmp("harness_mcp");
-        let wrote = write_harness(&dir, Target::Mcp, &["rust".into()]).unwrap();
+        seed_lock(&dir);
+        let wrote = write_harness(&dir, Target::Mcp).unwrap();
 
         assert!(dir.join(".mcp.json").exists());
         assert!(dir.join("CLAUDE.md").exists());
-        assert!(dir.join("grove.lock").exists());
-        assert_eq!(wrote.len(), 3);
+        assert_eq!(wrote.len(), 2, ".mcp.json + steering reported: {wrote:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn both_target_writes_all_three() {
+    fn both_target_writes_mcp_json_and_steering() {
         let dir = tmp("harness_both");
-        write_harness(&dir, Target::Both, &["rust".into()]).unwrap();
+        seed_lock(&dir);
+        write_harness(&dir, Target::Both).unwrap();
         assert!(dir.join(".mcp.json").exists());
         assert!(dir.join("CLAUDE.md").exists());
-        assert!(dir.join("grove.lock").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

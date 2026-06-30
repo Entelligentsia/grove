@@ -6,6 +6,7 @@
 //! the `grove` binary crate, which consumes this library via `grove_core::`.
 
 pub mod engine;
+pub mod init;
 pub mod ops;
 pub mod registry;
 pub mod fetch;

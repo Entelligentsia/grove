@@ -419,6 +419,25 @@ pub fn write_lock_for(langs: &[String], path: &Path) -> Result<usize> {
     Ok(grammars.len())
 }
 
+/// Read the grammar names pinned in a lockfile, in file order. The lock is the
+/// canonical list of the grammars a project needs; `grove init` reads it back to
+/// name those languages in the CLAUDE.md steering block after provisioning.
+pub fn locked_langs(path: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let doc: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+    let langs = doc["grammars"]
+        .as_array()
+        .map(|gs| {
+            gs.iter()
+                .filter_map(|g| g["name"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(langs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

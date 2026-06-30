@@ -1,0 +1,20 @@
+{
+  "objective": "Reviewed the core/CLI split of init.rs — provision_project (clap-free core) vs harness (CLI) — for correctness, byte-for-byte behavior preservation, and AC compliance.",
+  "key_changes": [
+    "AC1-6 all verified against actual source: provision_project is clap-free (&Path,bool)->Result<Vec<String>>, pub mod init exposed, writes no harness files.",
+    "wrote order .mcp.json -> CLAUDE.md -> grove.lock preserved via wrote.extend(provisioned); e2e asserts i_mcp<i_claude<i_lock.",
+    "Lock round-trip write_lock_for (sorted) <-> locked_langs (file order) yields same sorted langs the original BTreeMap produced — steering byte-identical.",
+    "Design deviation sound: write_harness reads lock via registry::locked_langs instead of taking langs param — cleaner decoupling, documented in PROGRESS.",
+    "Short-circuit contract holds: all 4 terminals print in provision_project and return empty Vec; run() early-returns.",
+    "Disk-write order changed (lock now before harness) but harmless — write_claude_md reads lock via locked_langs, satisfied by control flow.",
+    "Test evidence authentic: independently re-ran build/clippy/test (87+32+18 green) and cargo tree -p grove-core (no clap).",
+    "e2e test is deterministic offline via dead GROVE_REGISTRY_URL + seeded XDG_CACHE_HOME + dev-stub GROVE_REGISTRY.",
+    "Advisory A1: e2e covers mcp/grammars/dry-run but not skill/both directly (covered by unit tests + unchanged routing).",
+    "Advisory A2: locked_langs silently returns empty on missing grammars key (low risk — write_lock_for always emits it).",
+    "No security concerns: no new input surface, fetch/registry paths unchanged.",
+    "Target enum + ValueEnum + write_mcp_json + write_claude_md unchanged (not in diff); main.rs Init arm unchanged."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

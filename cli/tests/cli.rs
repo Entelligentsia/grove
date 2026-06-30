@@ -314,6 +314,82 @@ fn lock_writes_grove_lock() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// GROVE-S01-T03 (AC4): end-to-end `grove init` — the orchestration split across
+/// `grove_core::init::provision_project` (grammars + grove.lock) and the CLI
+/// harness (.mcp.json + CLAUDE.md). Regression guard that the core/CLI split
+/// leaves `grove init` behaving identically: the files written + stdout shape
+/// per target and for --dry-run.
+#[test]
+fn init_provisions_and_wires_harness_per_target() {
+    // A fake OS cache seeded with the rust grammar so init's filesystem
+    // `is_cached` check passes deterministically (resolve still reads the full
+    // grammar from the dev-stub GROVE_REGISTRY). GROVE_REGISTRY_URL points at a
+    // dead host so the hosted catalog is skipped — detection falls back to the
+    // dev-stub manifests, with no network access.
+    let base = std::env::temp_dir().join(format!("grove_cli_test_{}_init", std::process::id()));
+    let cache = base.join("cache");
+    let rust_cache = cache.join("grove").join("grammars").join("rust");
+    std::fs::create_dir_all(&rust_cache).unwrap();
+    std::fs::write(rust_cache.join("grammar.wasm"), b"").unwrap();
+
+    let run = |proj: &Path, args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_grove"))
+            .args(args)
+            .current_dir(proj)
+            .env("GROVE_REGISTRY", DEV_REGISTRY)
+            .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
+            .env("XDG_CACHE_HOME", &cache)
+            .output()
+            .expect("running grove init")
+    };
+    let seed_proj = |name: &str| {
+        let p = base.join(name);
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::write(p.join("lib.rs"), "fn helper() {}\n").unwrap();
+        p
+    };
+
+    // --- default target (mcp): writes .mcp.json + CLAUDE.md + grove.lock ---
+    let mcp = seed_proj("mcp");
+    let out = run(&mcp, &["init"]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("detected"), "narrates detection: {text}");
+    assert!(text.contains("rust"), "names the detected language: {text}");
+    assert!(text.contains("wrote"), "narrates the wrote block: {text}");
+    assert!(mcp.join(".mcp.json").exists(), "mcp target writes .mcp.json");
+    assert!(mcp.join("CLAUDE.md").exists(), "mcp target writes steering");
+    assert!(mcp.join("grove.lock").exists(), "provisioning writes the lock");
+    // wrote order preserved across the split: .mcp.json, then CLAUDE.md, then grove.lock.
+    let (i_mcp, i_claude, i_lock) = (
+        text.find(".mcp.json").unwrap(),
+        text.find("CLAUDE.md").unwrap(),
+        text.find("grove.lock").unwrap(),
+    );
+    assert!(i_mcp < i_claude && i_claude < i_lock, "wrote order .mcp.json, CLAUDE.md, grove.lock: {text}");
+
+    // --- grammars target: only grove.lock, no harness files ---
+    let gram = seed_proj("grammars");
+    let g = run(&gram, &["init", "--as", "grammars"]);
+    assert!(g.status.success(), "stderr: {}", String::from_utf8_lossy(&g.stderr));
+    assert!(gram.join("grove.lock").exists(), "grammars target pins the lock");
+    assert!(!gram.join(".mcp.json").exists(), "grammars target writes no .mcp.json");
+    assert!(!gram.join("CLAUDE.md").exists(), "grammars target writes no steering");
+
+    // --- dry-run: detects but writes nothing ---
+    let dry = seed_proj("dry");
+    let d = run(&dry, &["init", "--dry-run"]);
+    assert!(d.status.success(), "stderr: {}", String::from_utf8_lossy(&d.stderr));
+    let dtext = String::from_utf8_lossy(&d.stdout);
+    assert!(dtext.contains("detected"), "dry-run still narrates detection: {dtext}");
+    assert!(dtext.contains("dry run"), "dry-run prints the dry-run note: {dtext}");
+    assert!(!dry.join("grove.lock").exists(), "dry-run writes no lock");
+    assert!(!dry.join(".mcp.json").exists(), "dry-run writes no .mcp.json");
+    assert!(!dry.join("CLAUDE.md").exists(), "dry-run writes no steering");
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
 #[test]
 fn index_writes_catalog() {
     let dir = fixture("index");
