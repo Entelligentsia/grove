@@ -1,0 +1,29 @@
+{
+  "objective": "Curate grove-core's public API (root re-exports + docs.rs-quality docs) and prove it from outside the workspace via a standalone library smoke crate.",
+  "key_changes": [
+    "core/src/lib.rs: expanded crate //! doc with a usage tour + compiled no_run example; added curated pub use re-exports (Symbol, Defect, CallSite, MapEntry, FileMap, SourceResult, provision_project).",
+    "Kept all six pub mod declarations (engine/init/ops/registry/fetch/ingest) — additive, non-breaking; cli imports registry/fetch/ingest directly.",
+    "Internal helpers (Loaded, CapturedQuery, Index, Sources, Spec, Catalog) left private and NOT re-exported.",
+    "core/src/ops.rs: expanded terse /// docs on outline/symbols/source/check/definition into what/params/return form; callers/map/definition_at/parse_pos/project already adequate.",
+    "init::provision_project already carries docs.rs-quality docs — verified, no edit needed.",
+    "Built standalone smoke crate under smoke/ with grove-core path dep + empty [workspace] table detaching it from the parent workspace.",
+    "smoke/src/main.rs sets GROVE_REGISTRY to repo registry/ (manifest 5th ancestor), runs ops::symbols over a Rust fixture (4 defs) + provision_project(dry_run=true).",
+    "smoke/sample/geometry.rs: small Rust fixture; repo registry/ ships a verified rust grammar.",
+    "Committed smoke/Cargo.lock as durable no-clap provenance; added smoke/.gitignore (/target) so build artifacts are excluded but the lockfile is kept.",
+    "Verified: cargo test --release --locked = 87 passed + 1 doctest; cargo clippy -D warnings clean; cargo doc -p grove-core --no-deps no warnings.",
+    "AC3 smoke run prints non-empty symbols + provision narration; AC4 cargo tree + Cargo.lock show no clap node.",
+    "Operational impact: material but semver-additive; version/publish decision owned by T06; smoke crate never published."
+  ],
+  "files_changed": [
+    "core/src/lib.rs",
+    "core/src/ops.rs",
+    "engineering/sprints/GROVE-S01/GROVE-S01-T04/smoke/Cargo.toml",
+    "engineering/sprints/GROVE-S01/GROVE-S01-T04/smoke/Cargo.lock",
+    "engineering/sprints/GROVE-S01/GROVE-S01-T04/smoke/src/main.rs",
+    "engineering/sprints/GROVE-S01/GROVE-S01-T04/smoke/sample/geometry.rs",
+    "engineering/sprints/GROVE-S01/GROVE-S01-T04/smoke/.gitignore"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-01T00:15:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

@@ -1,0 +1,20 @@
+{
+  "objective": "Re-reviewed the revised T04 plan for curating grove-core's public API, docs, and standalone library smoke crate after a prior revision-required verdict.",
+  "key_changes": [
+    "Prior item 1 RESOLVED: plan sets GROVE_REGISTRY to repo-root registry/, bypassing non-existent dev_root() fallback.",
+    "Prior item 2 RESOLVED: GROVE_REGISTRY makes ops::symbols grammar resolution reproducible, independent of user cache.",
+    "Rust grammar verified on disk: registry/rust/grammar.wasm + tags.scm + manifest.json exist.",
+    "All re-export targets verified pub: Symbol, Defect (engine); CallSite, MapEntry, FileMap, SourceResult (ops); provision_project (init).",
+    "All internal helpers (Loaded, CapturedQuery, Index, Sources, Spec, Catalog) confirmed private — won't be leaked.",
+    "provision_project(dry_run=true) returns Ok(Vec::new()) before any grammar/fetch — no WASM needed.",
+    "core/Cargo.toml has no clap dependency — AC4 achievable.",
+    "CLI imports registry/fetch/ingest directly — keeping pub mod declarations is necessary and non-breaking.",
+    "GROVE_REGISTRY short-circuits registry_root() before search_path() cascade — verified in source.",
+    "Advisory: plan's registry precedence prose omits .grove/grammars step (immaterial).",
+    "Advisory: GROVE_REGISTRY path from smoke crate to repo registry/ is 6 levels up; exact path must be in PROGRESS.",
+    "Empty [workspace] table detachment is valid; smoke crate excluded from published workspace."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

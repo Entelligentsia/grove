@@ -88,7 +88,15 @@ fn name_matches(sym_name: &str, query_lc: &str, contains: bool) -> bool {
     }
 }
 
-/// `outline` — the definitions in one file, optionally filtered by kind.
+/// List the definitions in one file — its symbol skeleton.
+///
+/// * `file` — path to the source file; its grammar is resolved from the registry
+///   by extension.
+/// * `kind` — optional kind filter (`"function"`, `"class"`, …); `struct` /
+///   `union` / `record` are synonyms for the umbrella `class` kind.
+///
+/// Returns the definition [`Symbol`]s only (references excluded), in source
+/// order. Errors if the file can't be read or no grammar is registered for it.
 pub fn outline(file: &Path, kind: Option<&str>) -> Result<Vec<Symbol>> {
     let grammar = registry::for_path(file)?;
     let src = read(file)?;
@@ -128,7 +136,20 @@ pub fn project(syms: &[Symbol], detail: u8) -> serde_json::Value {
     Value::Array(arr)
 }
 
-/// `symbols` — find across a directory, gitignore-aware.
+/// Find symbols across a directory, gitignore-aware.
+///
+/// Walks every registered-source file under `dir` (skipping gitignored paths and
+/// generated declaration files) and collects the symbols that match the filters.
+///
+/// * `dir` — directory root to search.
+/// * `kind` — optional kind filter (with the `struct`→`class` synonyms).
+/// * `name` — optional name filter; **exact** (case-insensitive) unless
+///   `name_contains` is set.
+/// * `refs` — when `true`, include references as well as definitions.
+/// * `name_contains` — switch `name` matching from exact to substring.
+///
+/// Returns every matching [`Symbol`]. Errors if a file can't be read or lacks a
+/// registered grammar.
 pub fn symbols(
     dir: &Path,
     kind: Option<&str>,
@@ -169,8 +190,17 @@ pub struct SourceResult {
     pub other_candidates: Vec<String>,
 }
 
-/// `source` — full code of a symbol, by id (`<lang>:<path>#<name>@<line>`) or
-/// by file + name.
+/// Return the full source text of one symbol.
+///
+/// * `id_or_file` — either a symbol id (`<lang>:<path>#<name>@<line>`) or, when
+///   `name` is `Some`, the path to the file containing the symbol.
+/// * `name` — when `Some`, look the symbol up by this name in `id_or_file`; when
+///   `None`, parse `id_or_file` as a full symbol id.
+///
+/// Returns a [`SourceResult`] with the chosen symbol's `source` plus any
+/// `other_candidates` that shared the name (for disambiguation). The `@<line>`
+/// suffix of an id selects among duplicates; otherwise the first definition wins.
+/// Errors on a malformed id or when no matching definition exists.
 pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
     let (file, want, want_line): (PathBuf, String, Option<usize>) = match name {
         Some(n) => (PathBuf::from(id_or_file), n.to_string(), None),
@@ -217,7 +247,13 @@ pub fn source(id_or_file: &str, name: Option<&str>) -> Result<SourceResult> {
     })
 }
 
-/// `check` — ERROR / MISSING nodes in one file.
+/// Report the syntactic defects in one file.
+///
+/// * `file` — path to the source file to parse.
+///
+/// Returns every [`Defect`] (ERROR / MISSING nodes) tree-sitter finds — empty
+/// when the file parses cleanly. Reports syntax only, not type or semantic
+/// errors. Errors if the file can't be read or no grammar is registered for it.
 pub fn check(file: &Path) -> Result<Vec<Defect>> {
     let grammar = registry::for_path(file)?;
     let src = read(file)?;
@@ -501,7 +537,15 @@ pub fn map(
     Ok(file_maps)
 }
 
-/// `definition` — exact-name definitions of `name` across `dir` (go-to-def).
+/// Find the definition(s) of `name` across `dir` — go-to-def by name.
+///
+/// * `dir` — directory root to search.
+/// * `name` — the exact (case-sensitive) symbol name to resolve.
+///
+/// Returns every definition [`Symbol`] whose name matches exactly — usually one,
+/// but several when the name is reused across files. Errors if a file can't be
+/// read or lacks a registered grammar. For usage-site resolution (scope- and
+/// import-aware), see [`definition_at`].
 pub fn definition(dir: &Path, name: &str) -> Result<Vec<Symbol>> {
     // `name_contains = false`: `definition` is exact by contract, so pre-filter
     // exactly — cheaper than pulling every substring hit then retaining.

@@ -1,0 +1,20 @@
+{
+  "objective": "Review the T04 implementation curating grove-core's public API (root re-exports + docs.rs-quality docs) and standalone library smoke crate against the approved plan.",
+  "key_changes": [
+    "AC1 ✓: curated pub use re-exports (Symbol, Defect, CallSite, MapEntry, FileMap, SourceResult, provision_project) — all targets verified pub.",
+    "AC1 ✓: internal helpers (Loaded, CapturedQuery, Index, Sources, Spec, Catalog) all private — not leaked.",
+    "AC1 ✓: all six pub mod declarations preserved — additive, non-breaking; cli imports registry/fetch/ingest directly.",
+    "AC2 ✓: ops fns (outline/symbols/source/check/definition) expanded to what/params/return; provision_project already docs.rs-quality.",
+    "AC3 ✓: standalone smoke crate (empty [workspace] table, detached) runs ops::symbols (4 defs) + provision_project(dry_run) — reproduced.",
+    "AC3 ✓: GROVE_REGISTRY set to repo registry/ via 5th-ancestor path math — reproducible grammar resolution.",
+    "AC4 ✓: no clap in smoke Cargo.lock or cargo tree — verified independently.",
+    "AC5 ✓: cargo test -p grove-core = 87 passed + 1 doctest; clippy -D warnings clean; cargo doc no warnings — all reproduced.",
+    "PROGRESS evidence authentic: every captured output block matches independent reproduction exactly.",
+    "Advisory: stray root .gitignore change (.pi/pi-claude-compat/) is non-T04; confirm not swept into commit.",
+    "Advisory: working tree has unrelated cli/src/* and src/* deletions from other work; -p grove-core passes — not a T04 defect.",
+    "Nice-to-have (core/README.md + examples/) deferred to T06 per approved plan."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:30:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

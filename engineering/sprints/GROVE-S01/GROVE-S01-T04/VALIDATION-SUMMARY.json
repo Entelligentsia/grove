@@ -1,0 +1,15 @@
+{
+  "objective": "Validated the curated grove-core public API, docs.rs-quality docs, and out-of-workspace library smoke crate against all five must-have acceptance criteria.",
+  "key_changes": [
+    "AC1 PASS: lib.rs re-exports Symbol/Defect/CallSite/MapEntry/FileMap/SourceResult + provision_project; all six pub mod kept; internal helpers not leaked; crate //! doc present.",
+    "AC2 PASS: ops fns + provision_project carry /// docs; cargo doc --no-deps no warnings; no_run example compiles as doctest.",
+    "AC3 PASS: standalone smoke crate (empty [workspace]) ran ops::symbols (4 defs) + provision_project(dry_run) with GROVE_REGISTRY -> repo registry/.",
+    "AC4 PASS: clap absent from smoke Cargo.lock (grep -c=0) and cargo tree (grep -c=0).",
+    "AC5 PASS: cargo test --release --locked = 87 passed + 1 doctest; cargo clippy -D warnings clean.",
+    "Nice-to-have (core/README.md + examples/) deferred to T06 per approved plan; not a must-have.",
+    "Regression: full workspace suite green, no regressions observed."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
