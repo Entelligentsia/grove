@@ -1,0 +1,17 @@
+{
+  "objective": "Convert the repo from a single flat crate to a Cargo virtual workspace with cli/ as the sole member, keeping the grove binary and all tests green.",
+  "key_changes": [
+    "Replace root Cargo.toml [package] content with a [workspace] table listing members = [\"cli\"] and resolver = \"2\"",
+    "Create cli/Cargo.toml carrying all current [package], [[bin]], [dependencies], and [profile.release] content",
+    "Move src/ → cli/src/ (8 source files, no content edits)",
+    "Move tests/ → cli/tests/ (cli.rs integration suite)",
+    "Fix DEV_REGISTRY constant in cli/tests/cli.rs: concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../registry\") to reach the root-level dev stub",
+    "Update scripts/bump-version.sh to target cli/Cargo.toml for the package version perl edit",
+    "Cargo.lock stays at repo root (workspace-level lock); no duplication inside cli/",
+    "cargo build --release --locked and cargo test --release --locked must pass from repo root",
+    "cargo clippy -- -D warnings must be clean"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T15:52:00.000Z",
+  "artifact_ref": "PLAN.md"
+}

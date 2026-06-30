@@ -1,0 +1,16 @@
+{
+  "objective": "Architectural approval of Cargo virtual workspace refactor establishing cli/ as sole member crate",
+  "key_changes": [
+    "Virtual workspace pattern correctly implemented with resolver=2",
+    "[profile.release] moved to workspace root where Cargo honours it",
+    "DEV_REGISTRY path fix (/../registry) is compile-time safe",
+    "134 tests pass, clippy clean, no regressions",
+    "Cargo.lock unified at workspace root",
+    "Binary output path unchanged at target/release/grove",
+    "Structure ready for grove-core extraction in T02",
+    "No deployment or CI breaking changes"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T14:12:00.000Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

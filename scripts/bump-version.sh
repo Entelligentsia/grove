@@ -28,10 +28,10 @@ fi
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
-say "1/4  Cargo.toml -> $VERSION"
+say "1/4  cli/Cargo.toml -> $VERSION"
 # Only the first `version = "..."` line (the [package] version).
-perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' Cargo.toml
-grep -m1 '^version = ' Cargo.toml
+perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' cli/Cargo.toml
+grep -m1 '^version = ' cli/Cargo.toml
 
 say "2/4  Cargo.lock (grove entry)"
 cargo update -p grove >/dev/null 2>&1 || cargo generate-lockfile >/dev/null

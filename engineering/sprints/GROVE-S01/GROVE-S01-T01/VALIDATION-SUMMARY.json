@@ -1,0 +1,19 @@
+{
+  "objective": "Validated the Cargo workspace refactor against all 11 acceptance criteria from the PLAN",
+  "key_changes": [
+    "PASS: Workspace root Cargo.toml contains only [workspace] section (no [package])",
+    "PASS: cli/Cargo.toml has full package metadata with name=grove",
+    "PASS: src/ removed from repo root; cli/src/ contains all 8 source files",
+    "PASS: tests/ removed from repo root; cli/tests/ exists with cli.rs",
+    "PASS: cargo build --release --locked succeeds, binary at target/release/grove",
+    "PASS: cargo test --release --locked passes all 134 tests (117 unit + 17 CLI)",
+    "PASS: cargo clippy -- -D warnings exits 0 (clean)",
+    "PASS: scripts/bump-version.sh targets cli/Cargo.toml for version field",
+    "PASS: Cargo.lock at root, not duplicated in cli/",
+    "PASS: DEV_REGISTRY path fix uses /../registry (correct from cli/)",
+    "PASS: [profile.release] in workspace root where Cargo honours it"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-06-30T21:37:00.000Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

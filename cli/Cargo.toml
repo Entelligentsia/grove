@@ -1,0 +1,40 @@
+[package]
+name = "grove"
+version = "0.1.11"
+edition = "2021"
+description = "Structural, byte-precise, token-cheap access to a codebase for coding agents — tree-sitter over a CLI and an MCP server."
+license = "MIT"
+repository = "https://github.com/Entelligentsia/grove"
+homepage = "https://github.com/Entelligentsia/grove"
+readme = "../README.md"
+keywords = ["tree-sitter", "mcp", "code-intelligence", "agents", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "grove"
+path = "src/main.rs"
+
+[dependencies]
+# Engine — wasm feature lets us load grammars from the registry at runtime,
+# with no grammar compiled into this binary.
+tree-sitter = { version = "0.25", features = ["wasm"] }
+streaming-iterator = "0.1"
+
+# CLI + output
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Gitignore-aware file walking (same crate ripgrep uses)
+ignore = "0.4"
+anyhow = "1"
+
+# Content hashing for the lockfile
+sha2 = "0.10"
+
+# OS-native cache/config directories
+dirs = "5"
+
+# HTTP client for `grove fetch` (blocking, rustls)
+ureq = "2"
+

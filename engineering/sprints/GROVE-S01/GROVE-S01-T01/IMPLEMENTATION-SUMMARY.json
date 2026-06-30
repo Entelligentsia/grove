@@ -1,0 +1,33 @@
+{
+  "objective": "Convert the single-crate grove repository to a Cargo virtual workspace with cli/ as the sole member crate, keeping all tests green and clippy clean.",
+  "key_changes": [
+    "Replaced root Cargo.toml with a virtual workspace manifest (members=[\"cli\"], resolver=\"2\")",
+    "Moved [profile.release] (lto=thin, strip=true) to workspace root where Cargo honours it",
+    "Created cli/Cargo.toml with all package metadata, [[bin]], and [dependencies] unchanged",
+    "readme path adjusted to ../README.md for correct cargo publish resolution from cli/",
+    "Moved src/ (8 files) to cli/src/ with no source logic changes",
+    "Moved tests/ (1 file) to cli/tests/cli.rs",
+    "Fixed DEV_REGISTRY constant: /../registry instead of /registry (CARGO_MANIFEST_DIR now resolves to <repo>/cli)",
+    "Updated scripts/bump-version.sh step 1/4 to target cli/Cargo.toml for version bump",
+    "Fixed pre-existing clippy lint in cli/src/mcp.rs: OR pattern (0|1|2) -> 0..=2",
+    "Fixed pre-existing clippy lint in cli/src/ops.rs: unused .enumerate() removed",
+    "All 134 tests pass (117 unit + 17 CLI integration); cargo clippy -D warnings exits 0"
+  ],
+  "files_changed": [
+    "Cargo.toml",
+    "cli/Cargo.toml",
+    "cli/src/engine.rs",
+    "cli/src/fetch.rs",
+    "cli/src/ingest.rs",
+    "cli/src/init.rs",
+    "cli/src/main.rs",
+    "cli/src/mcp.rs",
+    "cli/src/ops.rs",
+    "cli/src/registry.rs",
+    "cli/tests/cli.rs",
+    "scripts/bump-version.sh"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-06-30T15:57:00.000Z",
+  "artifact_ref": "PROGRESS.md"
+}
