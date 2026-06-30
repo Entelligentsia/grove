@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="412" viewBox="0 0 760 412" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<rect width="760" height="412" fill="#fbfaf7"/>
+<text x="64" y="34" font-size="21" font-weight="700" fill="#1a1a1a">Same answer, far fewer tokens</text>
+<text x="64" y="56" font-size="13" fill="#857f76">Mean context per task by navigation arm, across five rungs of task complexity</text>
+<line x1="64" y1="318.0" x2="610" y2="318.0" stroke="#e3e1dc" stroke-width="1"/>
+<text x="56" y="322.0" font-size="11" text-anchor="end" fill="#857f76" font-family="ui-monospace,monospace">0</text>
+<line x1="64" y1="261.5" x2="610" y2="261.5" stroke="#e3e1dc" stroke-width="1"/>
+<text x="56" y="265.5" font-size="11" text-anchor="end" fill="#857f76" font-family="ui-monospace,monospace">0.4M</text>
+<line x1="64" y1="205.0" x2="610" y2="205.0" stroke="#e3e1dc" stroke-width="1"/>
+<text x="56" y="209.0" font-size="11" text-anchor="end" fill="#857f76" font-family="ui-monospace,monospace">0.8M</text>
+<line x1="64" y1="148.5" x2="610" y2="148.5" stroke="#e3e1dc" stroke-width="1"/>
+<text x="56" y="152.5" font-size="11" text-anchor="end" fill="#857f76" font-family="ui-monospace,monospace">1.2M</text>
+<line x1="64" y1="92.0" x2="610" y2="92.0" stroke="#e3e1dc" stroke-width="1"/>
+<text x="56" y="96.0" font-size="11" text-anchor="end" fill="#857f76" font-family="ui-monospace,monospace">1.6M</text>
+<text x="64.0" y="340" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="600">L1</text>
+<text x="200.5" y="340" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="600">L2</text>
+<text x="337.0" y="340" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="600">L3</text>
+<text x="473.5" y="340" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="600">L4</text>
+<text x="610.0" y="340" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="600">L5</text>
+<text x="64" y="358" font-size="10.5" fill="#857f76">locate symbol</text>
+<text x="610" y="358" font-size="10.5" text-anchor="end" fill="#857f76">architecture / binding-spine →</text>
+<polyline points="64.0,291.1 200.5,212.7 337.0,180.8 473.5,250.0 610.0,104.3" fill="none" stroke="#0072b2" stroke-width="2.4"/>
+<polyline points="64.0,286.3 200.5,265.7 337.0,243.9 473.5,272.2 610.0,242.6" fill="none" stroke="#e69f00" stroke-width="2.4"/>
+<polyline points="64.0,279.5 200.5,225.7 337.0,217.9 473.5,265.2 610.0,201.5" fill="none" stroke="#009e73" stroke-width="2.4"/>
+<circle cx="64.0" cy="291.1" r="3.4" fill="#0072b2" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="200.5" cy="212.7" r="3.4" fill="#0072b2" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="337.0" cy="180.8" r="3.4" fill="#0072b2" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="473.5" cy="250.0" r="3.4" fill="#0072b2" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="610.0" cy="104.3" r="3.4" fill="#0072b2" stroke="#fbfaf7" stroke-width="1.2"/>
+<text x="620" y="108.3" font-size="12" fill="#0072b2" font-weight="600">baseline</text>
+<text x="620" y="123.3" font-size="10" fill="#857f76" font-family="ui-monospace,monospace">1513k</text>
+<circle cx="64.0" cy="286.3" r="3.4" fill="#e69f00" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="200.5" cy="265.7" r="3.4" fill="#e69f00" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="337.0" cy="243.9" r="3.4" fill="#e69f00" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="473.5" cy="272.2" r="3.4" fill="#e69f00" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="610.0" cy="242.6" r="3.4" fill="#e69f00" stroke="#fbfaf7" stroke-width="1.2"/>
+<text x="620" y="246.6" font-size="12" fill="#e69f00" font-weight="600">grove</text>
+<text x="620" y="261.6" font-size="10" fill="#857f76" font-family="ui-monospace,monospace">534k</text>
+<circle cx="64.0" cy="279.5" r="3.4" fill="#009e73" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="200.5" cy="225.7" r="3.4" fill="#009e73" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="337.0" cy="217.9" r="3.4" fill="#009e73" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="473.5" cy="265.2" r="3.4" fill="#009e73" stroke="#fbfaf7" stroke-width="1.2"/>
+<circle cx="610.0" cy="201.5" r="3.4" fill="#009e73" stroke="#fbfaf7" stroke-width="1.2"/>
+<text x="620" y="205.5" font-size="12" fill="#009e73" font-weight="600">lsp</text>
+<text x="620" y="220.5" font-size="10" fill="#857f76" font-family="ui-monospace,monospace">825k</text>
+<line x1="584.0" y1="104.3" x2="584.0" y2="242.6" stroke="#857f76" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="578.0" y="177.4" font-size="11.5" text-anchor="end" fill="#1a1a1a" font-weight="700">2.8× leaner</text>
+<text x="64" y="380" font-size="11" fill="#1a1a1a">Answer quality is a near-tie — grounding ~0.97 · completeness ~0.99 (blind-judged).</text>
+<text x="64" y="399" font-size="10" fill="#857f76" font-family="ui-monospace,monospace">Overall: grove 395k · lsp 567k · baseline 780k   ·   is-grep-enough · n=1 per cell</text>
+</svg>
