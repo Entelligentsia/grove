@@ -117,8 +117,17 @@ pub fn cache_root() -> Option<PathBuf> {
 }
 
 /// Dev fallback: the registry shipped in the source tree (only exists in a checkout).
+///
+/// The dev stub lives at the workspace root (`<repo>/registry`). This crate's
+/// `CARGO_MANIFEST_DIR` is `<repo>/core`, so the stub is one directory up — not
+/// beside the crate. Resolving `../registry` keeps the fallback working after the
+/// workspace split (before it, the crate was the repo root and `registry` sat
+/// beside it).
 fn dev_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/registry"))
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("registry"))
+        .unwrap_or_else(|| PathBuf::from("registry"))
 }
 
 /// A candidate registry root with where it came from, for diagnostics.

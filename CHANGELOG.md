@@ -27,6 +27,12 @@ All notable changes to grove are documented here. The format follows
 
 ### Fixed
 
+- **Dev-tree grammar fallback after the workspace move.** `registry::dev_root`
+  resolved the source-tree registry as `CARGO_MANIFEST_DIR/registry`, which became
+  `core/registry` once the crate moved into `core/` — a path that does not exist.
+  On a checkout with no OS cache and no `GROVE_REGISTRY` (e.g. CI), grammar
+  resolution fell through to that broken path and 42 library tests failed. It now
+  resolves `../registry` (the workspace root), where the dev stub actually lives.
 - Release tooling made workspace- and rename-aware: `scripts/bump-version.sh` and
   `.github/workflows/release.yml` now target the `grove-cst` / `grove-cst-cli`
   package ids; both crates ship a `LICENSE` and a package-local `README`.
