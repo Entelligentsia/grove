@@ -4,6 +4,33 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-01
+
+### Added
+
+- **`grove-cst` — the engine as a standalone library crate.** grove is now a
+  Cargo workspace: the tree-sitter AST engine, grammar registry, fetch, and
+  ingest live in a reusable library (`core/`, published as `grove-cst`; CST for
+  the concrete syntax trees tree-sitter builds) that you can embed in Rust
+  directly — `use grove_core::ops` — with no subprocess and no CLI. The `grove`
+  binary is now a thin `clap` + MCP shell over it (`cli/`, published as
+  `grove-cst-cli`; the installed binary is still named `grove`). A curated public
+  surface (`grove_core::ops`, `provision_project`, and the `Symbol`/`Defect`/
+  `CallSite`/`FileMap` return types) is documented in `core/README.md`.
+
+### Changed
+
+- **Repo restructured into a Cargo virtual workspace** (`core/` + `cli/`). The
+  CLI and MCP behaviour, the 7-tool surface, and grammar/registry handling are
+  unchanged; this is a packaging split that makes the engine independently
+  consumable and publishable.
+
+### Fixed
+
+- Release tooling made workspace- and rename-aware: `scripts/bump-version.sh` and
+  `.github/workflows/release.yml` now target the `grove-cst` / `grove-cst-cli`
+  package ids; both crates ship a `LICENSE` and a package-local `README`.
+
 ## [0.1.11] - 2026-06-27
 
 ### Changed
