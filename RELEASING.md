@@ -66,23 +66,28 @@ hashes (filled by `update-formula.sh` from the release sidecars), and the tap's
    git checkout main && git pull --ff-only
    git tag -a vX.Y.Z -m "grove vX.Y.Z" && git push origin vX.Y.Z
    ```
-5. **Publish crates to crates.io** — publish the library `grove-cst` first, then
-   the binary `grove-cst-cli`. `grove-cst` must be published and indexed before
-   `grove-cst-cli`, because crates.io resolves the exact-version dependency
-   `grove-cst = "=X.Y.Z"` from the registry at publish time. Publishing the CLI
-   before `grove-cst` is indexed will fail.
+5. **Publish crates to crates.io** — **automated.** The `publish-crates` job in
+   `release.yml` runs after the binaries build and publishes the library
+   `grove-cst` first, then the binary `grove-cst-cli` (`grove-cst` must be indexed
+   before `grove-cst-cli`, because crates.io resolves the exact-version dependency
+   `grove-cst = "=X.Y.Z"` from the registry at publish time; `cargo publish`
+   blocks until the new version is indexed). It requires the **`CARGO_REGISTRY_TOKEN`**
+   repo secret (a crates.io API token with publish scope) and asserts the tag
+   matches both crate versions before publishing.
+
+   Verify afterwards with `cargo search grove-cst` and `cargo search grove-cst-cli`.
+   If you ever need to publish **manually** (secret missing, re-run, first claim):
    ```sh
-   cargo publish -p grove-cst
-   # wait ~30 s for crates.io to index the new grove-cst version
-   cargo publish -p grove-cst-cli
+   cargo publish -p grove-cst --locked
+   # cargo blocks until grove-cst is indexed
+   cargo publish -p grove-cst-cli --locked
    ```
-   Verify with `cargo search grove-cst` and `cargo search grove-cst-cli` that both
-   appear at the new version.
 
    > **First-ever publish only:** the names are unclaimed until the first release.
-   > Publishing claims them under your crates.io account — afterwards add the team
-   > as owners with `cargo owner --add <gh-user-or-team> grove-cst` (and the same
-   > for `grove-cst-cli`). A verified email is required to publish.
+   > Publishing claims them under the token's crates.io account — afterwards add the
+   > team as owners with `cargo owner --add <gh-user-or-team> grove-cst` (and the
+   > same for `grove-cst-cli`). A verified email is required to publish, and the
+   > `CARGO_REGISTRY_TOKEN` secret must be set for the automated job to work.
 
 6. **Watch the release build** and confirm the assets:
    ```sh
