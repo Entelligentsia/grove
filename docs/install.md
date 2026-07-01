@@ -30,10 +30,16 @@ npm install -g @entelligentsia/grove
 
 ## From source
 
-No published crate — install straight from git:
+Install the published crate (installs the `grove` binary):
 
 ```bash
-cargo install --git https://github.com/Entelligentsia/grove
+cargo install grove-cst-cli
+```
+
+Or straight from git — the repo is a workspace, so name the CLI package:
+
+```bash
+cargo install --git https://github.com/Entelligentsia/grove grove-cst-cli
 ```
 
 Build from a checkout:

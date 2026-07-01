@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     npm: 'npm install -g @entelligentsia/grove',
     brew: 'brew install Entelligentsia/grove/grove',
     curl: 'curl -fsSL https://raw.githubusercontent.com/Entelligentsia/grove/main/install.sh | sh',
-    cargo: 'cargo install --git https://github.com/Entelligentsia/grove',
+    cargo: 'cargo install grove-cst-cli',
     skill: 'npx skills add Entelligentsia/grove'
   };
 
