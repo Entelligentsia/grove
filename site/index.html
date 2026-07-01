@@ -185,65 +185,95 @@ def    main              88:0   py:src/server.py#main</code></pre>
   <section class="sec-padding" id="benchmarks">
     <div class="container">
       <div class="sec-head">
-        <h2>Proven on Complex Architectural Traces</h2>
-        <p>Evidence-first evaluation from <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank"><code>is-grep-enough</code></a> comparing text search, Grove, and native LSPs across 10 large repositories.</p>
+        <h2>Same answers, a fraction of the context</h2>
+        <p>Grove holds answer quality while carrying <strong>~2× less context</strong> than text search — up to <strong>2.8×</strong> on the hardest cross-cutting traces. Real agent prompts from <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank" rel="noopener"><code>is-grep-enough</code></a>: 50 blind-judged tasks across 10 large repos, three arms. Watch each one roll, metric by metric.</p>
       </div>
 
-      <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank" rel="noopener" style="display:block;margin:0 auto 2rem;max-width:760px;">
-        <img src="assets/grove_context_curve.svg" loading="lazy" style="width:100%;height:auto;border:1px solid #e3e1dc;border-radius:6px;" alt="Same answer, far fewer tokens — across five rungs of task complexity grove ties on answer quality and runs about 2x leaner on context, 2.8x on the hardest tasks">
-      </a>
-      <div class="bench-grid">
-        <div class="prompts-showcase">
-          <div class="prompts-title">Real Testbench Agent Prompts</div>
-          <div class="vertical-ticker">
-            <div class="vertical-ticker-content">
-              <div class="prompt-card">
-                <img src="assets/repos/redis.svg" class="repo-logo" alt="Redis">
-                <span>L4 · Redis</span>
-                "I'm studying how Redis produces a point-in-time snapshot of the dataset to disk without blocking the server... Show me how these cooperating pieces fit together."
+      <!-- Rolling real-prompt metric roller (populated by app.js) -->
+      <div id="metric-roller" class="roller" aria-live="polite">
+        <!-- Top: metadata strip + prompt pull-quote -->
+        <div class="prompt-head">
+          <span class="ph-tag">▸ agent task</span>
+          <span class="roller-rung" id="rl-rung">L5</span>
+          <span class="ph-level" id="rl-level">Architecture trace</span>
+          <span class="ph-repo">
+            <img class="ph-langicon" id="rl-langicon" src="assets/langs/rust.svg" alt="">
+            <strong id="rl-repo">tokio</strong>
+            <small id="rl-gh">tokio-rs/tokio</small>
+          </span>
+          <span class="ph-count" id="rl-count">01 / 06</span>
+        </div>
+
+        <blockquote class="prompt-quote" id="rl-prompt">…</blockquote>
+
+        <!-- Prompt navigation progress line (0% → 100%) -->
+        <div class="prompt-progress">
+          <div class="pprog-fill" id="rl-pprog"></div>
+          <div class="pprog-segs" id="rl-psegs"></div>
+        </div>
+
+        <!-- Middle row: trophy + metric (33%) | bars (67%) -->
+        <div class="roller-mid">
+          <div class="roller-left">
+            <div class="roller-winner">
+              <span class="rl-trophy">🏆 Overall winner</span>
+              <span class="rl-win-badge" id="rl-winner">grove</span>
+              <small class="rl-win-note" id="rl-winnote">best cost × quality</small>
+            </div>
+            <div class="roller-metriccard">
+              <span class="rl-micon" id="rl-micon">🧠</span>
+              <span class="rl-mword" id="rl-mword">Context</span>
+              <small class="rl-msub" id="rl-msub">fewer is leaner</small>
+            </div>
+          </div>
+          <div class="roller-right">
+            <div class="bars" id="rl-bars">
+              <div class="bar-col" data-arm="baseline">
+                <div class="bar-val" id="rl-val-baseline">—</div>
+                <div class="bar-track"><div class="bar" id="rl-bar-baseline" style="background:#0072B2"></div></div>
+                <div class="bar-foot"><span class="bar-medal" id="rl-medal-baseline"></span><span class="bar-arm">bash-tools</span></div>
               </div>
-              <div class="prompt-card">
-                <img src="assets/repos/typescript.svg" class="repo-logo" alt="TypeScript">
-                <span>L5 · TypeScript</span>
-                "I need to understand the full journey from source text to emitted JavaScript and diagnostics... Walk me through that whole flow and how the stages connect across the modules involved."
+              <div class="bar-col" data-arm="grove">
+                <div class="bar-val" id="rl-val-grove">—</div>
+                <div class="bar-track"><div class="bar" id="rl-bar-grove" style="background:#E69F00"></div></div>
+                <div class="bar-foot"><span class="bar-medal" id="rl-medal-grove"></span><span class="bar-arm">grove</span></div>
               </div>
-              <div class="prompt-card">
-                <img src="assets/repos/bitcoin.svg" class="repo-logo" alt="Bitcoin">
-                <span>L5 · Bitcoin</span>
-                "I need to understand the full journey of a locally submitted transaction from the RPC that receives it to the bytes announcing it going out to peers... Walk me through that whole flow and how the stages connect."
-              </div>
-              <div class="prompt-card">
-                <img src="assets/repos/django.svg" class="repo-logo" alt="Django">
-                <span>L5 · Django</span>
-                "I'm planning a change to how persisting a model instance interacts with the database, so I need to understand the full journey of saving a single object... walk me through that whole flow and how the stages connect."
-              </div>
-              <div class="prompt-card">
-                <img src="assets/repos/laravel.svg" class="repo-logo" alt="Laravel">
-                <span>L5 · Laravel</span>
-                "I need to understand the full journey of an event through the system. Starting from firing the event, then how its listeners are resolved... walk me through that whole flow and how the stages connect."
-              </div>
-              <!-- Duplicate first for seamless loop -->
-              <div class="prompt-card">
-                <img src="assets/repos/redis.svg" class="repo-logo" alt="Redis">
-                <span>L4 · Redis</span>
-                "I'm studying how Redis produces a point-in-time snapshot of the dataset to disk without blocking the server... Show me how these cooperating pieces fit together."
+              <div class="bar-col" data-arm="lsp">
+                <div class="bar-val" id="rl-val-lsp">—</div>
+                <div class="bar-track"><div class="bar" id="rl-bar-lsp" style="background:#009E73"></div></div>
+                <div class="bar-foot"><span class="bar-medal" id="rl-medal-lsp"></span><span class="bar-arm">lsp</span></div>
               </div>
             </div>
           </div>
         </div>
-        <div>
-          <div class="tech-card" style="margin-bottom: 1rem;">
-            <h3>Up to 4.3× Cheaper on Complex Tasks</h3>
-            <p>On L5 cross-cutting architecture traces, regex grep balloons out of control. <strong>TypeScript L5</strong> baseline used <strong>2.43M tokens</strong>; Grove completed the same trace in <strong>570K</strong> (4.3× cheaper) — and runs ~2× leaner than text search across all tasks.</p>
-          </div>
-          <div class="tech-card" style="margin-bottom: 1rem;">
-            <h3>Stays Grounded Where Grep Drifts</h3>
-            <p>On dense traces, text search drifts — baseline grounding falls to <strong>0.80</strong> on the C++ L5 trace. Grove holds <strong>0.97</strong> there and averages <strong>~0.97</strong> across all 50 tasks, parsing the real syntax tree instead of guessing line numbers.</p>
-          </div>
-          <div class="tech-card">
-            <h3>Zero-Compile Cold Start</h3>
-            <p>Native LSPs offer semantic precision but require massive warm-up (e.g., 46 mins to compile Redis DB). Grove loads structural WASM grammars <strong>instantly</strong>, bypassing heavy indexers.</p>
-          </div>
+
+        <!-- Bottom row: 7 sub-metric dots, bottom-right -->
+        <div class="roller-bottom">
+          <div class="metric-dots" id="rl-mdots"></div>
+        </div>
+      </div>
+
+      <!-- Combined tally: one medal per task, quality + total cost together -->
+      <div class="tally-block">
+        <div class="tally-head">Combined tally <small>one medal per task · quality + total cost together · 50 tasks</small></div>
+        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#0072B2"></span>bash-tools</span><span class="tally-medals">🥇 26 &nbsp; 🥈 16 &nbsp; 🥉 8</span></div>
+        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#E69F00"></span>grove</span><span class="tally-medals">🥇 22 &nbsp; 🥈 15 &nbsp; 🥉 13</span></div>
+        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#009E73"></span>lsp</span><span class="tally-medals">🥇 2 &nbsp; 🥈 19 &nbsp; 🥉 29</span></div>
+        <p class="sb-note">n=1 per cell — directional, not significant. Combined score = ½ answer quality (grounding + completeness) + ½ billed cost, ranked per task. Main agent Sonnet, subagents Haiku. <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank" rel="noopener">Full evaluation & method →</a></p>
+      </div>
+
+      <div class="cards-3">
+        <div class="tech-card">
+          <h3>🥇 Gold on context — where it counts</h3>
+          <p>Grove holds <strong>~2× less context</strong> at tied answer quality — and the lead widens with difficulty: <strong>2.8× leaner on L5</strong> cross-cutting traces (TypeScript L5: 2.43M → 570K tokens). That's the budget that decides whether a trace fits the window at all.</p>
+        </div>
+        <div class="tech-card">
+          <h3>Stays grounded where grep drifts</h3>
+          <p>Quality ties on average, but at <strong>L5</strong> text search drifts — baseline grounding falls to <strong>0.94</strong> (0.80 on the Bitcoin C++ trace). Grove holds <strong>0.98</strong>, parsing the real syntax tree instead of guessing line numbers.</p>
+        </div>
+        <div class="tech-card">
+          <h3>Pick by your binding constraint</h3>
+          <p>Grep wins turns, wall-clock and billed dollars — cache-reads are cheap, so a big transcript isn't a big bill. LSP leads tool-call economy but pays a warm-up (46 min to index Redis). Grove wins the <strong>context budget</strong>, zero-compile.</p>
         </div>
       </div>
     </div>
