@@ -45,7 +45,9 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked -p grove --target ${{ matrix.target }}
+        # Package id is grove-cst-cli; the built binary is still named `grove`
+        # (its [[bin]] name), which the packaging steps below archive.
+        run: cargo build --release --locked -p grove-cst-cli --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'

@@ -3,11 +3,13 @@
 # source-of-truth is forgotten (see RELEASING.md). Idempotent: re-running with
 # the same version is a no-op beyond a lockfile touch.
 #
-# What it does (the repo is a Cargo workspace: cli=grove, core=grove-core):
-#   1. cli/Cargo.toml      — the grove [package] `version`
-#   2. core/Cargo.toml     — the grove-core [package] `version`
-#   3. cli/Cargo.toml      — the grove-core dependency version pin (exact = "=X.Y.Z")
-#   4. Cargo.lock          — both `grove` and `grove-core` entries (via `cargo update`)
+# What it does (the repo is a Cargo workspace. Package ids: cli=grove-cst-cli
+# with the installed binary named `grove`; core=grove-cst with lib name
+# grove_core):
+#   1. cli/Cargo.toml      — the grove-cst-cli [package] `version`
+#   2. core/Cargo.toml     — the grove-cst [package] `version`
+#   3. cli/Cargo.toml      — the grove-cst dependency version pin (exact = "=X.Y.Z")
+#   4. Cargo.lock          — both `grove-cst-cli` and `grove-cst` entries (via `cargo update`)
 #   5. dist/npm/package.json — the npm wrapper `"version"`
 #   6. CHANGELOG.md        — insert a dated `## [X.Y.Z]` stub (skipped if present)
 #
@@ -30,34 +32,34 @@ fi
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
-say "1/6  cli/Cargo.toml (grove) -> $VERSION"
+say "1/6  cli/Cargo.toml (grove-cst-cli) -> $VERSION"
 # Only the first `version = "..."` line (the [package] version).
 perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' cli/Cargo.toml
 grep -m1 '^version = ' cli/Cargo.toml
 
-say "2/6  core/Cargo.toml (grove-core) -> $VERSION"
+say "2/6  core/Cargo.toml (grove-cst) -> $VERSION"
 perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' core/Cargo.toml
 grep -m1 '^version = ' core/Cargo.toml
 
-say "3/6  cli/Cargo.toml (grove-core dependency pin) -> =$VERSION"
-# Update the exact version pin on the grove-core path dependency so it matches the new
+say "3/6  cli/Cargo.toml (grove-cst dependency pin) -> =$VERSION"
+# Update the exact version pin on the grove-cst path dependency so it matches the new
 # package version. The pin must be exact (=X.Y.Z) for crates.io publish to succeed.
-perl -i -pe 's/(grove-core\s*=\s*\{[^}]*version\s*=\s*)"=[^"]*"/$1"='"$VERSION"'"/' cli/Cargo.toml
-grep 'grove-core' cli/Cargo.toml
+perl -i -pe 's/(grove-cst\s*=\s*\{[^}]*version\s*=\s*)"=[^"]*"/$1"='"$VERSION"'"/' cli/Cargo.toml
+grep 'grove-cst' cli/Cargo.toml
 
-say "4/6  Cargo.lock (grove + grove-core entries)"
-cargo update -p grove -p grove-core >/dev/null 2>&1 || cargo generate-lockfile >/dev/null
-lock_v="$(awk '/^name = "grove"$/{getline; print; exit}' Cargo.lock)"
-echo "Cargo.lock grove $lock_v"
+say "4/6  Cargo.lock (grove-cst-cli + grove-cst entries)"
+cargo update -p grove-cst-cli -p grove-cst >/dev/null 2>&1 || cargo generate-lockfile >/dev/null
+lock_v="$(awk '/^name = "grove-cst-cli"$/{getline; print; exit}' Cargo.lock)"
+echo "Cargo.lock grove-cst-cli $lock_v"
 case "$lock_v" in
   *"\"$VERSION\""*) : ;;
-  *) echo "error: Cargo.lock grove entry is not $VERSION ($lock_v)" >&2; exit 1 ;;
+  *) echo "error: Cargo.lock grove-cst-cli entry is not $VERSION ($lock_v)" >&2; exit 1 ;;
 esac
-lock_core_v="$(awk '/^name = "grove-core"$/{getline; print; exit}' Cargo.lock)"
-echo "Cargo.lock grove-core $lock_core_v"
+lock_core_v="$(awk '/^name = "grove-cst"$/{getline; print; exit}' Cargo.lock)"
+echo "Cargo.lock grove-cst $lock_core_v"
 case "$lock_core_v" in
   *"\"$VERSION\""*) : ;;
-  *) echo "error: Cargo.lock grove-core entry is not $VERSION ($lock_core_v)" >&2; exit 1 ;;
+  *) echo "error: Cargo.lock grove-cst entry is not $VERSION ($lock_core_v)" >&2; exit 1 ;;
 esac
 
 say "5/6  dist/npm/package.json -> $VERSION"
@@ -82,7 +84,7 @@ fi
 
 cat <<EOF
 
-Done. Edited: cli/Cargo.toml (package version + grove-core pin), core/Cargo.toml, Cargo.lock, dist/npm/package.json, CHANGELOG.md.
+Done. Edited: cli/Cargo.toml (package version + grove-cst pin), core/Cargo.toml, Cargo.lock, dist/npm/package.json, CHANGELOG.md.
 Next (see RELEASING.md):
   1. Fill in the CHANGELOG [$VERSION] section.
   2. cargo build --release --locked && cargo test --release --locked
