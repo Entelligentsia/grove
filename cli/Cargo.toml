@@ -1,12 +1,14 @@
 [package]
-name = "grove"
+# Published as `grove-cst-cli` (`grove` is taken by an unrelated crate), but the
+# installed binary stays `grove` (see `[[bin]]` below).
+name = "grove-cst-cli"
 version = "0.1.11"
 edition = "2021"
 description = "Structural, byte-precise, token-cheap access to a codebase for coding agents — tree-sitter over a CLI and an MCP server."
 license = "MIT"
 repository = "https://github.com/Entelligentsia/grove"
 homepage = "https://github.com/Entelligentsia/grove"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["tree-sitter", "mcp", "code-intelligence", "agents", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -15,8 +17,9 @@ name = "grove"
 path = "src/main.rs"
 
 [dependencies]
-# Core library — AST engine, registry, fetch, ingest.
-grove-core = { path = "../core", version = "=0.1.11" }
+# Core library — AST engine, registry, fetch, ingest. Published as `grove-cst`;
+# the imported crate name is still `grove_core` (its `[lib] name`).
+grove-cst = { path = "../core", version = "=0.1.11" }
 
 # CLI + output
 clap = { version = "4", features = ["derive"] }

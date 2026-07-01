@@ -125,6 +125,55 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 Add `--json` to any command for the agent-facing shape. Full reference + examples:
 **[Tools](docs/tools.md)**.
 
+## As a library — `grove-core`
+
+The same engine ships as a standalone crate, **`grove-core`**, so you can embed
+grove's structural queries directly in Rust — no subprocess, no CLI. The `grove`
+binary is a thin `clap` + MCP shell over it. The crate is **`clap`-free**;
+grammars still load at runtime from the WASM registry, so nothing is compiled in.
+
+On crates.io as **`grove-cst`** — CST for the *concrete syntax trees* tree-sitter
+builds (`grove-core` is taken by an unrelated crate). Alias it so imports stay
+`use grove_core::…`:
+
+```toml
+# Cargo.toml
+[dependencies]
+grove_core = { package = "grove-cst", version = "0.1" }
+```
+
+```rust
+use std::path::Path;
+use grove_core::{init, ops};
+
+fn main() -> anyhow::Result<()> {
+    let project = Path::new(".");
+
+    // 1. Provision grammars for this project's languages — fetches any missing
+    //    grammar into the OS cache and pins grove.lock. Run once.
+    for action in init::provision_project(project, false)? {
+        println!("provisioned: {action}");
+    }
+
+    // 2. Query — grammars resolve from the cache. Every definition under `src/`,
+    //    gitignore-aware, as typed results.
+    for s in ops::symbols(&project.join("src"), None, None, false, false)? {
+        println!("{} {} — {}:{}", s.kind, s.name, s.file, s.line);
+    }
+    Ok(())
+}
+```
+
+(Offline? Set `GROVE_REGISTRY=<dir>` to resolve grammars from a pinned registry
+and skip the fetch — see [`core/README.md`](core/README.md).)
+
+The consumer surface is the [`ops`](core/src/lib.rs) module — the same seven
+tools (`outline`, `symbols`, `source`, `check`, `callers`, `map`, `definition`),
+returning typed `Symbol` / `Defect` / `CallSite` / `FileMap` values (re-exported
+at the crate root). `init::provision_project` is the grammar-provisioning entry
+point behind `grove init`. Crate overview and full API surface:
+[`core/README.md`](core/README.md) · [`core/src/lib.rs`](core/src/lib.rs).
+
 ## Documentation
 
 - **[Install](docs/install.md)** — curl/Homebrew/npm/cargo, build from source, the agent skill
@@ -132,6 +181,7 @@ Add `--json` to any command for the agent-facing shape. Full reference + example
 - **[Languages & grammars](docs/languages.md)** — the WASM registry, `fetch`/`lock`, where grammars live, profiles
 - **[Tools](docs/tools.md)** — the seven tools, `--json`, `symbol-id`, examples
 - **[MCP server](docs/mcp.md)** — `grove serve`, `.mcp.json`, steering, error model
+- **Library** — [`grove-core`](core/README.md): embed the engine in Rust (no CLI, no subprocess)
 - **[Roadmap & repo layout](docs/roadmap.md)** — what's not done yet, source map
 - **[FAQ](docs/faq.md)** — *Is grove an LSP?* and other positioning questions
 - [`VISION.md`](VISION.md) — product vision · [`CHANGELOG.md`](CHANGELOG.md) — releases
