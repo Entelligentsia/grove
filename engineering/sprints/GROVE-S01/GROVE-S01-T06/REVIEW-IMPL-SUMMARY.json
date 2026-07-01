@@ -1,0 +1,18 @@
+{
+  "objective": "Review the crates.io publication readiness implementation for grove-core and grove workspace crates.",
+  "key_changes": [
+    "cli/Cargo.toml line 19 correctly contains grove-core = { path = \"../core\", version = \"=0.1.11\" }",
+    "cargo publish --dry-run -p grove-core exits 0 with aborting upload message — verified",
+    "cargo publish --dry-run -p grove fails with grove-core version not found — correct, proves pin is active",
+    "bump-version.sh step 3/6 updates the exact-version pin atomically with version bumps",
+    "RELEASING.md step 5 documents cargo publish order (grove-core first, then grove)",
+    "RELEASING.md ordering constraint bullet explains why core must precede cli on crates.io",
+    "cargo test --release --locked --workspace passes all tests — no regressions",
+    "cargo clippy --workspace -- -D warnings exits 0 — lint clean",
+    "Perl regex in bump-version.sh correctly handles in-place update of version pin",
+    "All step numbering in bump-version.sh and RELEASING.md correctly adjusted"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:46:00.000Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

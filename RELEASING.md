@@ -48,19 +48,31 @@ hashes (filled by `update-formula.sh` from the release sidecars), and the tap's
    git checkout main && git pull --ff-only
    git tag -a vX.Y.Z -m "grove vX.Y.Z" && git push origin vX.Y.Z
    ```
-5. **Watch the release build** and confirm the assets:
+5. **Publish crates to crates.io** — publish `grove-core` first, then `grove`.
+   `grove-core` must be published and indexed before `grove` is published, because
+   crates.io resolves the exact-version dependency `grove-core = "=X.Y.Z"` from the
+   registry at publish time. Publishing `grove` before `grove-core` is indexed will fail.
+   ```sh
+   cargo publish -p grove-core
+   # wait ~30 s for crates.io to index the new grove-core version
+   cargo publish -p grove
+   ```
+   Verify with `cargo search grove-core` and `cargo search grove` that both appear at the
+   new version. Crate names are reserved under the `Entelligentsia` ownership.
+
+6. **Watch the release build** and confirm the assets:
    ```sh
    gh run watch "$(gh run list --workflow=release.yml -L1 --json databaseId -q '.[0].databaseId')" --exit-status
    gh release view vX.Y.Z --json assets -q '.assets[].name'   # expect 5 archives + 5 .sha256
    ```
-6. **Release notes** — populate the body from the changelog section:
+7. **Release notes** — populate the body from the changelog section:
    ```sh
    awk '/^## \[X\.Y\.Z\]/{f=1} /^## \[/{if(f&&!/X\.Y\.Z/)exit} f' CHANGELOG.md > /tmp/notes.md
    gh release edit vX.Y.Z --notes-file /tmp/notes.md
    ```
-7. **npm publish** — from `dist/npm/`, `npm publish`. `install.js` downloads from
-   `releases/download/vX.Y.Z`, so the Release (step 5) must already exist.
-8. **Homebrew tap** — regenerate the formula from the published sidecars and PR it
+8. **npm publish** — from `dist/npm/`, `npm publish`. `install.js` downloads from
+   `releases/download/vX.Y.Z`, so the Release (step 6) must already exist.
+9. **Homebrew tap** — regenerate the formula from the published sidecars and PR it
    into `Entelligentsia/homebrew-grove`:
    ```sh
    dist/homebrew/update-formula.sh vX.Y.Z > ../homebrew-grove/Formula/grove.rb
@@ -76,6 +88,9 @@ hashes (filled by `update-formula.sh` from the release sidecars), and the tap's
   doesn't exist yet they fail or pin stale data.
 - **Bump npm `package.json` before publishing**, not after — its version *is* the
   download URL (`releases/download/v${version}`).
+- **`grove-core` before `grove` on crates.io.** The `grove` crate depends on
+  `grove-core = "=X.Y.Z"`. crates.io resolves this exact pin from the registry at
+  publish time; if `grove-core` is not yet indexed the `grove` publish fails.
 
 ## Smoke checks
 

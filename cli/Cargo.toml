@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core library — AST engine, registry, fetch, ingest.
-grove-core = { path = "../core" }
+grove-core = { path = "../core", version = "=0.1.11" }
 
 # CLI + output
 clap = { version = "4", features = ["derive"] }

@@ -1,0 +1,14 @@
+{
+  "objective": "Fix the single blocking gap (missing version pin on grove-core in cli/Cargo.toml) so both workspace crates pass cargo publish --dry-run, extend bump-version.sh to keep that pin in sync, and document the crates.io publish order in RELEASING.md.",
+  "key_changes": [
+    "cli/Cargo.toml: change grove-core dependency from path-only to { path = \"../core\", version = \"=0.1.11\" } — the only change blocking cargo publish --dry-run -p grove",
+    "scripts/bump-version.sh: add a new step (between current steps 2 and 3) to update the version pin in the grove-core dependency line of cli/Cargo.toml atomically with every bump",
+    "RELEASING.md: add numbered cargo publish steps (grove-core first, then grove) and an ordering constraint explaining why core must publish before cli",
+    "Verify: cargo publish --dry-run -p grove-core already passes; cargo publish --dry-run -p grove must pass after the cli/Cargo.toml fix",
+    "Verify: cargo test --release --locked --workspace and cargo clippy --workspace -- -D warnings remain green",
+    "Crate name availability confirmed in plan: grove and grove-core are both unclaimed on crates.io — no fallback name required"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-01T00:30:30.000Z",
+  "artifact_ref": "PLAN.md"
+}

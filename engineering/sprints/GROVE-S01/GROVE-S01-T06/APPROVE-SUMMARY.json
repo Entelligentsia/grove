@@ -1,0 +1,14 @@
+{
+  "objective": "Architectural sign-off for crates.io publication readiness of grove-core and grove workspace crates.",
+  "key_changes": [
+    "Exact version pin in cli/Cargo.toml ensures deterministic resolution on crates.io",
+    "bump-version.sh step 3/6 maintains pin synchronization across releases",
+    "RELEASING.md correctly documents publish order constraint (core before cli)",
+    "Expected dry-run failure on grove validates the exact-version dependency is enforced",
+    "No impact on existing distribution channels (npm, Homebrew, GitHub Releases)",
+    "Purely additive change — enables cargo install grove as new path"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:58:00.000Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

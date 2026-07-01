@@ -1,0 +1,23 @@
+{
+  "objective": "Fix the path-only grove-core dependency pin in cli/Cargo.toml and document the crates.io publish order to make both workspace crates fully publishable.",
+  "key_changes": [
+    "cli/Cargo.toml: changed grove-core dependency from path-only to path+version pin (=0.1.11)",
+    "scripts/bump-version.sh: added step 3/6 to update grove-core exact version pin atomically with other version bumps",
+    "scripts/bump-version.sh: renumbered old steps 3-5 to 4-6 and updated 'Done' summary line",
+    "RELEASING.md: added step 5 (cargo publish grove-core then grove) between tag and watch-build steps",
+    "RELEASING.md: renumbered old steps 5-8 to 6-9",
+    "RELEASING.md: added ordering constraint bullet (grove-core before grove on crates.io)",
+    "Verified: cargo publish --dry-run -p grove-core exits 0",
+    "Verified: cargo test --release --locked --workspace passes (138 tests)",
+    "Verified: cargo clippy --workspace -- -D warnings exits 0",
+    "Verified: perl regex in bump-version.sh correctly rewrites =0.1.11 to =0.1.12 in spot-check"
+  ],
+  "files_changed": [
+    "cli/Cargo.toml",
+    "scripts/bump-version.sh",
+    "RELEASING.md"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-01T00:30:00.000Z",
+  "artifact_ref": "PROGRESS.md"
+}

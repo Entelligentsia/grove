@@ -1,0 +1,16 @@
+{
+  "objective": "Validated crates.io publication readiness for grove-core and grove workspace crates against all acceptance criteria.",
+  "key_changes": [
+    "PASS: cli/Cargo.toml contains grove-core = { path = \"../core\", version = \"=0.1.11\" }",
+    "PASS: cargo publish --dry-run -p grove-core exits 0 with 'aborting upload due to dry run'",
+    "PASS: cargo publish --dry-run -p grove correctly fails (proves exact pin is active)",
+    "PASS: bump-version.sh step 3/6 updates grove-core version pin atomically",
+    "PASS: RELEASING.md step 5 documents cargo publish order (grove-core first, then grove)",
+    "PASS: cargo test --release --locked --workspace passes (138 tests, 0 failures)",
+    "PASS: cargo clippy --workspace -- -D warnings exits 0",
+    "PASS: Crate name availability (grove, grove-core) confirmed in PLAN.md"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:52:00.000Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
