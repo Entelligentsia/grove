@@ -1,14 +1,20 @@
 [package]
-name = "grove-core"
+name = "grove-cst"
 version = "0.1.11"
 edition = "2021"
 description = "Core AST engine, grammar registry, fetch, and ingest for grove — the structural code-intelligence library behind the grove CLI and MCP server."
 license = "MIT"
 repository = "https://github.com/Entelligentsia/grove"
 homepage = "https://github.com/Entelligentsia/grove"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["tree-sitter", "code-intelligence", "ast", "grammar", "registry"]
 categories = ["development-tools", "parser-implementations"]
+
+# Published as `grove-cst` (CST = the concrete syntax trees tree-sitter builds;
+# `grove-core` is taken by an unrelated crate), but the library name stays
+# `grove_core` so consumers write `use grove_core::...` regardless of the id.
+[lib]
+name = "grove_core"
 
 [dependencies]
 # Engine — wasm feature lets us load grammars from the registry at runtime,

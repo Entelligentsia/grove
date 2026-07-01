@@ -536,19 +536,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "grove"
-version = "0.1.11"
-dependencies = [
- "anyhow",
- "clap",
- "grove-core",
- "ignore",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "grove-core"
+name = "grove-cst"
 version = "0.1.11"
 dependencies = [
  "anyhow",
@@ -560,6 +548,18 @@ dependencies = [
  "streaming-iterator",
  "tree-sitter",
  "ureq",
+]
+
+[[package]]
+name = "grove-cst-cli"
+version = "0.1.11"
+dependencies = [
+ "anyhow",
+ "clap",
+ "grove-cst",
+ "ignore",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
