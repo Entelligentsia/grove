@@ -45,7 +45,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked -p grove --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'

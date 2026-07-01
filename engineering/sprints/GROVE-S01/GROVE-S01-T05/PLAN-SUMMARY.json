@@ -1,0 +1,14 @@
+{
+  "objective": "Align CI, release workflow, and the version-bump script with the new core/+cli/ Cargo workspace while keeping the published `grove` binary's asset names and paths unchanged.",
+  "key_changes": [
+    "release.yml: build step → `cargo build --release --locked -p grove --target <t>` so the asset stays pinned to the grove package; tar/7z packaging paths unchanged.",
+    "ci.yml: build and test broadened to `--workspace` so grove-core is built and tested too.",
+    "bump-version.sh: also bump core/Cargo.toml (already does cli/), update both lock entries via `cargo update -p grove -p grove-core`, and assert both grove + grove-core lock versions.",
+    "Verify-only (no edits expected): setup-local-test.sh still yields target/release/grove; npm install.js + package.json and homebrew update-formula.sh resolve `grove` assets by unchanged names.",
+    "Material change (CI/release tooling) but no release cut here; no schema/data-model change.",
+    "Dry validation: `cargo build --release --locked -p grove` + `cargo test --release --locked --workspace` + clippy, plus an idempotent bump-version.sh run and a release.yml asset-name review."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-01T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

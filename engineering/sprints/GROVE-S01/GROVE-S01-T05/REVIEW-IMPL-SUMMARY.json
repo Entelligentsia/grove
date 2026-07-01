@@ -1,0 +1,15 @@
+{
+  "objective": "Reviewed CI, release workflow, and bump-version.sh changes for workspace-awareness correctness and spec compliance.",
+  "key_changes": [
+    "ci.yml correctly uses --workspace for build and test steps",
+    "release.yml correctly uses -p grove to pin release artifact; asset paths unchanged",
+    "bump-version.sh correctly handles 5-step bump: cli/core Cargo.toml, both lock entries, npm, changelog",
+    "All verify-only files (setup-local-test.sh, npm, homebrew) confirmed unchanged and correct",
+    "138 tests pass (87 grove-core + 32 CLI unit + 18 CLI integration + 1 doc-test)",
+    "clippy clean, bash syntax OK, versions in lockstep at 0.1.11",
+    "All 7 acceptance criteria met"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:05:00.000Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

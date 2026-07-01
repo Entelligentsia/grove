@@ -1,0 +1,17 @@
+{
+  "objective": "Validated CI, release workflow, and bump-version.sh workspace-awareness against all 7 acceptance criteria",
+  "key_changes": [
+    "AC#1 PASS: release.yml uses -p grove for all 5 targets; asset paths unchanged",
+    "AC#2 PASS: ci.yml uses --workspace for build and test steps",
+    "AC#3 PASS: bump-version.sh covers cli + core Cargo.toml, both lock entries, npm in one idempotent run",
+    "AC#4 PASS: setup-local-test.sh BIN path resolves target/release/grove correctly",
+    "AC#5 PASS: npm install.js and homebrew update-formula.sh asset names unchanged",
+    "AC#6 PASS: cargo build -p grove succeeds; release.yml asset-name review confirmed",
+    "AC#7 PASS: 138 tests pass (32+18+87+1); clippy clean",
+    "Sprint requirements Step 5 criteria all satisfied",
+    "Zero end-user impact on asset names, paths, and distribution workflows"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:20:00.000Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

@@ -1,0 +1,13 @@
+{
+  "objective": "Verify that CI, release workflow, and version-bump script correctly support the new grove-core + grove Cargo workspace structure.",
+  "key_changes": [
+    "release.yml correctly uses -p grove to pin the binary, preserving asset names unchanged",
+    "ci.yml uses --workspace flag ensuring both workspace members are built and tested",
+    "bump-version.sh handles all 5 version sites in one atomic, idempotent operation",
+    "Lockfile assertions cover both grove and grove-core entries, preventing drift",
+    "Verify-only files (setup-local-test.sh, npm install.js, homebrew formula) resolve correctly",
+    "No downstream impact to end users — asset names and install paths unchanged"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:01:30.000Z"
+}

@@ -3,11 +3,12 @@
 # source-of-truth is forgotten (see RELEASING.md). Idempotent: re-running with
 # the same version is a no-op beyond a lockfile touch.
 #
-# What it does:
-#   1. Cargo.toml          — the [package] `version`
-#   2. Cargo.lock          — the `name = "grove"` entry (via `cargo update`)
-#   3. dist/npm/package.json — the npm wrapper `"version"`
-#   4. CHANGELOG.md        — insert a dated `## [X.Y.Z]` stub (skipped if present)
+# What it does (the repo is a Cargo workspace: cli=grove, core=grove-core):
+#   1. cli/Cargo.toml      — the grove [package] `version`
+#   2. core/Cargo.toml     — the grove-core [package] `version`
+#   3. Cargo.lock          — both `grove` and `grove-core` entries (via `cargo update`)
+#   4. dist/npm/package.json — the npm wrapper `"version"`
+#   5. CHANGELOG.md        — insert a dated `## [X.Y.Z]` stub (skipped if present)
 #
 # It does NOT commit, tag, or push — it only edits files and prints the next
 # steps. The Homebrew formula and GitHub Release assets are derived AFTER the
@@ -28,25 +29,35 @@ fi
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
-say "1/4  cli/Cargo.toml -> $VERSION"
+say "1/5  cli/Cargo.toml (grove) -> $VERSION"
 # Only the first `version = "..."` line (the [package] version).
 perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' cli/Cargo.toml
 grep -m1 '^version = ' cli/Cargo.toml
 
-say "2/4  Cargo.lock (grove entry)"
-cargo update -p grove >/dev/null 2>&1 || cargo generate-lockfile >/dev/null
+say "2/5  core/Cargo.toml (grove-core) -> $VERSION"
+perl -i -pe 'if (!$done && /^version = "/) { s/^version = ".*"/version = "'"$VERSION"'"/; $done=1 }' core/Cargo.toml
+grep -m1 '^version = ' core/Cargo.toml
+
+say "3/5  Cargo.lock (grove + grove-core entries)"
+cargo update -p grove -p grove-core >/dev/null 2>&1 || cargo generate-lockfile >/dev/null
 lock_v="$(awk '/^name = "grove"$/{getline; print; exit}' Cargo.lock)"
 echo "Cargo.lock grove $lock_v"
 case "$lock_v" in
   *"\"$VERSION\""*) : ;;
   *) echo "error: Cargo.lock grove entry is not $VERSION ($lock_v)" >&2; exit 1 ;;
 esac
+lock_core_v="$(awk '/^name = "grove-core"$/{getline; print; exit}' Cargo.lock)"
+echo "Cargo.lock grove-core $lock_core_v"
+case "$lock_core_v" in
+  *"\"$VERSION\""*) : ;;
+  *) echo "error: Cargo.lock grove-core entry is not $VERSION ($lock_core_v)" >&2; exit 1 ;;
+esac
 
-say "3/4  dist/npm/package.json -> $VERSION"
+say "4/5  dist/npm/package.json -> $VERSION"
 perl -i -pe 's/("version":\s*)"[^"]*"/$1"'"$VERSION"'"/ if !$done && /"version":/ and ($done=1)' dist/npm/package.json
 grep -m1 '"version":' dist/npm/package.json
 
-say "4/4  CHANGELOG.md"
+say "5/5  CHANGELOG.md"
 if grep -qE "^## \[$VERSION\]" CHANGELOG.md; then
   echo "CHANGELOG already has a [$VERSION] section — leaving it."
 else
@@ -64,7 +75,7 @@ fi
 
 cat <<EOF
 
-Done. Edited: Cargo.toml, Cargo.lock, dist/npm/package.json, CHANGELOG.md.
+Done. Edited: cli/Cargo.toml, core/Cargo.toml, Cargo.lock, dist/npm/package.json, CHANGELOG.md.
 Next (see RELEASING.md):
   1. Fill in the CHANGELOG [$VERSION] section.
   2. cargo build --release --locked && cargo test --release --locked

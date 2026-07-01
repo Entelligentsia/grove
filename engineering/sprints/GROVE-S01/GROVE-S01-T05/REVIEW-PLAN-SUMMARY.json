@@ -1,0 +1,16 @@
+{
+  "objective": "Reviewed the plan to align CI, release workflow, and bump-version.sh with the new core/+cli/ Cargo workspace for correctness, completeness, and architecture alignment.",
+  "key_changes": [
+    "All premises verified independently: virtual workspace (root no [package]), cli=grove bin, core=grove-core lib, both at 0.1.11 in Cargo.lock.",
+    "release.yml -p grove change is correct and defensive; asset path target/<t>/release/grove unchanged. cargo build --release --locked -p grove confirmed working.",
+    "ci.yml --workspace is future-proofing — bare cargo build/test already builds all members in the current virtual workspace; value is defensive against a future root [package].",
+    "bump-version.sh: cargo update -p grove -p grove-core is valid; path dep has no version constraint so lock picks up new version cleanly; idempotency holds.",
+    "All four verify-only files confirmed unchanged by the proposed edits.",
+    "Advisory: throwaway-version bump test should be required (not optional) to prove cargo update writes a NEW version into both lock entries.",
+    "Advisory: stale header comment and final echo message in bump-version.sh should be refreshed to reflect two-crate reality.",
+    "No security concerns; VERSION is regex-gated before perl interpolation. Stack checklist items all respected."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-01T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

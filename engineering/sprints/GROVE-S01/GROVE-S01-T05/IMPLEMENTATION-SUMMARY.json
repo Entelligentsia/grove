@@ -1,0 +1,25 @@
+{
+  "objective": "Make CI, release workflow, and bump-version.sh workspace-aware so the new core/+cli/ Cargo workspace builds, tests, and releases correctly with zero end-user impact on asset names or paths.",
+  "key_changes": [
+    "ci.yml: cargo build --release --locked → --workspace (builds both grove-core and grove)",
+    "ci.yml: cargo test --release --locked → --workspace (tests all 87+18+32 tests across both crates)",
+    "release.yml: cargo build step → -p grove --target <t> (pins release binary to grove package, asset paths unchanged)",
+    "bump-version.sh: extended to 5-step script: adds core/Cargo.toml perl bump (step 2)",
+    "bump-version.sh: cargo update -p grove → -p grove -p grove-core (updates both lock entries)",
+    "bump-version.sh: added grove-core Cargo.lock assertion (step 3 now checks both entries)",
+    "bump-version.sh: updated summary message to list all 5 edited files",
+    "Verify-only: setup-local-test.sh BIN path target/release/grove confirmed correct under virtual workspace",
+    "Verify-only: dist/npm/install.js asset names grove-<target>.{tar.gz,zip} confirmed unchanged",
+    "Verify-only: dist/homebrew/update-formula.sh sha256 lookups confirmed unchanged",
+    "All 138 tests pass (87 grove-core + 18 CLI integration + 32 unit + 1 doc-test)",
+    "clippy -D warnings clean, YAML parses, bash -n syntax OK, bump-version.sh 0.1.11 idempotent"
+  ],
+  "files_changed": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "scripts/bump-version.sh"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-01T00:15:00.000Z",
+  "artifact_ref": "PROGRESS.md"
+}
