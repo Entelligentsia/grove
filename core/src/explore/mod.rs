@@ -4,6 +4,11 @@
 //! persisted to `.grove/explore.json`. The provider client and agent loop land
 //! in later S02 tasks and will be namespaced under this module.
 
+pub mod client;
 pub mod config;
 
+pub use client::{
+    health_probe, ChatClient, ChatRequest, ChatResponse, ClientError, HealthError, Message,
+    OpenAiCompatClient, Role, Tool, ToolCall,
+};
 pub use config::{ExploreConfig, Mode, Provider};

@@ -1,0 +1,19 @@
+{
+  "objective": "Architect sign-off on the OpenAI-compatible chat client + health probe in core::explore::client, verifying architectural coherence and deployment posture.",
+  "key_changes": [
+    "No new dependency: core/Cargo.toml zero diff; built on existing ureq 2 (rustls) from architecture/stack.md, serde_json::Value for tool schemas.",
+    "Correct seam: ChatClient trait is the T03/T04 dependency point, never the concrete OpenAiCompatClient — swappable and testable.",
+    "Typed errors serve runtime: ClientError::Connection (ureq Transport) distinguished from Protocol/Http to feed the D3 shutdown signal in the agent loop.",
+    "Dialect normalization localized: Ollama string-args vs llama.cpp object-args absorbed in-module, uniform ToolCall to callers.",
+    "Blocking defect resolved: char-boundary-safe truncate() walk-back eliminates multi-byte UTF-8 panic, with regression test.",
+    "Scope clean: only client.rs (new) + mod.rs (wiring/re-exports) in the code surface; no other module touched.",
+    "No persisted schema/config migration: all new types are in-memory transport types; task only reads ExploreConfig (T01).",
+    "No operational impact, no version bump — additive non-material change.",
+    "Follow-up: model_available() substring matching can false-positive (llama3 vs llama31) — tolerant-by-design, revisit only if needed.",
+    "Follow-up: non-2xx /models maps to HealthError::Unreachable; add finer variant if T04 needs server-up-but-erroring distinction.",
+    "Follow-up: non-streaming only by design; streaming is a separate future task if ever required."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

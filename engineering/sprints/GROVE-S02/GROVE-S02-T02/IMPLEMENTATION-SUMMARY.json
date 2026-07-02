@@ -1,0 +1,24 @@
+{
+  "objective": "Implement and verify the OpenAI-compatible chat client + health probe in core::explore::client, including the char-boundary-safe truncate() fix that eliminates the blocking code-review defect.",
+  "key_changes": [
+    "New core/src/explore/client.rs: Role, Message, ToolCall, Tool, ChatRequest, ChatResponse wire model with serde.",
+    "ChatClient trait (chat() seam) — T03/T04 depend on this, never the concrete type.",
+    "OpenAiCompatClient::new(&ExploreConfig) over existing ureq/rustls — no new dependency.",
+    "Dialect normalization: Ollama string-args vs llama.cpp object-args both normalize to the same ToolCall.",
+    "ClientError distinguishes Connection (D3 shutdown signal) from Protocol/Http — correct for T03 agent loop.",
+    "health_probe GETs {base_url}/models; HealthError::Unreachable vs ModelMissing with tolerant substring/alias matching.",
+    "Fixed truncate() — char-boundary-safe walk-back (was &s[..500] which panics on multi-byte UTF-8).",
+    "Regression test truncate_does_not_panic_on_multibyte_boundary: 499 ASCII + 50 é straddle the 500-byte cut.",
+    "All 5 review-plan advisories addressed: tool_call_id, tolerant model matching, explicit timeouts, error bodies, deterministic 127.0.0.1:1 tests.",
+    "12 inline #[cfg(test)] tests; 107 lib tests + 1 doc-test green; cargo clippy -p grove-cst -- -D warnings clean.",
+    "core/src/explore/mod.rs: pub mod client; + re-exports of full public surface for T03/T04."
+  ],
+  "files_changed": [
+    "core/src/explore/client.rs",
+    "core/src/explore/mod.rs",
+    "engineering/sprints/GROVE-S02/GROVE-S02-T02/PROGRESS.md"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T10:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

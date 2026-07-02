@@ -1,0 +1,20 @@
+{
+  "objective": "Validate all 7 acceptance criteria for the OpenAI-compatible chat client and health probe in core::explore::client, including wire model, dialect normalization, typed errors, health probe, test coverage, and build cleanliness.",
+  "key_changes": [
+    "AC-1 PASS: ChatClient trait seam and OpenAiCompatClient::new(&ExploreConfig) present; ureq/rustls only — Cargo.toml unchanged confirmed by git diff.",
+    "AC-2 PASS: Full wire model — Role, Message, ChatRequest, ChatResponse, Tool, ToolCall with correct skip_serializing_if for lean body; tests verify absent fields omitted.",
+    "AC-3 PASS: Dialect normalization — custom ToolCall deserializer normalizes object-args (llama.cpp) and string-args (Ollama) to identical ToolCall; provider_dialects test confirms.",
+    "AC-4 PASS: health_probe returns HealthError::Unreachable and HealthError::ModelMissing with actionable messages; probe test against 127.0.0.1:1 verifies Unreachable variant.",
+    "AC-5 PASS: ClientError::Connection (ureq Transport → D3 signal), ::Http (non-2xx status), ::Protocol (parse failure); is_connection() predicate; connection test confirms.",
+    "AC-6 PASS: 12 inline #[cfg(test)] tests — no HTTP mocks, 127.0.0.1:1 for determinism; serde round-trips for both providers; all 12 passed cargo test --release --locked.",
+    "AC-7 PASS: cargo test --release --locked -p grove-cst → 107 lib + 1 doc-test green; clippy -D warnings clean; grep fastcontext core/src/explore/ → CLEAN.",
+    "Plan-review advisory #1 (tool_call_id): Message::tool() sets tool_call_id; test tool_message_carries_call_id verifies serialization.",
+    "Plan-review advisory #2 (tolerant model matching): model_available() handles exact, substring, stem, tag-base patterns; test model_matching_is_tolerant covers all.",
+    "Plan-review advisory #3 (timeouts): CONNECT_TIMEOUT=10s, CHAT_TIMEOUT=300s, PROBE_TIMEOUT=30s via AgentBuilder — explicit and correct.",
+    "Plan-review advisory #4 (error bodies): ClientError::Http and ::Protocol carry body through char-boundary-safe truncate(); regression test confirmed no panic.",
+    "Plan-review advisory #5 (deterministic tests): 127.0.0.1:1 refused immediately; no network dependency; no CI flake risk."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T11:30:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

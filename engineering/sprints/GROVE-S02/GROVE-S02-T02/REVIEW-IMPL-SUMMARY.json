@@ -1,0 +1,19 @@
+{
+  "objective": "Re-review of the T02 OpenAI-compatible chat client + health probe, verifying the prior blocking truncate() panic is fixed and all acceptance criteria and advisories remain satisfied.",
+  "key_changes": [
+    "Verdict: Approved — prior blocking defect resolved, everything else re-verified clean.",
+    "RESOLVED (blocking): truncate() walks back via is_char_boundary before slicing; no more &s[..500] panic on multi-byte UTF-8 at byte 500.",
+    "Regression test truncate_does_not_panic_on_multibyte_boundary covers the exact failing case (499 ASCII + 50 é) and passes.",
+    "Independently ran: 12 client tests + 107 lib tests green; clippy -p grove-cst -D warnings clean.",
+    "No 'fastcontext' string in core/src/explore/; mod.rs re-exports full public surface for T03/T04.",
+    "All 7 acceptance criteria met: ChatClient seam, no new dep, full wire model, dialect normalization, typed errors, health_probe, mock-free tests.",
+    "Both-provider fixture test confirms llama.cpp object-args and Ollama string-args normalize to identical ToolCall; round-trips.",
+    "All 5 plan-review advisories dispositioned: tool_call_id, tolerant model matching, timeouts, error bodies, deterministic 127.0.0.1:1 tests.",
+    "Advisory: model_available id.contains(want) can false-match llama3/llama31 — tolerant-by-design, non-blocking.",
+    "Advisory: empty /models listing treated as available to avoid false ModelMissing — acceptable.",
+    "Advisory: non-2xx on /models maps to Unreachable with status in detail — acceptable."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}
