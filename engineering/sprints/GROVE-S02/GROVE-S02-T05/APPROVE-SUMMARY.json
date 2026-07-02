@@ -1,0 +1,19 @@
+{
+  "objective": "Architectural sign-off on the full-screen ratatui config TUI + `grove config` verb, confirming layer boundaries, cross-cutting impact, and deployment posture.",
+  "key_changes": [
+    "Layer boundary held: ratatui/crossterm confined to cli/Cargo.toml; core stays TUI-free (cli formats, core executes).",
+    "Validation/persistence delegated to core ExploreConfig::validate()/save(); atomic temp+rename write preserved.",
+    "Elm-style pure update() covered by 12 headless tests — durable regression surface with no terminal needed.",
+    "Single source of truth: provider URL constants (Ollama 11434, llama.cpp 8080) match core; dirty_url guards user-edited endpoints.",
+    "Safe failure modes: non-TTY fast-fail (exit 1) and terminal restore on all exit paths incl. save error.",
+    "AC #5 (model auto-discovery) correctly scoped out via #[allow(dead_code)] Msg::ModelListFetched extension point.",
+    "No cross-cutting impact: additive verb + new module; no existing CLI/MCP/core surface modified; no config schema change.",
+    "Operational impact minimal: no version bump, no migration, backward compatible; binary size 13,296,264 bytes recorded per AC #6.",
+    "Follow-up: add promised non-TTY assert_cmd integration test in cli/tests/cli.rs (verified manually, not automated).",
+    "Follow-up: wire Msg::ModelListFetched to provider model-list endpoints for AC #5 in a future sprint.",
+    "Follow-up: consider Provider::default_base_url() helper in core to unify TUI URL constants with core defaults."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

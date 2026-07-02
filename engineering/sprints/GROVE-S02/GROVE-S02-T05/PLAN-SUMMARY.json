@@ -1,0 +1,20 @@
+{
+  "objective": "Implement a full-screen ratatui TUI (Elm-style model-update-view) for collecting and persisting mcp-llm configuration, wired to a new `grove config` CLI subcommand that re-opens the TUI pre-populated from `.grove/explore.json`.",
+  "key_changes": [
+    "Add `ratatui = \"0.29\"` and `crossterm = \"0.28\"` to `cli/Cargo.toml` only — core stays TUI-free.",
+    "New module `cli/src/config_tui/` with mod.rs (event loop), model.rs (App + Field + Action), update.rs (pure transitions, headlessly tested), view.rs (rendering).",
+    "Add `Cmd::Config` variant and match arm to `cli/src/main.rs`, dispatching to `config_tui::run(&path)`.",
+    "Non-TTY guard in `config_tui::run()` via `std::io::IsTerminal`; fails fast with descriptive error message.",
+    "TUI fields: Provider (Ollama/LlamaCpp), Endpoint URL text, Model text, Mode (Standard/Balanced/Aggressive + desc), Allowed Tools checkbox list.",
+    "Provider → URL auto-default: switching provider auto-fills base_url unless user manually edited it (dirty_url flag).",
+    "Save/cancel: `s`/F2 writes via `ExploreConfig::save(root)` atomically; Esc/q leaves config untouched.",
+    "`App::from_config(cfg)` pre-populates TUI; `App::to_config()` converts back with `ExploreConfig::validate()`.",
+    "Nine headless unit tests in `update.rs`: tab navigation, provider→URL coupling, mode cycling, tool toggle, save/cancel, round-trip, validation, pre-population.",
+    "CLI integration test: `grove config` with no TTY exits non-zero with `interactive terminal` in stderr.",
+    "Model auto-discovery (AC #5) stubbed as dead-code `Msg::ModelListFetched` variant — clean extension point without refactor.",
+    "Release binary size delta (baseline vs. post-change) measured and recorded in PR description per AC #6."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

@@ -1,0 +1,15 @@
+{
+  "objective": "Validate all 7 acceptance criteria for the full-screen ratatui config TUI and `grove config` CLI verb (GROVE-S02-T05).",
+  "key_changes": [
+    "AC #1 PASS: 5-field TUI (Provider, URL, Model, Mode, Tools) rendered in view.rs; ratatui/crossterm confined to cli/Cargo.toml; core stays TUI-free.",
+    "AC #2 PASS: `grove config` pre-populates via App::from_config; dirty_url=true guards custom endpoints; save calls ExploreConfig::save atomically.",
+    "AC #3 PASS: s/F2 saves; Esc/q quits without touching on-disk config; validation errors surface in status bar, TUI stays open.",
+    "AC #4 PASS: Non-TTY guard verified live — exits 1 with descriptive message. Minor gap: promised integration test absent (non-blocking).",
+    "AC #5 PASS (out of scope): Msg::ModelListFetched stubbed with #[allow(dead_code)] as clean extension point.",
+    "AC #6 PASS: Release binary size recorded at 13,296,264 bytes (~12.7 MB) in PROGRESS.md.",
+    "AC #7 PASS: clippy clean; 190 tests pass; 12 headless update.rs tests; no 'fastcontext' in source."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

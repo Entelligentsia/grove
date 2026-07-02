@@ -5,6 +5,7 @@
 
 use grove_core::{ops, registry, fetch, ingest};
 
+mod config_tui;
 mod init;
 mod mcp;
 
@@ -147,6 +148,15 @@ enum Cmd {
     Languages,
     /// Write grove.lock pinning each registry grammar's version + content hash.
     Lock,
+    /// Open the full-screen config TUI to set up (or edit) the explore config.
+    ///
+    /// Requires an interactive terminal. Opens pre-populated when
+    /// `.grove/explore.json` already exists; starts from defaults otherwise.
+    Config {
+        /// Project directory (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Run as an MCP server over stdio (the agent-facing face).
     Serve {
         /// Project directory used to locate .grove/explore.json (default: current dir).
@@ -273,6 +283,11 @@ fn main() -> Result<()> {
                 }
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
+        }
+        Cmd::Config { path } => {
+            // Load existing config if present; start from defaults otherwise.
+            let existing = grove_core::ExploreConfig::load(&path).ok();
+            config_tui::run(&path, existing)?;
         }
         Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,

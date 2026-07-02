@@ -1,0 +1,29 @@
+{
+  "objective": "Implement a full-screen ratatui TUI (Elm-style model-update-view) for collecting and persisting mcp-llm configuration, wired to a new `grove config` CLI subcommand.",
+  "key_changes": [
+    "Added ratatui=0.29 and crossterm=0.28 to cli/Cargo.toml; pinned instability to v0.3.7 in Cargo.lock for rustc 1.87 compat.",
+    "New cli/src/config_tui/model.rs: App, Field, Action, Msg pure data; from_config() sets dirty_url=true; to_config() delegates to ExploreConfig::validate().",
+    "New cli/src/config_tui/update.rs: pure update() transitions + 12 headless tests (tab nav, provider-URL coupling, mode cycling, tool toggle, save/cancel, round-trip, validation).",
+    "New cli/src/config_tui/view.rs: ratatui rendering for all 5 fields (Provider list, URL text, Model text, Mode list with descs, Tools checklist + add-tool buffer).",
+    "New cli/src/config_tui/mod.rs: event loop with run(); non-TTY guard via IsTerminal; terminal setup/teardown on all exit paths including save error.",
+    "Updated cli/src/main.rs: added mod config_tui, Cmd::Config variant with path arg, dispatch calls ExploreConfig::load().ok() then config_tui::run().",
+    "Provider-URL auto-default: switching provider fills default endpoint unless dirty_url=true; OLLAMA_DEFAULT_URL/LLAMACPP_DEFAULT_URL constants are single source of truth.",
+    "Msg::ModelListFetched(Vec<String>) stubbed with #[allow(dead_code)] as extension point for future model auto-discovery (AC #5 out of scope).",
+    "All 190 tests pass (126 core + 44 CLI unit + 19 integration + 1 doc-test); zero clippy warnings.",
+    "Non-TTY guard confirmed: grove config in non-interactive context exits 1 with 'interactive terminal' in stderr.",
+    "Binary size post-build: 13,296,264 bytes (~12.7 MB release).",
+    "Terminal cleanup on all paths: disable_raw_mode().ok() + LeaveAlternateScreen + show_cursor() after event_loop returns."
+  ],
+  "files_changed": [
+    "cli/Cargo.toml",
+    "Cargo.lock",
+    "cli/src/main.rs",
+    "cli/src/config_tui/mod.rs",
+    "cli/src/config_tui/model.rs",
+    "cli/src/config_tui/update.rs",
+    "cli/src/config_tui/view.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T19:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}
