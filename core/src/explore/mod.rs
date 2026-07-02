@@ -10,10 +10,13 @@
 pub mod agent;
 pub mod client;
 pub mod config;
+pub mod grounding;
 pub mod steering;
 pub mod toolset;
 
-pub use agent::{run_explore, ExploreAnswer, ExploreError};
+pub use agent::{
+    run_explore, run_explore_reporting, ExploreAnswer, ExploreError, NoopReporter, ProgressReporter,
+};
 pub use client::{
     health_probe, ChatClient, ChatRequest, ChatResponse, ClientError, HealthError, Message,
     OpenAiCompatClient, Role, Tool, ToolCall,

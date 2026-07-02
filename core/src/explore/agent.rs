@@ -1,56 +1,65 @@
-//! The bounded inner explorer agent loop.
+//! The inner explorer agent loop — a direct translation of the reference bench's
+//! `agent/agent.py::_agent_loop` and `mcp_server.py::_instrumented_loop`.
 //!
-//! [`run_explore`] is the public entry point. It drives a tool-calling loop
-//! against a [`ChatClient`], enforces per-mode toolset gating and phase
-//! transitions, and applies hard turn / byte bounds that produce a
-//! best-effort answer rather than an error (AC-5).
+//! The loop is bounded by **turns only** (≤ [`MAX_TURNS`]); there is deliberately
+//! **no cumulative byte budget** (the earlier grove reimplementation's 128 KiB
+//! hard-abort is gone). At the turn limit the loop injects the bench's
+//! forced-final-answer message ([`steering::FORCE_FINAL_ANSWER`]) and takes one
+//! more model turn, so exhaustion produces an *answer*, not a "no answer
+//! produced" sentinel.
 //!
-//! # Mode behaviour
-//!
-//! - **Standard / Aggressive** — single-phase; full toolset always active.
-//!   Aggressive adds a persuasive system prompt (AC-4, prompt-only steering).
-//! - **Balanced** — three-phase harness:
-//!   1. **Recon** — RECON_OPS + `submit_plan` exposed; shell tools withheld.
-//!   2. **ForceSubmit** — only `submit_plan` after `BALANCED_RECON_TURNS`
-//!      recon turns without a plan commitment.
-//!   3. **Execute** — full toolset unlocked; plan injected into system message.
-//!
-//! # Error mapping (AC-6)
-//!
-//! [`ClientError::Connection`] → [`ExploreError::ProviderDown`].
-//! All other [`ClientError`] variants → [`ExploreError::Client`].
+//! Arm selection ([`Mode`]):
+//! - [`Mode::Standard`] → merit (all four tools, model chooses),
+//! - [`Mode::Aggressive`] → coerce (grove-first steering),
+//! - [`Mode::Balanced`] → plan-first (recon → `submit_plan` → execute, with the
+//!   recon plan cached once per repo per process).
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
-use super::client::{ChatClient, ChatRequest, ClientError, Message, Role, Tool, ToolCall};
+use serde_json::Value;
+
+use super::client::{ChatClient, ChatRequest, ClientError, Message};
 use super::config::{ExploreConfig, Mode};
-use super::steering::{balanced_phase2_prompt, system_prompt};
-use super::toolset::{
-    build_full_toolset, build_recon_toolset, build_submit_only_toolset, dispatch_tool,
-    is_in_toolset, BALANCED_RECON_TURNS, MAX_TOOL_RESULT_BYTES, MAX_TURNS,
-};
+use super::{grounding, steering, toolset};
+
+// --- Bench constants (from the vendored MCP env / mcp_server.py) ------------
+
+/// Hard turn cap (`mcp_server.py::MAX_TURNS_CAP`).
+pub const MAX_TURNS: usize = 6;
+/// Grove-recon turns before Grove closes in plan-first (`FC_RECON_TURNS`).
+pub const RECON_TURNS: usize = 2;
+/// Generation cap (`FC_MAX_TOKENS`).
+const MAX_COMPLETION_TOKENS: u32 = 1024;
+/// Sampling temperature (`FC_TEMPERATURE`).
+const TEMPERATURE: f32 = 0.0;
+/// Nucleus sampling (`llm.py` default `top_p`).
+const TOP_P: f32 = 0.95;
+
+/// Cached hint prefix for the recon-once plan (`mcp_server.py::CACHED_HINT`).
+const CACHED_HINT: &str = "PRIOR STRUCTURAL MAP of this repository, from an earlier recon pass (use as a starting hint — it may not fully cover THIS question; verify with tools):\n";
 
 // ---------------------------------------------------------------------------
-// Public types
+// Public types (unchanged contract consumed by cli/src/mcp.rs)
 // ---------------------------------------------------------------------------
 
 /// The successful result of an exploration run.
 #[derive(Debug, Clone)]
 pub struct ExploreAnswer {
-    /// The model's final answer text (may be a best-effort summary when
-    /// `truncated` is true).
+    /// The grounded final answer (prose + validated `<final_answer>` citations).
     pub text: String,
     /// The number of turns consumed.
     pub turns: usize,
-    /// True when the answer was cut short by the turn or byte limit (AC-5).
+    /// True when the answer came from the forced-final-answer / turn-cap path.
     pub truncated: bool,
 }
 
 /// An error from the exploration run.
 #[derive(Debug)]
 pub enum ExploreError {
-    /// The inference server was unreachable / refused / timed out (AC-6 / D3).
+    /// The inference server was unreachable / refused / timed out (D3).
     ProviderDown {
         /// The endpoint that could not be reached.
         url: String,
@@ -74,10 +83,6 @@ impl fmt::Display for ExploreError {
 
 impl std::error::Error for ExploreError {}
 
-// ---------------------------------------------------------------------------
-// ClientError → ExploreError
-// ---------------------------------------------------------------------------
-
 fn map_client_error(e: ClientError) -> ExploreError {
     match e {
         ClientError::Connection { url, detail } => ExploreError::ProviderDown { url, detail },
@@ -86,555 +91,448 @@ fn map_client_error(e: ClientError) -> ExploreError {
 }
 
 // ---------------------------------------------------------------------------
-// Balanced-mode phase state machine
+// Recon-once plan cache (mcp_server.py::_PLAN_CACHE), process-global, keyed by
+// canonical repo path.
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
-enum Phase {
-    /// Phase 1: limited recon toolset; tracks how many turns have elapsed.
-    Recon { turns: usize },
-    /// Phase 1b: only `submit_plan` after hitting the recon turn limit.
-    ForceSubmit,
-    /// Phase 2: full toolset unlocked (plan already embedded in system message).
-    Execute,
+fn plan_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key(root: &Path) -> String {
+    root.canonicalize()
+        .unwrap_or_else(|_| root.to_path_buf())
+        .display()
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
-// Main loop
+// The loop
 // ---------------------------------------------------------------------------
 
-/// Run the bounded inner explorer agent loop.
-///
-/// Drives a tool-calling loop against `client`, enforcing mode-specific toolset
-/// gating and the Balanced phase state machine. Returns a best-effort
-/// [`ExploreAnswer`] on turn/byte exhaustion (AC-5) and
-/// [`ExploreError::ProviderDown`] on connection failure (AC-6).
+#[derive(PartialEq)]
+enum Phase {
+    Recon,
+    Execute,
+}
+
+/// A sink for per-turn progress, so a long delegated call can report liveness to
+/// the waiting client (MCP `notifications/progress`). `progress`/`total` drive a
+/// bar; `message` is a short human-facing status.
+pub trait ProgressReporter {
+    /// Report progress at `progress` of `total`, with a status `message`.
+    fn report(&self, progress: usize, total: usize, message: &str);
+}
+
+/// A reporter that drops every update (the default for [`run_explore`] and tests).
+pub struct NoopReporter;
+
+impl ProgressReporter for NoopReporter {
+    fn report(&self, _progress: usize, _total: usize, _message: &str) {}
+}
+
+/// Explore `question` over `root`, delegating to the local model via `client`.
+/// Convenience wrapper over [`run_explore_reporting`] with no progress sink.
 pub fn run_explore(
     question: &str,
     root: &Path,
     cfg: &ExploreConfig,
     client: &dyn ChatClient,
 ) -> Result<ExploreAnswer, ExploreError> {
-    // ---------- initial system prompt + conversation ----------
-    let initial_system = system_prompt(cfg.mode);
-    let mut messages: Vec<Message> = vec![
-        Message::system(initial_system),
-        Message::user(question),
-    ];
+    run_explore_reporting(question, root, cfg, client, &NoopReporter)
+}
 
-    // ---------- phase state ----------
-    let mut phase = Phase::Recon { turns: 0 };
+/// Explore `question` over `root`, delegating to the local model via `client`
+/// and reporting per-turn progress to `progress`. Direct port of
+/// `_instrumented_loop` (which subsumes `_agent_loop` when plan-first is off).
+pub fn run_explore_reporting(
+    question: &str,
+    root: &Path,
+    cfg: &ExploreConfig,
+    client: &dyn ChatClient,
+    progress: &dyn ProgressReporter,
+) -> Result<ExploreAnswer, ExploreError> {
+    // Progress bar spans the worst case: one tick per turn, plus a final tick.
+    let total = MAX_TURNS + 2;
+    let qwen = cfg.model.to_lowercase().contains("qwen");
+    let plan_first = cfg.mode == Mode::Balanced;
 
-    // ---------- loop counters ----------
-    let mut turns: usize = 0;
-    let mut total_tool_bytes: usize = 0;
-    let mut last_text: Option<String> = None;
+    let cached_plan = if plan_first {
+        plan_cache().lock().unwrap().get(&cache_key(root)).cloned()
+    } else {
+        None
+    };
+    let do_recon = plan_first && cached_plan.is_none();
+
+    let mut sys_content = steering::system_prompt(cfg.mode, root);
+    if do_recon {
+        sys_content.push_str(steering::PHASE1_NOTE);
+    }
+
+    let mut messages: Vec<Message> = vec![Message::system(sys_content), Message::user(question)];
+    if let Some(plan) = &cached_plan {
+        messages.push(Message::user(format!("{CACHED_HINT}{plan}")));
+    }
+
+    let mut phase = if do_recon { Phase::Recon } else { Phase::Execute };
+    let mut grove_turns = 0usize;
+    let mut n = 0usize;
+    let mut last_text = String::new();
+    // Human-facing status carried into the *next* progress tick (so each tick,
+    // emitted just before the slow model call, describes the freshest activity).
+    let mut activity = if do_recon {
+        "planning: mapping structure".to_string()
+    } else {
+        "exploring the codebase".to_string()
+    };
 
     loop {
-        // --- build active toolset for current phase / mode ---
-        let active_tools: Vec<Tool> = match cfg.mode {
-            Mode::Standard | Mode::Aggressive => {
-                build_full_toolset(&cfg.allowed_tools)
-            }
-            Mode::Balanced => match &phase {
-                Phase::Recon { .. } => build_recon_toolset(),
-                Phase::ForceSubmit => build_submit_only_toolset(),
-                Phase::Execute => build_full_toolset(&cfg.allowed_tools),
-            },
+        n += 1;
+        if n > MAX_TURNS + 1 {
+            break;
+        }
+        if n == MAX_TURNS + 1 {
+            messages.push(Message::user(steering::FORCE_FINAL_ANSWER));
+            activity = "wrapping up: final answer".to_string();
+        }
+        // Tick before the (slow) model call, so the client sees liveness during
+        // generation and a message describing the most recent step.
+        progress.report(n, total, &format!("turn {n}/{} · {activity}", MAX_TURNS + 1));
+
+        // Toolset for this turn.
+        let tools = if phase == Phase::Recon {
+            toolset::recon_toolset(grove_turns < RECON_TURNS)
+        } else {
+            toolset::execute_toolset()
         };
+        let allowed: Vec<String> = tools.iter().map(|t| t.function.name.clone()).collect();
 
-        // --- build request ---
-        let req = ChatRequest::new(messages.clone()).with_tools(active_tools.clone());
-
-        // --- call the model ---
-        let response = client.chat(req).map_err(map_client_error)?;
-
-        // --- extract the assistant message ---
-        let asst_msg = match response.first_message() {
+        // Call the model.
+        let req = ChatRequest::new(messages.clone())
+            .with_tools(tools)
+            .with_bench_sampling(TEMPERATURE, TOP_P, MAX_COMPLETION_TOKENS, None, qwen);
+        let resp = client.chat(req).map_err(map_client_error)?;
+        let step = match resp.first_message() {
             Some(m) => m.clone(),
-            None => {
-                // Empty response — treat as terminal with whatever we have.
+            None => break,
+        };
+        last_text = step.content.clone().unwrap_or_default();
+        messages.push(step.clone());
+
+        if step.tool_calls.is_empty() {
+            // A text-only turn ends the run in the execute phase (the final
+            // answer). In recon, it is ignored and the loop continues (the model
+            // is eventually forced to submit_plan).
+            if phase == Phase::Execute {
+                progress.report(total, total, "grounding answer");
                 return Ok(ExploreAnswer {
-                    text: last_text.unwrap_or_else(|| "(no response)".to_string()),
-                    turns,
+                    text: grounding::get_final_answer(&last_text, root),
+                    turns: n,
                     truncated: false,
                 });
             }
-        };
-
-        // Track any text content the model produced.
-        if let Some(ref text) = asst_msg.content {
-            if !text.is_empty() {
-                last_text = Some(text.clone());
-            }
+            continue;
         }
 
-        // Append assistant turn to history.
-        messages.push(asst_msg.clone());
-
-        // --- terminal condition: no tool calls → final answer ---
-        if asst_msg.tool_calls.is_empty() {
-            let answer_text = asst_msg
-                .content
-                .unwrap_or_else(|| last_text.clone().unwrap_or_else(|| "(no answer)".to_string()));
-            return Ok(ExploreAnswer { text: answer_text, turns, truncated: false });
-        }
-
-        // --- dispatch each tool call ---
-        let mut submitted_plan: Option<String> = None;
-
-        for tc in &asst_msg.tool_calls {
-            let tool_result = if tc.name == "submit_plan" {
-                // Special handling: extract plan and mark phase transition.
-                let plan_text = tc.arguments["plan"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                submitted_plan = Some(plan_text.clone());
-                format!("Plan committed: {plan_text}")
-            } else if !is_in_toolset(&tc.name, &active_tools) {
-                // Hallucinated tool — corrective message (AC-3).
-                corrective_refusal(tc)
+        // Dispatch each tool call.
+        let mut used_grove = false;
+        let mut transition = false;
+        for c in &step.tool_calls {
+            let obs = if c.name == toolset::SUBMIT_PLAN && phase == Phase::Recon {
+                let plan_args = serialize_args(&c.arguments);
+                if !plan_args.is_empty() {
+                    plan_cache()
+                        .lock()
+                        .unwrap()
+                        .insert(cache_key(root), plan_args.clone());
+                }
+                messages.push(Message::tool(&c.id, steering::PLAN_RECORDED_NOTE));
+                messages.push(Message::user(format!(
+                    "{}\n\nYour recorded plan:\n{}",
+                    steering::PHASE2_NOTE, plan_args
+                )));
+                transition = true;
+                continue;
+            } else if !allowed.contains(&c.name) {
+                if phase == Phase::Recon {
+                    steering::RECON_CLOSED_NOTE.to_string()
+                } else {
+                    "<system-reminder>Planning is done. Use Read/Grep/Glob/Grove to execute your plan, then emit <final_answer>.</system-reminder>".to_string()
+                }
+            } else if phase == Phase::Recon
+                && c.name == toolset::GROVE
+                && !toolset::RECON_VERBS.contains(&toolset::grove_verb(&c.arguments).as_str())
+            {
+                steering::RECON_VERB_NOTE.to_string()
             } else {
-                // Dispatch structural op or shell binary.
-                dispatch_tool(&tc.name, &tc.arguments, root, &cfg.allowed_tools)
+                let o = toolset::dispatch(&c.name, &c.arguments, root);
+                if c.name == toolset::GROVE {
+                    used_grove = true;
+                }
+                o
             };
-
-            let result_bytes = tool_result.len();
-            messages.push(Message::tool(tc.id.clone(), tool_result));
-            total_tool_bytes += result_bytes;
+            messages.push(Message::tool(&c.id, obs));
         }
-
-        // --- Balanced phase transitions ---
-        if cfg.mode == Mode::Balanced {
-            if let Some(plan_text) = submitted_plan {
-                // Plan committed — enter Execute phase with phase-2 system message.
-                let phase2_prompt = balanced_phase2_prompt(&plan_text);
-                // Replace the [0] system message with the phase-2 variant.
-                if !messages.is_empty() && messages[0].role == Role::System {
-                    messages[0] = Message::system(phase2_prompt);
-                }
-                phase = Phase::Execute;
-            } else if let Phase::Recon { turns: recon_turns } = &mut phase {
-                *recon_turns += 1;
-                if *recon_turns >= BALANCED_RECON_TURNS {
-                    phase = Phase::ForceSubmit;
-                }
-            }
-            // ForceSubmit → stays until submit_plan is called (handled above).
+        if used_grove {
+            grove_turns += 1;
         }
-
-        // --- increment turn counter ---
-        turns += 1;
-
-        // --- bounds check (AC-5) ---
-        if turns >= MAX_TURNS || total_tool_bytes >= MAX_TOOL_RESULT_BYTES {
-            return Ok(ExploreAnswer {
-                text: last_text
-                    .unwrap_or_else(|| "(exploration limit reached; no answer produced)".to_string()),
-                turns,
-                truncated: true,
-            });
+        if transition {
+            phase = Phase::Execute;
         }
+        activity = summarize_activity(&step.tool_calls, transition);
+    }
+
+    progress.report(total, total, "grounding answer");
+    // Fell out via the turn cap: return the best-effort last text, grounded.
+    Ok(ExploreAnswer {
+        text: grounding::get_final_answer(&last_text, root),
+        turns: n.saturating_sub(1),
+        truncated: true,
+    })
+}
+
+/// A short human-facing summary of a turn's tool activity, for the next progress
+/// tick (e.g. "Grove symbols, Read userProfileManager.js").
+fn summarize_activity(calls: &[super::client::ToolCall], transitioned: bool) -> String {
+    if transitioned {
+        return "plan set — executing".to_string();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for c in calls {
+        let part = match c.name.as_str() {
+            toolset::GROVE => format!("Grove {}", toolset::grove_verb(&c.arguments)),
+            toolset::READ => format!("Read {}", basename_arg(&c.arguments, "path")),
+            toolset::GLOB => format!("Glob {}", str_arg(&c.arguments, "pattern")),
+            toolset::GREP => format!("Grep {}", str_arg(&c.arguments, "pattern")),
+            other => other.to_string(),
+        };
+        parts.push(part);
+    }
+    let joined = parts.join(", ");
+    // Char-safe truncation (activity text may contain multibyte from paths/patterns).
+    let s = if joined.chars().count() > 80 {
+        let mut t: String = joined.chars().take(77).collect();
+        t.push('…');
+        t
+    } else {
+        joined
+    };
+    if s.is_empty() {
+        "exploring the codebase".to_string()
+    } else {
+        s
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build a corrective tool-result message for a hallucinated tool call.
-fn corrective_refusal(tc: &ToolCall) -> String {
-    format!(
-        "{{\"error\": \"tool '{}' is not available in the active toolset. \
-         Use one of the offered tools.\"}}",
-        tc.name
-    )
+fn str_arg(args: &Value, key: &str) -> String {
+    args.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(30)
+        .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+fn basename_arg(args: &Value, key: &str) -> String {
+    let p = args.get(key).and_then(Value::as_str).unwrap_or("");
+    Path::new(p)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string())
+}
+
+/// Serialize tool-call arguments back to a compact JSON string (the plan text
+/// cached and echoed to the model, matching `c.arguments` in the reference,
+/// which is already the raw JSON string).
+fn serialize_args(args: &Value) -> String {
+    if args.is_null() {
+        String::new()
+    } else {
+        serde_json::to_string(args).unwrap_or_default()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::explore::client::{ChatResponse, Choice};
+    use crate::explore::client::{ChatResponse, Choice, Role, ToolCall};
+    use crate::explore::config::Provider;
+    use serde_json::json;
     use std::cell::RefCell;
-    use std::path::PathBuf;
 
-    // -----------------------------------------------------------------------
-    // Scripted fake ChatClient
-    // -----------------------------------------------------------------------
-
-    /// A scripted fake that returns pre-canned responses in order. Wraps the
-    /// queue in a `RefCell` so the `ChatClient` trait (shared reference) can
-    /// mutate it.
-    struct ScriptedClient {
-        queue: RefCell<Vec<ChatResponse>>,
+    /// A scripted client returning canned responses in order.
+    struct FakeClient {
+        scripted: RefCell<std::collections::VecDeque<ChatResponse>>,
+        seen_tool_names: RefCell<Vec<Vec<String>>>,
     }
 
-    impl ScriptedClient {
+    impl FakeClient {
         fn new(responses: Vec<ChatResponse>) -> Self {
-            let mut rev = responses;
-            rev.reverse(); // pop() takes from the end → we want FIFO
-            ScriptedClient { queue: RefCell::new(rev) }
+            FakeClient {
+                scripted: RefCell::new(responses.into()),
+                seen_tool_names: RefCell::new(Vec::new()),
+            }
         }
     }
 
-    impl ChatClient for ScriptedClient {
-        fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, ClientError> {
-            self.queue
+    impl ChatClient for FakeClient {
+        fn chat(&self, req: ChatRequest) -> Result<ChatResponse, ClientError> {
+            self.seen_tool_names
                 .borrow_mut()
-                .pop()
-                .ok_or_else(|| ClientError::Connection {
-                    url: "scripted".to_string(),
-                    detail: "no more scripted responses".to_string(),
-                })
+                .push(req.tools.iter().map(|t| t.function.name.clone()).collect());
+            Ok(self
+                .scripted
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or_else(|| text_response("(end)")))
         }
     }
 
-    /// A scripted client that always returns a `Connection` error.
-    struct DownClient;
-
-    impl ChatClient for DownClient {
-        fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, ClientError> {
-            Err(ClientError::Connection {
-                url: "http://localhost:11434/v1".to_string(),
-                detail: "connection refused".to_string(),
-            })
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Helpers for building scripted responses
-    // -----------------------------------------------------------------------
-
-    fn text_response(text: &str) -> ChatResponse {
+    fn text_response(s: &str) -> ChatResponse {
         ChatResponse {
             choices: vec![Choice {
-                message: Message::assistant(text),
-                finish_reason: Some("stop".to_string()),
+                message: Message {
+                    role: Role::Assistant,
+                    content: Some(s.to_string()),
+                    tool_calls: vec![],
+                    tool_call_id: None,
+                    name: None,
+                },
+                finish_reason: None,
             }],
         }
     }
 
-    fn tool_call_response(id: &str, name: &str, args: serde_json::Value) -> ChatResponse {
+    fn tool_call_response(name: &str, args: Value) -> ChatResponse {
         ChatResponse {
             choices: vec![Choice {
                 message: Message {
                     role: Role::Assistant,
                     content: None,
                     tool_calls: vec![ToolCall {
-                        id: id.to_string(),
-                        name: name.to_string(),
+                        id: "call_1".into(),
+                        name: name.into(),
                         arguments: args,
                     }],
                     tool_call_id: None,
                     name: None,
                 },
-                finish_reason: Some("tool_calls".to_string()),
+                finish_reason: None,
             }],
         }
     }
 
-    fn default_cfg() -> ExploreConfig {
-        ExploreConfig::default()
+    fn cfg(mode: Mode) -> ExploreConfig {
+        ExploreConfig {
+            provider: Provider::Ollama,
+            base_url: "http://localhost:11434/v1".into(),
+            model: "qwen3.5:4b".into(),
+            mode,
+            allowed_tools: vec!["grove".into(), "rg".into()],
+        }
     }
 
-    fn balanced_cfg() -> ExploreConfig {
-        ExploreConfig { mode: Mode::Balanced, ..ExploreConfig::default() }
-    }
-
-    fn temp_root() -> PathBuf {
-        std::env::temp_dir()
-    }
-
-    // -----------------------------------------------------------------------
-    // Tests
-    // -----------------------------------------------------------------------
-
-    /// AC-7 T1: model calls an unknown tool → corrective tool-result is
-    /// injected; loop continues and eventually returns a text answer.
     #[test]
-    fn hallucinated_tool_returns_corrective_refusal() {
-        let client = ScriptedClient::new(vec![
-            // Turn 1: model hallucinates "magic_search"
-            tool_call_response("c1", "magic_search", serde_json::json!({"q": "foo"})),
-            // Turn 2: after seeing the corrective message, model gives a text answer.
-            text_response("The answer is 42."),
+    fn standard_returns_first_text_only_turn_as_answer() {
+        let client = FakeClient::new(vec![text_response("done\n<final_answer>\n</final_answer>")]);
+        let ans = run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        assert!(!ans.truncated);
+        assert_eq!(ans.turns, 1);
+        assert!(ans.text.starts_with("done"));
+    }
+
+    #[test]
+    fn standard_offers_the_four_execute_tools() {
+        let client = FakeClient::new(vec![text_response("x")]);
+        run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        let seen = &client.seen_tool_names.borrow()[0];
+        assert_eq!(seen, &vec!["Read", "Glob", "Grep", "Grove"]);
+    }
+
+    #[test]
+    fn turn_cap_forces_a_final_answer_not_a_sentinel() {
+        // Always request a (disallowed→ignored) tool so it never terminates on
+        // text; must break at the cap and still return grounded text.
+        let mut responses = Vec::new();
+        for _ in 0..(MAX_TURNS + 2) {
+            responses.push(tool_call_response("Grove", json!({"command": "map ."})));
+        }
+        let client = FakeClient::new(responses);
+        let ans = run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        assert!(ans.truncated, "hit the turn cap");
+        // The forced-final-answer user message was injected before the last call.
+        assert!(ans.turns >= MAX_TURNS);
+    }
+
+    #[test]
+    fn balanced_recon_closes_grove_then_forces_submit_plan() {
+        // Turn 1 & 2: Grove recon calls; turn 3: Grove should be closed (only
+        // submit_plan offered); model submits plan; then answers.
+        let client = FakeClient::new(vec![
+            tool_call_response("Grove", json!({"command": "map ."})),
+            tool_call_response("Grove", json!({"command": "symbols ."})),
+            tool_call_response(
+                "submit_plan",
+                json!({"focus_files": "a.rs", "steps": "read a.rs"}),
+            ),
+            text_response("answer\n<final_answer>\n</final_answer>"),
         ]);
-        let cfg = default_cfg();
-        let root = temp_root();
-        let answer = run_explore("find foo", &root, &cfg, &client).expect("should succeed");
-        assert_eq!(answer.text, "The answer is 42.");
-        assert!(!answer.truncated);
-        // The corrective message should have been appended in the history (we
-        // verify indirectly: the loop ran past turn 1 and returned on turn 2).
-        assert_eq!(answer.turns, 1);
+        let root = std::env::temp_dir().join(format!("grove-agent-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ans = run_explore("q", &root, &cfg(Mode::Balanced), &client).unwrap();
+        assert!(!ans.truncated);
+        let seen = client.seen_tool_names.borrow();
+        // Turn 1: Grove + submit_plan (recon, grove open).
+        assert!(seen[0].contains(&"Grove".to_string()) && seen[0].contains(&"submit_plan".to_string()));
+        // Turn 3 (after 2 grove recon turns): Grove closed → submit_plan only.
+        assert_eq!(seen[2], vec!["submit_plan"]);
+        std::fs::remove_dir_all(&root).ok();
     }
 
-    /// AC-7 T2 + T3: `build_full_toolset` includes all 7 structural op names
-    /// and the set is the same regardless of "Aggressive" intent.
     #[test]
-    fn standard_toolset_contains_all_seven_ops() {
-        use crate::explore::toolset::build_full_toolset;
-        let tools = build_full_toolset(&[]);
-        let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
-        for op in ["outline", "symbols", "source", "check", "callers", "map", "definition"] {
-            assert!(names.contains(&op), "missing op '{op}'");
+    fn progress_is_reported_each_turn_and_at_the_end() {
+        use std::cell::RefCell;
+        struct Recorder {
+            ticks: RefCell<Vec<(usize, usize, String)>>,
         }
-    }
-
-    #[test]
-    fn aggressive_toolset_same_as_standard() {
-        use crate::explore::toolset::build_full_toolset;
-        let std_tools = build_full_toolset(&[]);
-        let agg_tools = build_full_toolset(&[]);
-        let std_names: Vec<&str> = std_tools.iter().map(|t| t.function.name.as_str()).collect();
-        let agg_names: Vec<&str> = agg_tools.iter().map(|t| t.function.name.as_str()).collect();
-        assert_eq!(std_names, agg_names);
-    }
-
-    /// AC-7 T4: balanced phase-1 toolset = RECON_OPS + submit_plan.
-    #[test]
-    fn balanced_phase1_toolset_recon_plus_submit_plan() {
-        use crate::explore::toolset::build_recon_toolset;
-        let tools = build_recon_toolset();
-        let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
-        for op in ["map", "symbols", "outline", "definition"] {
-            assert!(names.contains(&op), "recon toolset missing '{op}'");
-        }
-        assert!(names.contains(&"submit_plan"), "must include submit_plan");
-        for excluded in ["source", "check", "callers"] {
-            assert!(!names.contains(&excluded), "recon must NOT include '{excluded}'");
-        }
-    }
-
-    /// AC-7 T5: after BALANCED_RECON_TURNS without submit_plan, toolset becomes submit_plan-only.
-    #[test]
-    fn balanced_phase_transitions_after_n_recon_turns() {
-        // We need BALANCED_RECON_TURNS tool-calling turns without submit_plan,
-        // then one more turn (ForceSubmit) to verify only submit_plan is offered,
-        // and finally the model calls submit_plan, then answers.
-        //
-        // Strategy: use map (a recon op) for BALANCED_RECON_TURNS turns, then
-        // the ForceSubmit phase fires. We script one more map call (which is
-        // refused as a hallucination in ForceSubmit), then submit_plan, then text.
-        //
-        // Actually simpler: just verify the ForceSubmit happens by observing
-        // that the loop still terminates correctly after using up all recon turns.
-
-        // Use outline on a non-existent file (in RECON_OPS) — returns a small
-        // error string with no directory walk, so the byte budget is safe.
-        let mut responses: Vec<ChatResponse> = (0..BALANCED_RECON_TURNS)
-            .map(|i| {
-                tool_call_response(
-                    &format!("c{i}"),
-                    "outline",
-                    serde_json::json!({"file": "nonexistent_for_test.rs"}),
-                )
-            })
-            .collect();
-        // After BALANCED_RECON_TURNS outline calls, the model is in ForceSubmit.
-        // Now it calls submit_plan.
-        responses.push(tool_call_response(
-            "cplan",
-            "submit_plan",
-            serde_json::json!({"plan": "step 1: done"}),
-        ));
-        // Then a final text answer.
-        responses.push(text_response("Exploration complete."));
-
-        let client = ScriptedClient::new(responses);
-        let cfg = balanced_cfg();
-        let root = temp_root();
-        let answer = run_explore("explore the repo", &root, &cfg, &client)
-            .expect("should succeed");
-        assert_eq!(answer.text, "Exploration complete.");
-        assert!(!answer.truncated);
-    }
-
-    /// AC-7 T6: after submit_plan, system message contains the plan text.
-    #[test]
-    fn balanced_phase2_has_plan_hint_in_system_message() {
-        // We need to verify that the system message is updated. We use a
-        // recording client that captures the first request in phase 2.
-        struct RecordingClient {
-            phase1: ScriptedClient,
-            recorded_system: RefCell<Option<String>>,
-        }
-
-        impl ChatClient for RecordingClient {
-            fn chat(&self, req: ChatRequest) -> Result<ChatResponse, ClientError> {
-                // Capture system message once we're past phase 1.
-                let system_msg = req.messages.first()
-                    .and_then(|m| if m.role == Role::System { m.content.as_deref() } else { None })
-                    .map(str::to_string);
-                if let Some(sys) = system_msg {
-                    let mut rec = self.recorded_system.borrow_mut();
-                    if rec.is_none() || sys.contains("previously committed") {
-                        *rec = Some(sys);
-                    }
-                }
-                self.phase1.chat(req)
+        impl ProgressReporter for Recorder {
+            fn report(&self, progress: usize, total: usize, message: &str) {
+                self.ticks
+                    .borrow_mut()
+                    .push((progress, total, message.to_string()));
             }
         }
-
-        let plan_text = "1. call outline on main.rs\n2. check the Foo struct";
-        let client = RecordingClient {
-            phase1: ScriptedClient::new(vec![
-                // Turn 1 (recon): submit_plan
-                tool_call_response("c1", "submit_plan", serde_json::json!({"plan": plan_text})),
-                // Turn 2 (execute): text answer
-                text_response("Done!"),
-            ]),
-            recorded_system: RefCell::new(None),
-        };
-
-        let cfg = balanced_cfg();
-        let root = temp_root();
-        run_explore("explore", &root, &cfg, &client).expect("should succeed");
-
-        let recorded = client.recorded_system.borrow();
-        let sys = recorded.as_deref().unwrap_or("");
-        assert!(
-            sys.contains(plan_text),
-            "phase-2 system message should contain the plan text. Got: {sys}"
-        );
-    }
-
-    /// AC-7 T7: dispatch_tool refuses a binary not in the allowlist.
-    #[test]
-    fn shell_binary_not_in_allowlist_is_refused() {
-        use crate::explore::toolset::dispatch_tool;
-        let root = temp_root();
-        let result = dispatch_tool("curl", &serde_json::json!({"args": []}), &root, &[]);
-        assert!(result.contains("not available"), "expected refusal, got: {result}");
-    }
-
-    /// AC-7 T8: scripted client returns tool_calls indefinitely; loop exits at
-    /// MAX_TURNS with truncated: true.
-    #[test]
-    fn turn_bound_terminates_loop() {
-        // Produce more than MAX_TURNS tool-calling responses.
-        // The tool used is "outline" which will fail on a real call, but that's
-        // fine — the result string is stored and bounds are checked.
-        let responses: Vec<ChatResponse> = (0..=MAX_TURNS + 5)
-            .map(|i| {
-                tool_call_response(
-                    &format!("c{i}"),
-                    "outline",
-                    serde_json::json!({"file": "nonexistent.rs"}),
-                )
-            })
-            .collect();
-        let client = ScriptedClient::new(responses);
-        let cfg = default_cfg();
-        let root = temp_root();
-        let answer = run_explore("question", &root, &cfg, &client).expect("should not error");
-        assert!(answer.truncated, "should be truncated at turn bound");
-        assert_eq!(answer.turns, MAX_TURNS);
-    }
-
-    /// AC-7 T9: tool result bytes accumulate; loop exits when total_tool_bytes
-    /// exceeds MAX_TOOL_RESULT_BYTES (128 KiB).
-    ///
-    /// Strategy: send one ChatResponse containing 1 500 calls to a hallucinated
-    /// tool "x".  The agent issues a corrective_refusal (~93 bytes) for each
-    /// call.  1 500 × 93 ≈ 139 500 bytes > MAX_TOOL_RESULT_BYTES = 131 072.
-    /// The byte bound fires at the end of turn 1, before turn bound (MAX_TURNS
-    /// = 25) is reached.  We assert truncated == true and turns < MAX_TURNS to
-    /// confirm the byte path — not the turn path — was responsible.
-    #[test]
-    fn byte_bound_terminates_loop() {
-        // Build a single response with 1 500 hallucinated tool calls.
-        // The hallucinated name "x" is never in the active toolset, so the
-        // agent appends a corrective_refusal string for every call without
-        // touching the filesystem.
-        let many_tool_calls: Vec<ToolCall> = (0usize..1_500)
-            .map(|i| ToolCall {
-                id: format!("b{i}"),
-                name: "x".to_string(),
-                arguments: serde_json::json!({}),
-            })
-            .collect();
-
-        let big_response = ChatResponse {
-            choices: vec![Choice {
-                message: Message {
-                    role: Role::Assistant,
-                    content: None,
-                    tool_calls: many_tool_calls,
-                    tool_call_id: None,
-                    name: None,
-                },
-                finish_reason: Some("tool_calls".to_string()),
-            }],
-        };
-
-        let client = ScriptedClient::new(vec![big_response]);
-        let cfg = default_cfg();
-        let root = temp_root();
-        let answer = run_explore("test", &root, &cfg, &client)
-            .expect("byte-bound exhaustion must return Ok, not Err");
-
-        assert!(answer.truncated, "byte bound must set truncated = true");
-        assert!(
-            answer.turns < MAX_TURNS,
-            "byte bound fired after {} turn(s); should be < MAX_TURNS ({})",
-            answer.turns,
-            MAX_TURNS
-        );
-    }
-
-    /// AC-7 T10: client returns ClientError::Connection → ExploreError::ProviderDown.
-    #[test]
-    fn connection_error_maps_to_provider_down() {
-        let client = DownClient;
-        let cfg = default_cfg();
-        let root = temp_root();
-        let err = run_explore("hello", &root, &cfg, &client)
-            .expect_err("connection error should propagate");
-        match err {
-            ExploreError::ProviderDown { url, .. } => {
-                assert!(url.contains("localhost"), "should name the endpoint: {url}");
-            }
-            other => panic!("expected ProviderDown, got: {other}"),
-        }
-    }
-
-    /// GROVE-S02-T07 (AC1c): `is_in_toolset` → `corrective_refusal` path fires
-    /// when the model calls a tool that is not in `allowed_tools`.
-    ///
-    /// Config: `allowed_tools: ["grep"]` — excludes `find`.
-    /// Script: turn 1 model calls `find`; corrective refusal is returned;
-    ///         turn 2 model gives a text answer.
-    ///
-    /// This tests the loop-level enforcement path (not the shell-dispatch
-    /// allowlist path, which is covered by `shell_binary_not_in_allowlist_is_refused`).
-    #[test]
-    fn allowlist_enforcement_find_refused() {
-        let client = ScriptedClient::new(vec![
-            // Turn 1: model calls `find` — not in allowed_tools.
-            tool_call_response("c1", "find", serde_json::json!({"args": ["-name", "*.rs"]})),
-            // Turn 2: after receiving the corrective refusal, model gives a text answer.
-            text_response("The answer is: use grep instead."),
+        // Turn 1: a Grove call; turn 2: the final text answer.
+        let client = FakeClient::new(vec![
+            tool_call_response("Grove", json!({"command": "symbols ."})),
+            text_response("done\n<final_answer>\n</final_answer>"),
         ]);
-        let cfg = ExploreConfig {
-            allowed_tools: vec!["grep".to_string()],
-            ..ExploreConfig::default()
+        let rec = Recorder {
+            ticks: RefCell::new(Vec::new()),
         };
-        let root = temp_root();
-        let answer = run_explore("find rust files", &root, &cfg, &client)
-            .expect("should succeed despite find being refused");
-        assert_eq!(
-            answer.text, "The answer is: use grep instead.",
-            "final answer text mismatch"
-        );
-        assert!(!answer.truncated, "should not be truncated");
-        // The loop ran exactly 1 full turn (tool call + correction) before the
-        // text answer in turn 2 terminated the loop.
-        assert_eq!(answer.turns, 1, "expected exactly 1 turn before text answer");
+        run_explore_reporting("q", Path::new("."), &cfg(Mode::Standard), &client, &rec).unwrap();
+        let ticks = rec.ticks.borrow();
+        // At least: turn 1 pre-call, turn 2 pre-call, final "grounding answer".
+        assert!(ticks.len() >= 3, "got {} ticks", ticks.len());
+        assert!(ticks[0].2.contains("turn 1/"), "first tick: {:?}", ticks[0]);
+        // Progress is monotonically non-decreasing.
+        assert!(ticks.windows(2).all(|w| w[0].0 <= w[1].0));
+        assert_eq!(ticks.last().unwrap().2, "grounding answer");
+    }
+
+    #[test]
+    fn provider_down_maps_to_provider_down_error() {
+        struct DownClient;
+        impl ChatClient for DownClient {
+            fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, ClientError> {
+                Err(ClientError::Connection {
+                    url: "http://x".into(),
+                    detail: "refused".into(),
+                })
+            }
+        }
+        let err = run_explore("q", Path::new("."), &cfg(Mode::Standard), &DownClient).unwrap_err();
+        assert!(matches!(err, ExploreError::ProviderDown { .. }));
     }
 }

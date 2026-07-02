@@ -1,76 +1,88 @@
-//! Per-mode system prompt text for the inner explorer.
+//! System-prompt assembly — a direct port of the reference bench's
+//! `agent/utils.py::load_system_prompt` + `agent_factory.py`'s `[GROVE_SECTION]`
+//! mechanism, with the arm mapping fixed by the sprint decision:
 //!
-//! All steering content is encoded as static strings returned by
-//! [`system_prompt`]. No runtime state — mode behaviour is entirely prompt-
-//! driven (AC-4). The Balanced two-phase approach is split across two
-//! functions: [`system_prompt`] for phase 1 and
-//! [`balanced_phase2_prompt`] for phase 2, which prepends the committed plan.
+//! - [`Mode::Standard`]  → **merit**: balanced steering, Grove as one option.
+//! - [`Mode::Aggressive`]→ **coerce**: the MANDATORY grove-first steering.
+//! - [`Mode::Balanced`]  → **plan-first**: merit steering; the two-phase recon
+//!   notes are appended by [`crate::explore::agent`] at run time.
+//!
+//! Prompt text is embedded verbatim from `prompts/*.md` (copied byte-for-byte
+//! from the vendored + original reference-bench trees) so the port cannot drift from
+//! the validated wording.
+
+use std::path::Path;
 
 use super::config::Mode;
 
-/// Phase-1 system prompt for Standard mode.
-const STANDARD_PROMPT: &str = "\
-You are an expert code-intelligence assistant backed by structural grove tools. \
-Answer the user's question by exploring the repository with the tools available. \
-When you have gathered enough information to give a complete, accurate answer, \
-reply with your findings in plain text — no tool call in the final turn.";
+/// The base exploration prompt with a `[GROVE_SECTION]` marker and `${…}`
+/// template vars (vendored `system.md`).
+const SYSTEM_MD: &str = include_str!("prompts/system.md");
+/// Balanced "one toolkit" Grove steering (vendored `grove_steering.md`) — merit.
+const GROVE_STEERING_MERIT: &str = include_str!("prompts/grove_steering_merit.md");
+/// "MANDATORY TOOL POLICY — use Grove, not Grep" (original repo) — coerce.
+const GROVE_STEERING_COERCE: &str = include_str!("prompts/grove_steering_coerce.md");
 
-/// Phase-1 system prompt for Aggressive mode.
-///
-/// Urges the model to prefer structural grove ops over text-search tools like
-/// `grep`/`rg`. Steering is prompt-only (AC-4) — the tool schema is identical
-/// to Standard; the model is persuaded, not coerced.
-const AGGRESSIVE_PROMPT: &str = "\
-You are an expert code-intelligence assistant. ALWAYS prefer the structural \
-grove tools (outline, symbols, source, check, callers, map, definition) over \
-text-search tools like grep or rg. Structural tools give you typed, structured \
-data about the codebase and are far more reliable than pattern matching. Only \
-fall back to grep/rg when a structural tool genuinely cannot answer the question. \
-When you have gathered enough information, reply with your findings in plain text.";
+/// The plan-first phase-1 note, ported verbatim from `mcp_server.py`.
+pub const PHASE1_NOTE: &str = "\n\n## PLANNING PHASE\nYou are scoping WHERE to look before investigating. Tools now:\n- Grove — structure only: map, symbols, outline, definition.\n- submit_plan — records your focus area and unlocks the execution tools.\n\nDo 1-2 Grove calls to locate the relevant code (e.g. `symbols . --name-contains --name <term>`, then `map <dir>` or `outline <file>`). As soon as you can name the files and symbols involved, CALL submit_plan(focus_files, focus_symbols, steps). You CANNOT read bodies, Grep, or answer until you call submit_plan; after 1-2 Grove calls Grove closes and submit_plan is your only option — do not over-explore.";
 
-/// Phase-1 system prompt for Balanced mode (recon phase).
-///
-/// Directs the model to use structural recon tools to build a mental map of
-/// the codebase first, then call `submit_plan` when it has a concrete plan of
-/// attack. The `submit_plan` call commits the plan and unlocks the full toolset
-/// for phase 2.
-const BALANCED_RECON_PROMPT: &str = "\
-You are an expert code-intelligence assistant operating in Balanced mode. \
-Phase 1 — RECONNAISSANCE: explore the repository structure using the available \
-structural tools (map, symbols, outline, definition). When you have a clear, \
-concrete plan for answering the question — including which files to read and \
-which symbols to investigate — call `submit_plan` with your plan as a string. \
-Do not attempt to answer the question yet; your only goal in this phase is to \
-understand the landscape and commit a plan.";
+/// Phase-2 unlock note (prefixes the recorded plan), verbatim from `mcp_server.py`.
+pub const PHASE2_NOTE: &str = "EXECUTION PHASE — your plan is recorded (below) and all tools are unlocked: Grove (incl. source/callers), Read, Grep, Glob. Execute your plan to answer the ORIGINAL question, choosing whichever tool fits each step — Grove for named symbols, Grep for literal text, Read to confirm a range. Cite file:line and emit <final_answer> when done.";
 
-/// Return the phase-1 system prompt for the given mode.
-///
-/// For Balanced mode this is the recon-phase prompt; phase-2 uses
-/// [`balanced_phase2_prompt`] instead.
-pub fn system_prompt(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Standard => STANDARD_PROMPT,
-        Mode::Aggressive => AGGRESSIVE_PROMPT,
-        Mode::Balanced => BALANCED_RECON_PROMPT,
-    }
+/// Shown when the model calls a closed tool during recon (verbatim).
+pub const RECON_CLOSED_NOTE: &str = "<system-reminder>Grove is CLOSED. Your only tool now is submit_plan. Call submit_plan(focus_files, focus_symbols, steps) from what you found.</system-reminder>";
+
+/// Shown when Grove is used with a non-recon verb during recon (verbatim).
+pub const RECON_VERB_NOTE: &str = "<system-reminder>Planning phase: Grove is limited to map/symbols/outline/definition. source/callers/Read/Grep/Glob unlock after you call submit_plan.</system-reminder>";
+
+/// Observation returned after a successful `submit_plan` (verbatim).
+pub const PLAN_RECORDED_NOTE: &str =
+    "Plan recorded. Execution tools unlocked: Read, Grep, Glob, Grove (source/callers).";
+
+/// The forced-final-answer user message injected at `max_turns + 1`
+/// (verbatim from `agent.py`).
+pub const FORCE_FINAL_ANSWER: &str =
+    "Max number of turns reached. Please provide the final answer based on the information you have gathered.";
+
+/// Build the system prompt for `mode`, rendering the template vars against
+/// `root`. Port of `load_system_prompt` (`OS_KIND`/`SHELL_NAME`/`WORK_DIR`/
+/// `WORK_DIR_LS`) followed by the `[GROVE_SECTION]` substitution.
+pub fn system_prompt(mode: Mode, root: &Path) -> String {
+    let grove_block = match mode {
+        Mode::Aggressive => GROVE_STEERING_COERCE,
+        // Standard (merit) and Balanced (plan-first) share the merit base; the
+        // plan-first phase notes are layered on by the agent loop.
+        Mode::Standard | Mode::Balanced => GROVE_STEERING_MERIT,
+    };
+    let with_grove = SYSTEM_MD.replace("[GROVE_SECTION]", &format!("\n{}", grove_block.trim_end()));
+    render_template_vars(&with_grove, root)
 }
 
-/// Return the phase-2 system prompt for Balanced mode.
-///
-/// Prepends the committed plan as a standing hint so the model tracks its
-/// own decision and executes it rather than re-exploring from scratch.
-pub fn balanced_phase2_prompt(plan: &str) -> String {
-    format!(
-        "You are an expert code-intelligence assistant operating in Balanced mode.\n\
-         Phase 2 — EXECUTE: you previously committed the following exploration plan:\n\
-         \n\
-         {plan}\n\
-         \n\
-         Now execute that plan step-by-step using the full toolset. When you have \
-         gathered enough information to give a complete, accurate answer to the \
-         original question, reply with your findings in plain text — no tool call \
-         in the final turn."
-    )
+/// Substitute the `${OS_KIND}` / `${SHELL_NAME}` / `${WORK_DIR}` /
+/// `${WORK_DIR_LS}` builtins, matching `load_system_prompt`.
+fn render_template_vars(template: &str, root: &Path) -> String {
+    let os_kind = std::env::consts::OS; // "linux" / "macos" / "windows"
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string());
+    let work_dir = root.display().to_string();
+    let work_dir_ls = list_dir(root);
+    template
+        .replace("${OS_KIND}", os_kind)
+        .replace("${SHELL_NAME}", &shell)
+        .replace("${WORK_DIR}", &work_dir)
+        .replace("${WORK_DIR_LS}", &work_dir_ls)
+}
+
+/// Newline-joined top-level entry names of `root` (port of `os.listdir`).
+fn list_dir(root: &Path) -> String {
+    let mut names: Vec<String> = match std::fs::read_dir(root) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(_) => return String::new(),
+    };
+    names.sort();
+    names.join("\n")
 }
 
 #[cfg(test)]
@@ -78,17 +90,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn system_prompt_returns_non_empty_for_all_modes() {
-        for mode in [Mode::Standard, Mode::Balanced, Mode::Aggressive] {
-            let p = system_prompt(mode);
-            assert!(!p.is_empty(), "empty prompt for {mode:?}");
-        }
+    fn merit_and_coerce_select_distinct_grove_blocks() {
+        let root = std::env::temp_dir();
+        let std_p = system_prompt(Mode::Standard, &root);
+        let agg_p = system_prompt(Mode::Aggressive, &root);
+        assert!(
+            agg_p.contains("MANDATORY TOOL POLICY"),
+            "aggressive uses coerce steering"
+        );
+        assert!(
+            !std_p.contains("MANDATORY TOOL POLICY"),
+            "standard uses merit steering"
+        );
+        assert!(!std_p.contains("[GROVE_SECTION]"));
+        assert!(!agg_p.contains("[GROVE_SECTION]"));
     }
 
     #[test]
-    fn balanced_phase2_prompt_embeds_plan() {
-        let plan = "1. call outline on main.rs\n2. read the Foo struct";
-        let p = balanced_phase2_prompt(plan);
-        assert!(p.contains(plan), "plan text must appear verbatim in phase-2 prompt");
+    fn template_vars_are_rendered() {
+        let p = system_prompt(Mode::Standard, &std::env::temp_dir());
+        assert!(!p.contains("${WORK_DIR}"), "WORK_DIR substituted");
+        assert!(!p.contains("${OS_KIND}"), "OS_KIND substituted");
     }
 }

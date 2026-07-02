@@ -275,6 +275,23 @@ pub struct ChatRequest {
     /// Sampling temperature, if overriding the server default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Max generated tokens (OpenAI `max_completion_tokens`). The reference
+    /// bench pins this at 1024; leaving it unset lets small models ramble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    /// Nucleus sampling (bench uses 0.95).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    /// Top-k sampling — sent inside the bench's qwen `extra_body` (20).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    /// qwen chat-template kwargs — the bench sends `{"enable_thinking": false}`
+    /// here, which is decisive for qwen3.x tool-calling quality.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_template_kwargs: Option<Value>,
+    /// Optional `reasoning_effort` passthrough (bench: `"none"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ChatRequest {
@@ -287,6 +304,11 @@ impl ChatRequest {
             tools: Vec::new(),
             tool_choice: None,
             temperature: None,
+            max_completion_tokens: None,
+            top_p: None,
+            top_k: None,
+            chat_template_kwargs: None,
+            reasoning_effort: None,
         }
     }
 
@@ -299,6 +321,28 @@ impl ChatRequest {
     /// Builder: set the tool-choice directive.
     pub fn with_tool_choice(mut self, choice: Value) -> Self {
         self.tool_choice = Some(choice);
+        self
+    }
+
+    /// Builder: apply the reference bench's sampling parameters. `qwen` gates
+    /// the `top_k` + `enable_thinking:false` knobs the bench sends only for
+    /// qwen models (`llm.py`: `if "qwen" in self.model`).
+    pub fn with_bench_sampling(
+        mut self,
+        temperature: f32,
+        top_p: f32,
+        max_completion_tokens: u32,
+        reasoning_effort: Option<String>,
+        qwen: bool,
+    ) -> Self {
+        self.temperature = Some(temperature);
+        self.top_p = Some(top_p);
+        self.max_completion_tokens = Some(max_completion_tokens);
+        self.reasoning_effort = reasoning_effort;
+        if qwen {
+            self.top_k = Some(20);
+            self.chat_template_kwargs = Some(serde_json::json!({ "enable_thinking": false }));
+        }
         self
     }
 }

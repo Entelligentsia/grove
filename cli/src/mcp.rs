@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use grove_core::explore::{health_probe, run_explore, ExploreConfig, ExploreError, OpenAiCompatClient};
+use grove_core::explore::{
+    health_probe, run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient,
+    ProgressReporter,
+};
 use grove_core::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
@@ -213,14 +216,67 @@ fn explore_tool_spec() -> Value {
     })
 }
 
+/// Argument keys accepted for the `explore` tool's question, in priority order.
+/// The schema declares `question`, but small/varied callers often paraphrase the
+/// key; accept the obvious synonyms so a one-word miss runs instead of hard-failing.
+const EXPLORE_QUESTION_KEYS: [&str; 4] = ["question", "query", "request", "prompt"];
+
+/// Resolve the explore question from a `tools/call` params object, tolerating
+/// synonym keys. Returns `None` only when no recognized key holds a string.
+fn resolve_explore_question(params: &Value) -> Option<String> {
+    let args = params.get("arguments")?;
+    EXPLORE_QUESTION_KEYS
+        .iter()
+        .find_map(|k| args.get(k).and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+/// A progress sink that writes MCP `notifications/progress` to stdout during a
+/// long `explore` call, so the waiting client sees liveness (and doesn't trip
+/// its tool-call idle timeout) instead of a silent multi-second wait.
+///
+/// Writing to `std::io::stdout()` here is safe: `serve` is single-threaded and
+/// blocks in `run_explore_reporting` until it returns, so these notification
+/// lines are emitted strictly before the tool's final response line — no
+/// interleaving with the serve loop's own writer.
+struct StdoutProgress {
+    token: Value,
+}
+
+impl ProgressReporter for StdoutProgress {
+    fn report(&self, progress: usize, total: usize, message: &str) {
+        let note = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": self.token,
+                "progress": progress,
+                "total": total,
+                "message": message,
+            },
+        });
+        let mut out = std::io::stdout().lock();
+        // Best-effort: a broken pipe just means the client went away.
+        let _ = writeln!(out, "{note}");
+        let _ = out.flush();
+    }
+}
+
+/// Extract the caller's `_meta.progressToken` from a `tools/call` params object.
+/// Absent → the client didn't opt into progress, so we stay silent.
+fn progress_token(params: &Value) -> Option<Value> {
+    let tok = params.get("_meta")?.get("progressToken")?;
+    if tok.is_null() {
+        None
+    } else {
+        Some(tok.clone())
+    }
+}
+
 /// Dispatch the `explore` tool call in explore-mode surface.
 fn call_explore_tool(params: &Value, cfg: &ExploreConfig, root: &Path) -> Outcome {
-    let question = match params
-        .get("arguments")
-        .and_then(|a| a.get("question"))
-        .and_then(Value::as_str)
-    {
-        Some(q) => q.to_string(),
+    let question = match resolve_explore_question(params) {
+        Some(q) => q,
         None => {
             return Outcome::Ok(tool_text(
                 &json!("missing required argument: question"),
@@ -229,7 +285,13 @@ fn call_explore_tool(params: &Value, cfg: &ExploreConfig, root: &Path) -> Outcom
         }
     };
     let client = OpenAiCompatClient::new(cfg);
-    match run_explore(&question, root, cfg, &client) {
+    let reporter = progress_token(params).map(|token| StdoutProgress { token });
+    let noop = grove_core::explore::NoopReporter;
+    let sink: &dyn ProgressReporter = match &reporter {
+        Some(r) => r,
+        None => &noop,
+    };
+    match run_explore_reporting(&question, root, cfg, &client, sink) {
         Ok(answer) => Outcome::Ok(tool_text(&json!(answer.text), false)),
         Err(ExploreError::ProviderDown { url, detail }) => Outcome::Ok(tool_text(
             &json!(format!(
@@ -483,6 +545,35 @@ fn tool_text(value: &Value, is_error: bool) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explore_question_resolves_canonical_and_synonym_keys() {
+        for key in ["question", "query", "request", "prompt"] {
+            let params = json!({ "arguments": { key: "what does this do?" } });
+            assert_eq!(
+                resolve_explore_question(&params).as_deref(),
+                Some("what does this do?"),
+                "key `{key}` should resolve to the question"
+            );
+        }
+    }
+
+    #[test]
+    fn explore_question_prefers_canonical_over_synonym() {
+        let params = json!({ "arguments": { "question": "canonical", "request": "synonym" } });
+        assert_eq!(resolve_explore_question(&params).as_deref(), Some("canonical"));
+    }
+
+    #[test]
+    fn explore_question_missing_is_none() {
+        assert_eq!(resolve_explore_question(&json!({ "arguments": {} })), None);
+        assert_eq!(resolve_explore_question(&json!({})), None);
+        // A non-string value under a recognized key is not a usable question.
+        assert_eq!(
+            resolve_explore_question(&json!({ "arguments": { "question": 42 } })),
+            None
+        );
+    }
 
     /// Run the `definition` tool and return its parsed JSON payload.
     fn definition(args: Value) -> Value {
