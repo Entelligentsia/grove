@@ -1,0 +1,21 @@
+{
+  "objective": "Architectural sign-off on the ExploreConfig model + .grove/explore.json persistence (core::explore::config) for the S02 mcp-llm explorer subsystem.",
+  "key_changes": [
+    "Architect approval granted — implementation is architecturally coherent, purely additive, and all gates independently verified.",
+    "ARCHITECT_APPROVAL.md written with rationale, deployment notes, and follow-ups.",
+    "Task status advanced to approved."
+  ],
+  "findings": [
+    "Purely additive core::explore module; lib.rs re-exports (ExploreConfig, Mode, Provider) match the crate's curated surface style — no existing surface touched.",
+    ".grove/explore.json sits beside .grove/grammars/, keeping all project-local grove state under one dotdir; right foundation for T02/T03.",
+    "Atomic save (temp .tmp.<pid> + rename) hardens over the registry's plain fs::write — candidate pattern to retrofit onto registry.rs later.",
+    "Field-named enum errors (RawExploreConfig manual Deserialize) and missing-file steering to `grove init --as mcp-llm` give clean fail-fast UX.",
+    "Dependency posture intact: no clap in grove-cst tree, no fastcontext in core/.",
+    "All gates green and independently re-verified: 8/8 explore tests, 146/146 workspace, clippy -D warnings clean.",
+    "Deployment: no version bump, no migrations, no user-facing change; explore.json created only on future save paths.",
+    "Follow-ups: Windows rename-over-existing semantics if that target matters; PID-only temp filename nonce; fix grove-core vs grove-cst naming nit in AC/PLAN templates."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}
