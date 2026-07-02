@@ -1,0 +1,20 @@
+{
+  "objective": "Re-review the S02-closing task after prior revision: verify the files_changed provenance fix, then confirm cross-cutting tests, naming guard, mcp-llm docs, and the 0.3.0 bump.",
+  "key_changes": [
+    "RESOLVED: files_changed now enumerates all six explore files incl. previously-untracked steering.rs and toolset.rs; commit-task will stage them.",
+    "steering.rs + toolset.rs remain untracked (??) but are in files_changed; no other untracked SOURCE files exist (rest are .forge/engineering artifacts).",
+    "mod.rs diff vs HEAD adds pub mod agent/steering/toolset + re-exports run_explore; agent loop no longer orphaned at HEAD.",
+    "Gates green on working tree: cargo build --release --locked clean; clippy --all-targets -D warnings clean.",
+    "grove-cst explore suite 40/40 incl. allowlist_enforcement_find_refused; grove-cst-cli --test cli 26/26 incl. all four T07 tests.",
+    "AC1a config_in_non_tty_fails_fast passes; 'interactive terminal' guard at config_tui/mod.rs:39; spawn+poll+kill 5s deadline.",
+    "AC1b both idempotency tests pass; object-key overwrite yields exactly one grove entry with args:[serve,--explore].",
+    "AC1c drives loop-level is_in_toolset->corrective_refusal via allowed_tools; distinct from shell-dispatch refusal test.",
+    "AC2 naming guard passes; repo-wide fastcontext scan clean; guard scope excludes cli/tests so it cannot self-trip.",
+    "AC3 docs present: README mcp-llm section L128, CHANGELOG [0.3.0] L7, CLAUDE.md arch map + Commands.",
+    "AC5 version 0.3.0 unanimous across cli/core Cargo.toml, npm package.json, and Cargo.lock.",
+    "No quality/security/convention issues in T07-scoped code or the now-tracked explore subsystem."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

@@ -125,6 +125,39 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 Add `--json` to any command for the agent-facing shape. Full reference + examples:
 **[Tools](docs/tools.md)**.
 
+## Delegated local-LLM mode (`mcp__grove__explore`)
+
+**What it is**: `mcp__grove__explore` is a single MCP tool the outer coding agent
+calls with a natural-language question. Grove's inner Rust explorer agent then
+drives its own tool-calling loop locally — using your configured local or
+OpenAI-compatible LLM — and returns a synthesised answer. The outer agent never
+sees the individual tool calls; it just gets the result.
+
+**Setup**:
+```
+grove init --as mcp-llm   # interactive setup TUI (requires TTY)
+grove config              # revisit / change settings at any time
+```
+
+**Three steering modes** (trade-off in one line each):
+
+| Mode | Trade-off |
+|---|---|
+| `standard` | inner model picks tools naturally — lowest overhead, works well with capable models |
+| `balanced` | two-phase plan → execute — best grounding and lowest hallucination rate, highest wall-clock |
+| `aggressive` | grove-first steering prompts — cost/quality sweet spot for smaller models |
+
+Change the active mode at any time with `grove config`.
+
+**Health semantics**:
+- Startup: `grove serve --explore` probes the configured provider (`/models`).
+  - **Healthy** → expose `mcp__grove__explore` only.
+  - **Unhealthy at startup** → transparent fallback: the 7 structural tools
+    (`outline`, `symbols`, `source`, `check`, `callers`, `map`, `definition`)
+    are surfaced instead so the outer agent is never left tool-less.
+- Mid-session loss → `mcp__grove__explore` returns a recoverable `isError`
+  response with a restart hint; the outer agent can retry or degrade gracefully.
+
 ## As a library — `grove-core`
 
 The same engine ships as a standalone crate, **`grove-core`**, so you can embed

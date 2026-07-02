@@ -4,6 +4,28 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-02
+
+### Added
+
+- **`grove init --as mcp-llm`** — new init target that provisions the full
+  delegated local-LLM harness: writes `.mcp.json` (with `grove serve --explore`
+  entry), seeds steering blocks in `CLAUDE.md` and `AGENTS.md`, and launches an
+  interactive TUI to configure the inference backend on first run.
+- **`grove config`** — TUI verb to view and edit the explore config
+  (`.grove/explore.json`) at any time. Requires an interactive terminal; exits
+  with a clear error when run without a TTY.
+- **`grove serve --explore`** — expose the `mcp__grove__explore` MCP tool
+  exclusively. On startup, probes the configured LLM provider; falls back
+  transparently to the 7 structural tools when the provider is unreachable.
+- **Health-gated startup** — `/models` probe decides the served surface at
+  launch; mid-session provider loss returns a recoverable `isError` with a
+  restart hint.
+- **Inner explorer engine (`core::explore`)** — pure-Rust bounded loop
+  (≤ 25 turns / 128 KiB tool output), three steering modes (standard / balanced
+  / aggressive), allowlisted shell dispatch, and an OpenAI-compatible client
+  supporting Ollama and llama.cpp.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

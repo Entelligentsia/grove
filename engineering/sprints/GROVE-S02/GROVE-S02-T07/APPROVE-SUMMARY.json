@@ -1,0 +1,17 @@
+{
+  "objective": "Architectural sign-off on the S02-closing task: cross-cutting integration tests, naming guard, mcp-llm docs, and the unanimous 0.3.0 version bump.",
+  "key_changes": [
+    "Integration tests exercise the exact cross-module seams of the explore subsystem (non-TTY fast-fail, .mcp.json dedup, allowlist gating) — regression-prone boundaries now guarded.",
+    "Provenance fix confirmed: steering.rs + toolset.rs now tracked and wired via mod.rs re-exports; explore agent loop no longer orphaned at HEAD (closes clean-checkout breakage risk).",
+    "Naming guard encodes the fastcontext->explore rename as an enforced repo-wide invariant; scan scope excludes cli/tests so it cannot self-trip.",
+    "AC1c allowlist enforcement verified distinct from shell-dispatch refusal — loop-level is_in_toolset->corrective_refusal is independently tested (defense-in-depth).",
+    "Stack-checklist (AC4) satisfied: stdio hygiene, exit codes, no unsafe, rustls-only — consistent with architecture/stack.md.",
+    "Deployment: release-bearing. Version 0.3.0 unanimous across cli/core Cargo.toml, npm package.json, Cargo.lock refreshed per RELEASING.md. No migrations, no persistent-state changes.",
+    "Operational impact limited to opt-in local-LLM mode (serve --explore, grove config, init --as mcp-llm); standard mode unaffected.",
+    "Gates green: 205/205 tests, clippy -D warnings clean, build --release --locked clean. Code review + validation both approved; all 5 ACs satisfied.",
+    "Follow-up: add CI clean-checkout build to structurally catch untracked-source regressions; add end-to-end unhealthy-LLM fallback test."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

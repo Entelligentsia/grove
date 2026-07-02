@@ -1,0 +1,16 @@
+{
+  "objective": "Validate AC1a (non-TTY fast-fail), AC1b (init idempotency + .mcp.json dedup), AC1c (allowlist enforcement), AC2 (naming guard), AC3 (README/CHANGELOG/CLAUDE.md), AC4 (stack-checklist), and AC5 (full gates green + 0.3.0 bump).",
+  "key_changes": [
+    "AC1a PASS: config_in_non_tty_fails_fast — spawn+poll+kill guard, exit non-zero, stderr 'interactive terminal' confirmed.",
+    "AC1b PASS: mcp_llm_dry_run_twice_is_stable and mcp_llm_mcp_json_no_duplicate_grove_entry both pass; dedup via object-key overwrite verified.",
+    "AC1c PASS: allowlist_enforcement_find_refused — corrective_refusal gating; answer.turns==1 confirmed.",
+    "AC2 PASS: naming_guard_no_fastcontext_in_source — zero violations; cli/tests excluded to avoid self-trip.",
+    "AC3 PASS: README mcp-llm section, CHANGELOG [0.3.0], CLAUDE.md arch map + Commands all updated.",
+    "AC4 PASS: Stack-checklist (stdio hygiene, exit codes, no unsafe, rustls-only) documented.",
+    "AC5 PASS: 205/205 tests pass; clippy -D warnings clean; version 0.3.0 unanimous across cli/core/npm.",
+    "REGRESSION: All 26 CLI integration tests pass including prior T04/T06 tests; no regressions."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

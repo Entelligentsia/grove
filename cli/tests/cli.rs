@@ -678,3 +678,190 @@ fn mcp_llm_agents_md_created_and_appended() {
 
     std::fs::remove_dir_all(&base).ok();
 }
+
+/// GROVE-S02-T07 (AC1a): `grove config` exits non-zero and reports the
+/// interactive-terminal requirement when stdout is not a TTY.
+#[test]
+fn config_in_non_tty_fails_fast() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = fixture("config_non_tty");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["config"])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawn grove config");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_) => break,
+            None if Instant::now() >= deadline => {
+                child.kill().ok();
+                child.wait().ok();
+                panic!("grove config did not exit within 5 s — non-TTY guard may be missing");
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    let out = child.wait_with_output().expect("wait_with_output");
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit from grove config in non-TTY, got success"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal"),
+        "stderr should mention 'interactive terminal', got: {stderr}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GROVE-S02-T07 (AC1b): two consecutive `grove init --as mcp-llm --dry-run`
+/// invocations write no files and produce stable output.
+#[test]
+fn mcp_llm_dry_run_twice_is_stable() {
+    let (base, cache, proj) = mcp_llm_setup("dry_run2");
+
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+
+    let text1 = String::from_utf8_lossy(&out1.stdout);
+    let text2 = String::from_utf8_lossy(&out2.stdout);
+    let err1 = String::from_utf8_lossy(&out1.stderr);
+    let err2 = String::from_utf8_lossy(&out2.stderr);
+
+    assert!(out1.status.success(), "first dry-run failed — stderr: {err1}");
+    assert!(out2.status.success(), "second dry-run failed — stderr: {err2}");
+
+    // No files written.
+    assert!(!proj.join(".mcp.json").exists(), "dry-run must not write .mcp.json");
+    assert!(!proj.join("CLAUDE.md").exists(), "dry-run must not write CLAUDE.md");
+    assert!(!proj.join("AGENTS.md").exists(), "dry-run must not write AGENTS.md");
+    assert!(!proj.join("grove.lock").exists(), "dry-run must not write grove.lock");
+
+    // Stable output: both runs report the same key strings.
+    for key in &["detected", "mcp.json", "CLAUDE.md", "AGENTS.md"] {
+        assert!(text1.contains(key), "run1 output missing '{key}': {text1}");
+        assert!(text2.contains(key), "run2 output missing '{key}': {text2}");
+    }
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// GROVE-S02-T07 (AC1b): after two real `grove init --as mcp-llm` invocations
+/// the resulting `.mcp.json` contains exactly one `"grove"` key under
+/// `mcpServers` with `args: ["serve", "--explore"]`.
+#[test]
+fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
+    let (base, cache, proj) = mcp_llm_setup("mcp_json_dedup");
+
+    // Pre-seed explore.json so the non-TTY guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // First run.
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out1.status.success(), "first run failed — stderr: {}", String::from_utf8_lossy(&out1.stderr));
+
+    // Second run — should overwrite, not duplicate.
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out2.status.success(), "second run failed — stderr: {}", String::from_utf8_lossy(&out2.stderr));
+
+    let mcp_json_path = proj.join(".mcp.json");
+    assert!(mcp_json_path.exists(), ".mcp.json must exist after init");
+    let mcp_raw = std::fs::read_to_string(&mcp_json_path).unwrap();
+    let mcp: serde_json::Value = serde_json::from_str(&mcp_raw)
+        .expect(".mcp.json must be valid JSON");
+
+    let servers = mcp["mcpServers"]
+        .as_object()
+        .expect("mcpServers must be an object");
+    let grove_count = servers.keys().filter(|k| *k == "grove").count();
+    assert_eq!(grove_count, 1, "expected exactly 1 'grove' key, found {grove_count}");
+
+    let args = mcp["mcpServers"]["grove"]["args"]
+        .as_array()
+        .expect("grove entry must have an args array");
+    let arg_strs: Vec<&str> = args.iter()
+        .map(|v| v.as_str().expect("arg must be string"))
+        .collect();
+    assert_eq!(arg_strs, vec!["serve", "--explore"], "grove args must be [serve, --explore]");
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// GROVE-S02-T07 (AC2): none of the source files in core/src/, cli/src/,
+/// README.md, or skills/ contain the string "fastcontext" (case-insensitive).
+/// This guards against accidental reintroduction of the old branding.
+///
+/// NOTE: cli/tests/ is intentionally excluded so this test's own literal
+/// does not self-trip.
+#[test]
+fn naming_guard_no_fastcontext_in_source() {
+    // Anchor to the workspace root from cli/tests/cli.rs.
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("cli/ must have a parent workspace directory");
+
+    fn collect_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        if !root.exists() {
+            return out;
+        }
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read_dir").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        out
+    }
+
+    let mut scan_targets: Vec<std::path::PathBuf> = Vec::new();
+    // Recursive source directories (exclude cli/tests/ to avoid the literal here).
+    for src_dir in &["core/src", "cli/src"] {
+        scan_targets.extend(collect_files(&workspace.join(src_dir)));
+    }
+    // Top-level docs.
+    scan_targets.push(workspace.join("README.md"));
+    // Skills directory.
+    scan_targets.extend(collect_files(&workspace.join("skills")));
+
+    let mut violations: Vec<String> = Vec::new();
+    for path in &scan_targets {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if content.to_lowercase().contains("fastcontext") {
+                violations.push(path.display().to_string());
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "'fastcontext' found in {} file(s):\n{}",
+        violations.len(),
+        violations.join("\n")
+    );
+}

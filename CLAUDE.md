@@ -12,18 +12,28 @@ for usage. This file is the orientation for *continuing development*.
 ## Architecture — one engine, two faces
 
 ```
-src/main.rs      CLI dispatch (clap) — every verb; thin, delegates to modules
-src/ops.rs       the operations as a library — the shared engine BOTH faces call
-src/mcp.rs       MCP server — newline-delimited JSON-RPC 2.0 over stdio (hand-rolled)
-src/engine.rs    wasm load + Query-based tag extraction + check + position helpers
-src/registry.rs  grammar resolver, cache-location precedence, catalog/index, lockfile
-src/fetch.rs     `grove fetch` — install grammars from the hosted registry
-src/ingest.rs    `grove ingest` — build registry artifacts from upstream releases
-src/init.rs      `grove init [--as mcp|skill|both]` — provision grammars + harness glue
-skills/grove/    SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
+cli/src/main.rs        CLI dispatch (clap) — every verb; thin, delegates to modules
+cli/src/ops.rs         structural operations — the shared engine BOTH faces call
+cli/src/mcp.rs         MCP server — newline-delimited JSON-RPC 2.0 over stdio
+cli/src/engine.rs      wasm load + Query-based tag extraction + check + position helpers
+cli/src/registry.rs    grammar resolver, cache-location precedence, catalog/index, lockfile
+cli/src/fetch.rs       `grove fetch` — install grammars from the hosted registry
+cli/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
+cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision grammars + harness glue
+cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb)
+skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
+
+core/src/explore/      inner explorer engine (mcp-llm mode)
+  mod.rs               re-exports; public surface is run_explore()
+  config.rs            ExploreConfig — .grove/explore.json serde + atomic save
+  client.rs            ChatClient trait + OpenAiCompatClient + health_probe()
+  agent.rs             bounded loop (≤ 25 turns / 128 KiB), mode state machine
+  toolset.rs           tool schema registry, build_*_toolset(), dispatch_tool()
+  steering.rs          system prompts for Standard / Balanced / Aggressive
 ```
 
 Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
+For mcp-llm mode: `mcp.rs` → `core::explore::run_explore` → inner loop → answer.
 **Never put engine logic in `main` or `mcp`** — they only format. `ops` returns
 typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP server emits JSON.
 
@@ -89,7 +99,9 @@ grove definition <name> [-d <dir>] | --at <file:line:col>   # line/col 1-based
 grove serve                         # MCP server over stdio
 
 # setup / registry
-grove init [path] [--as mcp|skill|both] [--dry-run]  # provision grammars + chosen harness glue
+grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
+grove config [path]                 # open the explore config TUI (requires TTY)
+grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order

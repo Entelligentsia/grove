@@ -603,4 +603,38 @@ mod tests {
             other => panic!("expected ProviderDown, got: {other}"),
         }
     }
+
+    /// GROVE-S02-T07 (AC1c): `is_in_toolset` → `corrective_refusal` path fires
+    /// when the model calls a tool that is not in `allowed_tools`.
+    ///
+    /// Config: `allowed_tools: ["grep"]` — excludes `find`.
+    /// Script: turn 1 model calls `find`; corrective refusal is returned;
+    ///         turn 2 model gives a text answer.
+    ///
+    /// This tests the loop-level enforcement path (not the shell-dispatch
+    /// allowlist path, which is covered by `shell_binary_not_in_allowlist_is_refused`).
+    #[test]
+    fn allowlist_enforcement_find_refused() {
+        let client = ScriptedClient::new(vec![
+            // Turn 1: model calls `find` — not in allowed_tools.
+            tool_call_response("c1", "find", serde_json::json!({"args": ["-name", "*.rs"]})),
+            // Turn 2: after receiving the corrective refusal, model gives a text answer.
+            text_response("The answer is: use grep instead."),
+        ]);
+        let cfg = ExploreConfig {
+            allowed_tools: vec!["grep".to_string()],
+            ..ExploreConfig::default()
+        };
+        let root = temp_root();
+        let answer = run_explore("find rust files", &root, &cfg, &client)
+            .expect("should succeed despite find being refused");
+        assert_eq!(
+            answer.text, "The answer is: use grep instead.",
+            "final answer text mismatch"
+        );
+        assert!(!answer.truncated, "should not be truncated");
+        // The loop ran exactly 1 full turn (tool call + correction) before the
+        // text answer in turn 2 terminated the loop.
+        assert_eq!(answer.turns, 1, "expected exactly 1 turn before text answer");
+    }
 }

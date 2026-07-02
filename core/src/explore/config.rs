@@ -289,13 +289,11 @@ mod tests {
 
     #[test]
     fn empty_required_fields_rejected() {
-        let mut cfg = ExploreConfig::default();
-        cfg.base_url = "   ".to_string();
+        let cfg = ExploreConfig { base_url: "   ".to_string(), ..ExploreConfig::default() };
         let err = cfg.validate().unwrap_err();
         assert!(err.to_string().contains("base_url"), "{err}");
 
-        let mut cfg = ExploreConfig::default();
-        cfg.model = String::new();
+        let cfg = ExploreConfig { model: String::new(), ..ExploreConfig::default() };
         let err = cfg.validate().unwrap_err();
         assert!(err.to_string().contains("model"), "{err}");
     }
