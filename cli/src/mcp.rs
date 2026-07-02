@@ -6,11 +6,12 @@
 //! protocol channel — all diagnostics go to stderr.
 
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
+use grove_core::explore::{health_probe, run_explore, ExploreConfig, ExploreError, OpenAiCompatClient};
 use grove_core::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
@@ -23,8 +24,51 @@ const DEFAULT_PROTOCOL: &str = "2025-06-18";
 /// unknown version back (which would falsely claim support).
 const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// Which tool surface the server exposes for this session.
+enum Surface {
+    /// The standard 7-tool structural surface (existing behaviour).
+    Standard,
+    /// The explore surface: single delegating tool; healthy provider confirmed.
+    Explore { cfg: ExploreConfig, root: PathBuf },
+}
+
+/// Probe whether explore mode can be activated for `root`.
+///
+/// Precedence: `force_standard` wins over everything; then a config file or
+/// `force_explore` trigger explore; then `health_probe` confirms the provider
+/// is up. Any failure at any step falls back to `Surface::Standard` with a
+/// diagnostic on stderr.
+fn determine_surface(root: &Path, force_explore: bool, force_standard: bool) -> Surface {
+    if force_standard {
+        return Surface::Standard;
+    }
+
+    let is_explore = force_explore || ExploreConfig::config_path(root).exists();
+    if !is_explore {
+        return Surface::Standard;
+    }
+
+    let cfg = match ExploreConfig::load(root) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("grove serve: could not load explore config ({e}); falling back to standard structural surface");
+            return Surface::Standard;
+        }
+    };
+
+    match health_probe(&cfg) {
+        Ok(()) => Surface::Explore { cfg, root: root.to_path_buf() },
+        Err(e) => {
+            eprintln!("grove serve: explore provider unhealthy ({e}); falling back to standard structural surface");
+            Surface::Standard
+        }
+    }
+}
+
 /// Run the stdio server loop until EOF on stdin.
-pub fn serve() -> Result<()> {
+pub fn serve(root: &Path, force_explore: bool, force_standard: bool) -> Result<()> {
+    let surface = determine_surface(root, force_explore, force_standard);
+
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     eprintln!("grove mcp: ready on stdio");
@@ -47,7 +91,7 @@ pub fn serve() -> Result<()> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or("");
         let params = req.get("params").cloned().unwrap_or(Value::Null);
 
-        let response = match handle(method, &params) {
+        let response = match handle(method, &params, &surface) {
             Outcome::Notify => continue,
             Outcome::Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Outcome::Err { code, message } => json!({
@@ -71,7 +115,7 @@ enum Outcome {
     Notify,
 }
 
-fn handle(method: &str, params: &Value) -> Outcome {
+fn handle(method: &str, params: &Value, surface: &Surface) -> Outcome {
     match method {
         "initialize" => {
             // Answer with the client's version only if we support it; otherwise
@@ -81,17 +125,27 @@ fn handle(method: &str, params: &Value) -> Outcome {
                 Some(v) if SUPPORTED_PROTOCOLS.contains(&v) => v,
                 _ => DEFAULT_PROTOCOL,
             };
+            let instrs = match surface {
+                Surface::Standard => instructions(),
+                Surface::Explore { cfg, .. } => explore_instructions(cfg),
+            };
             Outcome::Ok(json!({
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": SERVER_NAME, "title": "grove", "version": SERVER_VERSION },
-                "instructions": instructions(),
+                "instructions": instrs,
             }))
         }
         "notifications/initialized" | "notifications/cancelled" => Outcome::Notify,
         "ping" => Outcome::Ok(json!({})),
-        "tools/list" => Outcome::Ok(json!({ "tools": tool_specs() })),
-        "tools/call" => call_tool(params),
+        "tools/list" => match surface {
+            Surface::Standard => Outcome::Ok(json!({ "tools": tool_specs() })),
+            Surface::Explore { .. } => Outcome::Ok(json!({ "tools": [explore_tool_spec()] })),
+        },
+        "tools/call" => match surface {
+            Surface::Standard => call_tool(params),
+            Surface::Explore { cfg, root } => call_explore_tool(params, cfg, root),
+        },
         other => Outcome::Err {
             code: -32601,
             message: format!("method not found: {other}"),
@@ -123,6 +177,70 @@ definition-and-reference graph of a directory in one call. Use `source` only \
 for the few load-bearing definitions you need to read in full. Avoid fetching \
 many sources in sequence; instead map first, then read only the symbols that matter."
     )
+}
+
+/// Server instructions for explore mode — delegation-oriented description.
+fn explore_instructions(cfg: &ExploreConfig) -> String {
+    format!(
+        "grove is running in explore mode. Questions about this codebase are delegated \
+         to a local AI provider ({model} at {base_url}). Use the `explore` tool to ask \
+         questions about the code — grove handles the structural analysis internally. \
+         If the provider becomes unreachable mid-session, the tool returns an actionable \
+         isError result; restart `grove serve` to recover the standard structural surface.",
+        model = cfg.model,
+        base_url = cfg.base_url,
+    )
+}
+
+/// The single explore-mode tool spec. Uses a plain object schema (no anyOf/oneOf).
+fn explore_tool_spec() -> Value {
+    json!({
+        "name": "explore",
+        "description": "Ask a question about this codebase. grove delegates to a local AI \
+                         provider that runs structural analysis on your behalf and returns \
+                         a synthesized answer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The question to answer about this codebase."
+                }
+            },
+            "required": ["question"]
+        },
+        "annotations": { "title": "Explore the codebase", "readOnlyHint": true, "openWorldHint": false }
+    })
+}
+
+/// Dispatch the `explore` tool call in explore-mode surface.
+fn call_explore_tool(params: &Value, cfg: &ExploreConfig, root: &Path) -> Outcome {
+    let question = match params
+        .get("arguments")
+        .and_then(|a| a.get("question"))
+        .and_then(Value::as_str)
+    {
+        Some(q) => q.to_string(),
+        None => {
+            return Outcome::Ok(tool_text(
+                &json!("missing required argument: question"),
+                true,
+            ));
+        }
+    };
+    let client = OpenAiCompatClient::new(cfg);
+    match run_explore(&question, root, cfg, &client) {
+        Ok(answer) => Outcome::Ok(tool_text(&json!(answer.text), false)),
+        Err(ExploreError::ProviderDown { url, detail }) => Outcome::Ok(tool_text(
+            &json!(format!(
+                "provider down ({url}): {detail}; \
+                 check the endpoint / run `grove config` / \
+                 restart grove to pick up the structural fallback"
+            )),
+            true,
+        )),
+        Err(ExploreError::Client(msg)) => Outcome::Ok(tool_text(&json!(msg), true)),
+    }
 }
 
 /// The tool catalogue, with LLM-facing descriptions. Descriptions are
@@ -473,28 +591,28 @@ mod tests {
 
     #[test]
     fn initialize_echoes_supported_version_else_default() {
-        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" })));
+        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" }), &Surface::Standard));
         assert_eq!(v["protocolVersion"], json!("2024-11-05"), "echo a supported version");
         assert_eq!(v["serverInfo"]["name"], json!("grove"));
         assert!(v["instructions"].as_str().unwrap().contains("symbol-id"));
 
-        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" })));
+        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" }), &Surface::Standard));
         assert_eq!(v2["protocolVersion"], json!(DEFAULT_PROTOCOL), "unknown -> our latest");
     }
 
     #[test]
     fn ping_and_tools_list_and_notifications() {
-        assert_eq!(ok(handle("ping", &Value::Null)), json!({}));
+        assert_eq!(ok(handle("ping", &Value::Null, &Surface::Standard)), json!({}));
 
-        let v = ok(handle("tools/list", &Value::Null));
+        let v = ok(handle("tools/list", &Value::Null, &Surface::Standard));
         let names: Vec<&str> = v["tools"].as_array().unwrap().iter()
             .map(|t| t["name"].as_str().unwrap()).collect();
         for expected in ["outline", "symbols", "source", "check", "callers", "map", "definition"] {
             assert!(names.contains(&expected), "tools/list missing {expected}");
         }
 
-        assert!(matches!(handle("notifications/initialized", &Value::Null), Outcome::Notify));
-        assert!(matches!(handle("notifications/cancelled", &Value::Null), Outcome::Notify));
+        assert!(matches!(handle("notifications/initialized", &Value::Null, &Surface::Standard), Outcome::Notify));
+        assert!(matches!(handle("notifications/cancelled", &Value::Null, &Surface::Standard), Outcome::Notify));
     }
 
     #[test]
@@ -525,7 +643,7 @@ mod tests {
 
     #[test]
     fn unknown_method_is_method_not_found() {
-        match handle("does/not/exist", &Value::Null) {
+        match handle("does/not/exist", &Value::Null, &Surface::Standard) {
             Outcome::Err { code, message } => {
                 assert_eq!(code, -32601);
                 assert!(message.contains("method not found"));

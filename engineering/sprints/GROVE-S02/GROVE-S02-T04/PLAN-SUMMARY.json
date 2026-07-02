@@ -1,0 +1,20 @@
+{
+  "objective": "Add health-gated explore mode to `grove serve`: healthy provider → exclusive `explore` tool surface; unhealthy provider → transparent fallback to the existing 7-tool structural surface; mid-session provider loss → recoverable isError result.",
+  "key_changes": [
+    "`cli/src/main.rs`: Extend `Serve` variant with `path: PathBuf` (default `.`) and `--explore` / `--standard` boolean override flags",
+    "`cli/src/mcp.rs`: Add `Surface` enum (Standard | Explore{cfg, root}); `determine_surface()` probes health at startup and picks surface",
+    "`cli/src/mcp.rs`: `serve()` gains `(root: &Path, force_explore: bool, force_standard: bool)` signature; determines Surface once before request loop",
+    "`cli/src/mcp.rs`: `handle()` gains `surface: &Surface` param; branches initialize/tools-list/tools-call on surface type",
+    "`cli/src/mcp.rs`: `explore_instructions(cfg)` — delegation-oriented instructions string for explore mode",
+    "`cli/src/mcp.rs`: `explore_tool_spec()` — single `explore` tool with plain object schema (no anyOf/oneOf), question:string required",
+    "`cli/src/mcp.rs`: `call_explore_tool()` — creates OpenAiCompatClient, calls run_explore, maps ExploreError::ProviderDown to isError:true with actionable message",
+    "Unhealthy-startup fallback: health_probe failure → eprintln fallback note to stderr, Surface::Standard (existing code reused verbatim)",
+    "Existing `mcp.rs` unit tests: updated to pass `&Surface::Standard` to refactored `handle()` 3-arg signature",
+    "`cli/tests/cli.rs`: new integration test — explore config with port-1 unreachable URL → fallback surface (7 tools) + stderr fallback note",
+    "All existing behavior byte-identical when .grove/explore.json absent and no flags (AC-5 / default mode guarantee)",
+    "No version bump required (sprint-final; additive only)"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T10:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

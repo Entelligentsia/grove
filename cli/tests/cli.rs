@@ -401,6 +401,91 @@ fn index_writes_catalog() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// GROVE-S02-T04 (AC-6): when `.grove/explore.json` names an unreachable provider,
+/// `grove serve` falls back to the standard 7-tool structural surface and emits a
+/// diagnostic note to stderr. No real provider is required — port 1 fails immediately.
+#[test]
+fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_cli_test_{}_explore_fallback",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // Port 1 is IANA reserved — guaranteed connection-refused (fast fail).
+    let config = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:1/v1",
+        "model": "nomodel",
+        "mode": "standard",
+        "allowed_tools": []
+    });
+    std::fs::write(
+        dir.join(".grove").join("explore.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove"))
+        .arg("serve")
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove serve");
+
+    let mut stdin = child.stdin.take().unwrap();
+    // initialize (id=1)
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18" }
+    });
+    writeln!(stdin, "{init_req}").unwrap();
+    // tools/list (id=2)
+    let list_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    writeln!(stdin, "{list_req}").unwrap();
+    drop(stdin); // close stdin → server exits at EOF
+
+    let output = child.wait_with_output().expect("grove serve to finish");
+
+    // Parse stdout lines and find the tools/list response (id=2).
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let tools_response = stdout_str
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|v| v["id"] == serde_json::json!(2))
+        .expect("tools/list response (id=2) must be present");
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("result.tools is an array");
+    assert_eq!(
+        tools.len(),
+        7,
+        "unhealthy explore provider must fall back to the 7-tool standard surface, got: {tools:?}"
+    );
+
+    let stderr_str = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr_str.contains("falling back"),
+        "stderr must contain 'falling back' diagnostic; got: {stderr_str}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn unknown_extension_errors() {
     let dir = fixture("badext");

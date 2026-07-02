@@ -148,7 +148,17 @@ enum Cmd {
     /// Write grove.lock pinning each registry grammar's version + content hash.
     Lock,
     /// Run as an MCP server over stdio (the agent-facing face).
-    Serve,
+    Serve {
+        /// Project directory used to locate .grove/explore.json (default: current dir).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Force explore mode even if .grove/explore.json is absent.
+        #[arg(long = "explore")]
+        explore: bool,
+        /// Force standard structural mode (ignore .grove/explore.json if present).
+        #[arg(long = "standard")]
+        standard: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -298,7 +308,7 @@ fn main() -> Result<()> {
             let lock = registry::write_lock(std::path::Path::new("grove.lock"))?;
             println!("wrote grove.lock ({} grammars)", lock);
         }
-        Cmd::Serve => mcp::serve()?,
+        Cmd::Serve { path, explore, standard } => mcp::serve(&path, explore, standard)?,
     }
     Ok(())
 }
