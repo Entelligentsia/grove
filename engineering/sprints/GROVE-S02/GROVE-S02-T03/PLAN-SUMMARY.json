@@ -1,0 +1,19 @@
+{
+  "objective": "Implement the bounded inner agent loop (run_explore) in core::explore with mode-steering data, harness-enforced tool gating, and a three-phase Balanced state machine — all backed by unit tests using a scripted fake ChatClient.",
+  "key_changes": [
+    "New core/src/explore/agent.rs: run_explore() loop, ExploreAnswer, ExploreError, phase machine for Balanced mode",
+    "New core/src/explore/toolset.rs: Tool schema registry for 7 structural ops, toolset builders per phase, dispatch (ops + shell), corrective gating",
+    "New core/src/explore/steering.rs: per-mode system prompt text as static data (Standard/Aggressive/Balanced phase-1/Balanced phase-2)",
+    "Edit core/src/explore/mod.rs: declare 3 new modules, re-export run_explore, ExploreAnswer, ExploreError",
+    "Tool gating at two levels: absent from tools[] array sent to model, plus corrective tool-result message on hallucinated calls",
+    "Balanced mode harness: phase 1 = RECON_OPS + submit_plan; after N recon turns = submit_plan only; phase 2 = full toolset + plan hint injected into system message",
+    "Shell dispatch uses std::process::Command with args vector — no shell interpolation; binary validated against cfg.allowed_tools before execution",
+    "Turn bound (MAX_TURNS=25) and byte bound (MAX_TOOL_RESULT_BYTES=128 KiB) produce Ok(ExploreAnswer{truncated:true}), not an error",
+    "ClientError::Connection maps to ExploreError::ProviderDown as required by AC-6 / D3",
+    "10 unit tests with scripted fake ChatClient: hallucinated tool, per-mode toolset assertions, balanced phase transitions, allowlist refusal, turn/byte bound termination, provider-down mapping",
+    "No new Cargo.toml dependencies; no clap; no fastcontext; warning-clean and clippy-clean"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

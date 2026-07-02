@@ -1,0 +1,18 @@
+{
+  "objective": "Validate all 8 acceptance criteria for the run_explore bounded agent loop (mode steering, two-level tool gating, Balanced phase machine, bounds, tests) after revision fixing AC-7 byte_bound_terminates_loop.",
+  "key_changes": [
+    "AC-1 PASS: run_explore signature exact; re-exported from mod.rs.",
+    "AC-2 PASS: build_full_toolset includes all 7 structural ops; shell tools dispatched from cfg.allowed_tools with root as cwd.",
+    "AC-3 PASS: two-level gating confirmed — toolset array omission + corrective_refusal(); shell args as Vec<String>.",
+    "AC-4 PASS: modes as data; Balanced 3-phase machine; BALANCED_RECON_TURNS=2.",
+    "AC-5 PASS: turn bound (MAX_TURNS=25) and byte bound (MAX_TOOL_RESULT_BYTES=131072) both tested; Ok+truncated on both paths.",
+    "AC-6 PASS: ClientError::Connection → ExploreError::ProviderDown; tested by connection_error_maps_to_provider_down.",
+    "AC-7 PASS (was FAIL): byte_bound_terminates_loop rewritten — 1500 hallucinated calls (~139500 bytes > 131072); asserts truncated=true and turns<MAX_TURNS.",
+    "AC-8 PASS: clippy -D warnings clean; no fastcontext; no clap; 177 tests all pass.",
+    "ADVISORY (non-blocking): aggressive_toolset_same_as_standard is a self-comparison — would not catch dispatch-path divergence for Aggressive mode.",
+    "REGRESSION: 0 regressions across 126 unit + 32 integration + 18 CLI + 1 doc-test."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
