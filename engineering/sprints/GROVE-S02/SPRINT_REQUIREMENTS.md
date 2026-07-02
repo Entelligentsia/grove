@@ -37,7 +37,7 @@ workspace split: `core/` = grove-core library, `cli/` = grove binary).
 |---|---|---|
 | D1 | Explorer implementation | **Pure Rust**, native in grove. The Python sidebench agent was experimental; nothing is vendored or wrapped. |
 | D2 | Provider scope | **OpenAI-compatible is the target transport.** Ollama is the **default** provider; llama.cpp is also supported. |
-| D3 | Health-gate semantics | **Startup probe.** Runtime connection errors to the provider **shut down the MCP server** (no degraded/erroring half-alive state). |
+| D3 | Health-gate semantics | **Startup probe decides the surface.** If the provider is healthy → surface explore-only (`mcp__grove__explore`). If it is **unhealthy at startup → fall back to the standard `--mcp` surface** (the 7 structural tools), so grove stays useful without the local LLM. Never a dead server, never a half-alive erroring state. Mid-session provider loss returns a recoverable `isError` on the `explore` call (see item 7). |
 | D4 | TUI depth | **Solid (full-screen) TUI.** Additionally, a `grove config` verb surfaces the same TUI at any time to change existing config. |
 | D5 | Tool surface | In mcp-llm mode **only `mcp__grove__explore` surfaces** — the standard 7 structural tools do NOT. `grove serve` therefore gains a **mode**. No "fastcontext" naming anywhere. |
 | D6 | Success measurement | **Functional correctness only.** Benchmarking is a post-implementation activity (grove-testbench). |
@@ -53,8 +53,10 @@ workspace split: `core/` = grove-core library, `cli/` = grove binary).
    (grove-first strong steering).
 3. Harness steering files (`CLAUDE.md`, `AGENTS.md`) are updated by init so the
    outer agent routes exploration calls through `__explore`.
-4. The explore surface only comes up when the configured model provider is
-   healthy at startup; provider connection errors shut the MCP server down.
+4. A `grove serve` started in mcp-llm mode probes the provider at startup: if
+   healthy it surfaces explore-only; if unhealthy it **falls back to the
+   standard 7-tool structural surface** rather than dying, so grove is always
+   useful.
 5. `grove config` re-opens the setup TUI at any time to modify existing
    configuration.
 
@@ -129,13 +131,16 @@ Three named exploration modes mapping to the sidebench arms:
 `mcp__grove__explore`; the standard 7 structural tools are not listed.
 
 **Acceptance criteria:**
-- With an mcp-llm config present (or the mode explicitly selected),
-  `tools/list` returns exactly one tool: `explore` (surfacing to clients as
-  `mcp__grove__explore`).
+- With an mcp-llm config present (or the mode explicitly selected) **and the
+  provider healthy at startup**, `tools/list` returns exactly one tool:
+  `explore` (surfacing to clients as `mcp__grove__explore`).
+- With an mcp-llm config present but the provider **unhealthy at startup**,
+  `tools/list` returns the standard 7 structural tools (the `--mcp` surface) —
+  see item 7.
 - Without mcp-llm mode, `grove serve` behaves exactly as today (7 structural
   tools; regression: existing MCP smoke test unchanged).
 - The structural operations remain available *internally* to the inner
-  explorer even though they are not surfaced to the outer agent.
+  explorer even though they are not surfaced to the outer agent in explore mode.
 
 ### 6. Harness steering: CLAUDE.md + AGENTS.md routing [must-have]
 Init writes/updates steering so the outer agent routes exploration through
@@ -150,16 +155,23 @@ Init writes/updates steering so the outer agent routes exploration through
 - `.mcp.json` (or equivalent harness registration) is written so the project's
   grove server starts in mcp-llm mode.
 
-### 7. Health-gated startup + fail-fast shutdown [must-have]
-The explore surface only comes up when the configured provider is healthy.
+### 7. Health-gated startup with structural fallback [must-have]
+The startup probe decides which surface `grove serve` presents; the server is
+always useful.
 
 **Acceptance criteria:**
 - At `grove serve` startup in mcp-llm mode, grove probes the configured
-  provider; on failure the server reports a descriptive error and does not
-  surface `__explore`.
-- A provider **connection error at runtime shuts the MCP server down** with a
-  descriptive message (no half-alive erroring state).
-- The health probe and its outcome are observable (log line or status output).
+  provider. **Healthy** → surface explore-only (`__explore`). **Unhealthy**
+  (unreachable or model-missing) → **fall back to the standard 7-tool
+  structural surface** (identical to `--as mcp`), with a descriptive stderr
+  note that it fell back and why. The server always comes up and always
+  answers `initialize` — never a dead server.
+- A provider **connection error mid-session** (was healthy at startup, so only
+  `__explore` was surfaced) returns a recoverable `isError: true` result on
+  the `explore` call with an actionable message (provider down; check the
+  endpoint / run `grove config` / restart). The server does not crash.
+- The health probe and its outcome (healthy → explore, unhealthy → fallback)
+  are observable (stderr log line or status output).
 
 ## Out of Scope
 
@@ -200,7 +212,7 @@ The explore surface only comes up when the configured provider is healthy.
 |---|---|---|
 | Native inner agent loop (LLM client + tool loop + plan phases) is a substantial new subsystem | High | Keep the loop minimal (chat + tool-calls only); mode differences are prompt/gating data, not code paths |
 | Small local models hallucinate closed tools / ignore prompt-only steering | High | Enforce gating at schema+execution level (sidebench-proven), not prompts |
-| Runtime-shutdown health semantics may surprise MCP clients mid-session | Medium | Descriptive shutdown message; document behavior in steering + README |
+| Mid-session provider loss leaves the outer agent seeing only `explore` (fallback-to-structural can't retroactively re-list without `tools/list_changed`) | Medium | Recoverable `isError` on the `explore` call with an actionable message; document that a restart re-runs the startup probe and picks up the structural fallback |
 | Full-screen TUI dependency weight (ratatui + async runtime) in a lean binary | Medium | Audit binary size / compile-time impact; TUI code isolated in `cli/` |
 | Quality regression vs direct-grove arm on hard repos (sidebench L5-tokio completeness 0.75) | Medium | Document mode trade-offs in steering; direct structural mode remains available via `--as mcp` |
 | OpenAI-compat dialect drift between Ollama and llama.cpp (tool-call encoding differences) | Medium | Integration-test against both; keep provider quirks behind one client module |

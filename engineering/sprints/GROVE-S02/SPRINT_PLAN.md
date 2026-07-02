@@ -26,9 +26,12 @@ writers) lands in `cli/`. Key structural choices:
    (schema + execution level — the sidebench-proven requirement) is unit-testable
    without a live endpoint. Network paths are tested to the error-before-connect
    boundary, per existing project convention (no HTTP mocks).
-3. **The health gate's negative path is the deterministic test.** "Startup probe
-   fails → descriptive error, no explore surface" needs only an unreachable URL,
-   so T04's acceptance rides on `tests/cli.rs` without any provider running.
+3. **The startup probe picks the surface; the negative path is the deterministic
+   test.** Healthy provider → explore-only. Unhealthy → fall back to the standard
+   7-tool structural surface (never a dead server). The fallback path needs only
+   an unreachable URL, so T04's acceptance — `tools/list` returns the 7 structural
+   tools when the provider is down — rides on `tests/cli.rs` without any provider
+   running.
 4. **Mode differences are data, not code paths.** standard/aggressive differ
    only in system-prompt steering; balanced adds a harness-enforced two-phase
    gate (recon toolset + a plan-commit tool, then the full toolset). One loop,
@@ -101,13 +104,15 @@ T01 ──► T02 ──► T03 ──► T04 ──► T06 ──► T07
   differences, and balanced-phase transition; runtime connection error
   surfaces as a typed error (T04 consumes it to shut down).
 - **T04** — `grove serve` gains a mode: with an mcp-llm project config present
-  (or explicit flag), `tools/list` returns **exactly one** tool `explore`
-  (client-side `mcp__grove__explore`); startup health probe failure → server
-  exits with a descriptive stderr message and never surfaces the tool; a
-  provider connection error mid-session → descriptive shutdown (typed error
-  from T03), no half-alive state; **default-mode `grove serve` byte-identical**
-  (existing `tests/cli.rs` MCP cases + smoke test pass unchanged); new
-  integration case: explore mode with unreachable provider fails fast.
+  (or explicit flag) **and the provider healthy at startup**, `tools/list`
+  returns **exactly one** tool `explore` (client-side `mcp__grove__explore`);
+  **startup probe failure → fall back to the standard 7-tool structural surface**
+  (identical to `--as mcp`) with a descriptive stderr note — never a dead
+  server; a provider connection error mid-session → the `explore` call returns
+  a recoverable `isError` (typed `ProviderDown` from T03), the server stays up;
+  **default-mode `grove serve` byte-identical** (existing `tests/cli.rs` MCP
+  cases + smoke test pass unchanged); new deterministic integration case:
+  explore mode with an unreachable provider surfaces the 7 structural tools.
 - **T05** — full-screen TUI (ratatui, `cli/`-side only) collecting provider,
   base URL, model, mode, and allowed-tools multi-select; new `grove config`
   verb re-opens it pre-populated from the existing config, saving via T01
@@ -136,7 +141,7 @@ T01 ──► T02 ──► T03 ──► T04 ──► T06 ──► T07
 | Agent-loop scope blow-up | T03 | Loop is minimal chat+tool-calls; modes are data; bounded turns |
 | Ollama vs llama.cpp tool-call dialect drift | T02 | One client module owns quirks; both endpoints in acceptance |
 | ratatui dependency weight | T05 | cli-only dep; measure build/binary impact in the task |
-| Mid-session shutdown surprises MCP clients | T04 | Descriptive stderr message; documented in T07 |
+| Mid-session provider loss leaves the agent seeing only `explore` | T04 | Recoverable `isError` on the call; restart re-runs the probe and picks up the structural fallback; documented in T07 |
 | Small-model tool hallucination | T03 | Schema **and** execution gating; fake-client unit test proves refusal |
 
 ## Estimation basis

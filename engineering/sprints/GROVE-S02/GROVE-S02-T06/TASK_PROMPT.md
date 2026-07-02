@@ -30,8 +30,9 @@ from zero to delegated exploration in a single init.
      (sentinel-block pattern from the existing `write_claude_md`): direct the
      agent to route file/code exploration through `__explore` instead of
      built-in search/read tools, state that grove's structural tools are not
-     individually exposed in this mode, and note the provider-down shutdown
-     behavior. Re-running init updates the block in place, never duplicates.
+     individually exposed while the local model is healthy (and that if the
+     provider is down grove falls back to the 7 structural tools). Re-running
+     init updates the block in place, never duplicates.
 4. Existing targets unchanged: `--as mcp|skill|both|grammars` write exactly the
    files they write today — the current `tests/cli.rs` init assertions pass
    unmodified.

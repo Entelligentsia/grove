@@ -38,7 +38,8 @@ shell tools, with steering behavior selected by mode. This is what the single
 5. Loop is bounded: max turns and max total tool-result bytes from config-level
    constants; exceeding them returns a best-effort answer, not an error.
 6. `ClientError::Connection` from T02 propagates as
-   `ExploreError::ProviderDown` — T04 maps it to server shutdown (D3).
+   `ExploreError::ProviderDown` — T04 maps it to a recoverable `isError` on the
+   `explore` call (D3); the server stays up.
 7. Unit tests with a scripted fake `ChatClient` (no network): hallucinated
    tool call → corrective refusal, per-mode advertised-toolset assertions,
    balanced phase transition (recon tools close, `submit_plan` forced, plan

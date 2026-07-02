@@ -31,10 +31,11 @@ the mcp-llm mode for users.
    - `README.md`: mcp-llm mode section — what it is (delegated local
      exploration, one `mcp__grove__explore` tool), setup (`grove init --as
      mcp-llm`, `grove config`), the three modes with one-line trade-offs, and
-     the health semantics (startup probe; provider connection errors shut the
-     server down).
+     the health semantics (startup probe decides the surface: healthy →
+     explore-only, unhealthy → fall back to the 7 structural tools; mid-session
+     provider loss → recoverable tool error).
    - `CHANGELOG.md`: dated unreleased section covering `--as mcp-llm`,
-     `grove config`, serve explore mode, and the shutdown behavior.
+     `grove config`, serve explore mode, and the health/fallback behavior.
    - `CLAUDE.md` (repo): the new commands added to the Commands block; the
      `core::explore` module added to the architecture map.
 4. Stack-checklist review pass recorded in the PR description: MCP tool schema

@@ -33,7 +33,10 @@ module.
    errors distinguishing **unreachable** vs **model-missing**, each carrying an
    actionable message.
 5. `ClientError` distinguishes connection errors from protocol/HTTP errors —
-   T03/T04 map connection errors to server shutdown (D3).
+   T03/T04 use the connection-error signal to drive the D3 health response
+   (startup: fall back to the structural surface; mid-session: recoverable
+   `isError` on the `explore` call). The typed distinction is what matters here;
+   the consumer's action lives in T04.
 6. Tests (no HTTP mocks, per project convention — test to the
    error-before-connect boundary): unreachable URL → typed unreachable error;
    request/response serde round-trips including tool-call payloads from both
@@ -44,7 +47,8 @@ module.
 
 Depends on **T01** (`ExploreConfig`, `Provider`). Sprint decisions D2 (OpenAI
 compat; Ollama default; llama.cpp supported) and D3 (typed connection errors
-feed the shutdown semantics). The stack checklist requires ureq-rustls — do not
+feed the health response — startup fallback / mid-session recoverable error).
+The stack checklist requires ureq-rustls — do not
 introduce a second HTTP client. Sample tool-call responses for fixtures can be
 captured once from live Ollama/llama.cpp and committed as JSON.
 
