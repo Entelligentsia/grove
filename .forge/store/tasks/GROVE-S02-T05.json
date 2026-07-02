@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S02-T05",
+  "sprintId": "GROVE-S02",
+  "title": "Full-screen setup TUI + grove config verb",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T05",
+  "estimate": "L",
+  "dependencies": [
+    "GROVE-S02-T01"
+  ],
+  "description": "ratatui full-screen setup flow (cli-side only) collecting provider (Ollama default / llama.cpp), base URL, model, mode (standard/balanced/aggressive), and allowed-tools multi-select (grove, find, grep, ripgrep, extensible). New grove config verb re-opens the TUI pre-populated from existing config; saves via T01 persistence, effective next grove serve. Non-TTY invocation fails fast with a descriptive message. Nice-to-have: model auto-discovery from provider. Note binary-size/compile impact."
+}
