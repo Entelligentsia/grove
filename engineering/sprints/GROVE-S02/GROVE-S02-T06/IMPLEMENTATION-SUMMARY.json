@@ -1,0 +1,26 @@
+{
+  "objective": "Add Target::McpLlm to grove init --as, wiring explore-mode .mcp.json (serve --explore), idempotent CLAUDE.md and AGENTS.md sentinel blocks, non-TTY guard, and first-run TUI delegation.",
+  "key_changes": [
+    "Target::McpLlm variant added to cli/src/init.rs with full doc-comment",
+    "Non-TTY guard in run(): fails on non-terminal stdout only when explore.json absent + not dry-run",
+    "Dry-run path: McpLlm prints planned harness files BEFORE provisioned.is_empty() early-return",
+    "TUI launch: config_tui::run(root, None) called on first-run when explore.json absent",
+    "write_harness(): McpLlm early-return branch writes 3 files (.mcp.json, CLAUDE.md, AGENTS.md)",
+    "write_mcp_json_explore(): registers grove with args:[\"serve\",\"--explore\"] preserving other servers",
+    "claude_section(): McpLlm arm names mcp__grove__explore; fallback uses plain tool names (not mcp__grove__ prefix)",
+    "write_agents_md() + agents_section(): harness-neutral AGENTS.md with sentinel idempotency",
+    "7 new unit tests in cli/src/init.rs: all pass",
+    "3 new integration tests in cli/tests/cli.rs: dry-run shape, idempotency, AGENTS.md create/append",
+    "README.md: --as mcp|skill|both|mcp-llm in two references",
+    "docs/setup.md: new Explore-mode section documenting first-run TUI, --dry-run, and file outputs"
+  ],
+  "files_changed": [
+    "cli/src/init.rs",
+    "cli/tests/cli.rs",
+    "README.md",
+    "docs/setup.md"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

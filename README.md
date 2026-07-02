@@ -65,7 +65,7 @@ grove init
 writes `.mcp.json` (the tools exist) + a `CLAUDE.md` steering directive (the
 agent reaches for grove instead of grep) + `grove.lock`. That's it — your agent
 now has structural sight. Other install channels (Homebrew, npm, cargo, agent
-skill) and `--as mcp|skill|both` are in **[Install](docs/install.md)** and
+skill) and `--as mcp|skill|both|mcp-llm` are in **[Install](docs/install.md)** and
 **[Setup](docs/setup.md)**.
 
 > As an **agent skill** (Claude Code, Cursor, Codex, Cline, …):
@@ -177,7 +177,7 @@ point behind `grove init`. Crate overview and full API surface:
 ## Documentation
 
 - **[Install](docs/install.md)** — curl/Homebrew/npm/cargo, build from source, the agent skill
-- **[Setup](docs/setup.md)** — `grove init`, `--as mcp|skill|both`, what it writes, offline/dry-run
+- **[Setup](docs/setup.md)** — `grove init`, `--as mcp|skill|both|mcp-llm`, what it writes, offline/dry-run
 - **[Languages & grammars](docs/languages.md)** — the WASM registry, `fetch`/`lock`, where grammars live, profiles
 - **[Tools](docs/tools.md)** — the seven tools, `--json`, `symbol-id`, examples
 - **[MCP server](docs/mcp.md)** — `grove serve`, `.mcp.json`, steering, error model

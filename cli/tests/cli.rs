@@ -533,3 +533,148 @@ fn map_returns_definitions_with_references() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// GROVE-S02-T06 (AC1-AC7): `grove init --as mcp-llm` integration tests.
+///
+/// Shared setup: fake OS cache with the rust grammar (same pattern as
+/// `init_provisions_and_wires_harness_per_target`).
+fn mcp_llm_setup(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let base = std::env::temp_dir().join(format!("grove_cli_test_{}_mcp_llm_{tag}", std::process::id()));
+    let cache = base.join("cache");
+    let rust_cache = cache.join("grove").join("grammars").join("rust");
+    std::fs::create_dir_all(&rust_cache).unwrap();
+    std::fs::write(rust_cache.join("grammar.wasm"), b"").unwrap();
+    let proj = base.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join("lib.rs"), "fn helper() {}\n").unwrap();
+    (base, cache, proj)
+}
+
+fn grove_mcp_llm(proj: &Path, cache: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(args)
+        .current_dir(proj)
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
+        .env("XDG_CACHE_HOME", cache)
+        .output()
+        .expect("running grove init --as mcp-llm")
+}
+
+/// AC5: dry-run prints the planned harness files and exits 0 (non-TTY, no explore.json).
+/// The non-TTY guard is bypassed because --dry-run is set.
+#[test]
+fn mcp_llm_dry_run_output_shape() {
+    let (base, cache, proj) = mcp_llm_setup("dry_run");
+    let out = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {err}\nstdout: {text}");
+    assert!(text.contains("detected"), "dry-run narrates detection: {text}");
+    assert!(text.contains("mcp.json"), "dry-run prints .mcp.json: {text}");
+    assert!(text.contains("CLAUDE.md"), "dry-run prints CLAUDE.md: {text}");
+    assert!(text.contains("AGENTS.md"), "dry-run prints AGENTS.md: {text}");
+    // No files written.
+    assert!(!proj.join(".mcp.json").exists(), "dry-run writes no .mcp.json");
+    assert!(!proj.join("CLAUDE.md").exists(), "dry-run writes no CLAUDE.md");
+    assert!(!proj.join("AGENTS.md").exists(), "dry-run writes no AGENTS.md");
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// AC3 + AC6: two consecutive runs produce exactly one grove sentinel block in
+/// each of CLAUDE.md and AGENTS.md. Pre-seed explore.json so the non-TTY
+/// guard is bypassed (CI re-runs work without an interactive terminal).
+#[test]
+fn mcp_llm_steering_block_idempotency() {
+    let (base, cache, proj) = mcp_llm_setup("idempotency");
+    // Pre-seed .grove/explore.json so the TUI is not launched and the non-TTY
+    // guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // First run.
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    let err1 = String::from_utf8_lossy(&out1.stderr);
+    assert!(out1.status.success(), "first run failed — stderr: {err1}");
+
+    // Second run (idempotency).
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    let err2 = String::from_utf8_lossy(&out2.stderr);
+    assert!(out2.status.success(), "second run failed — stderr: {err2}");
+
+    let claude = std::fs::read_to_string(proj.join("CLAUDE.md")).unwrap();
+    let agents = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+
+    assert_eq!(claude.matches("<!-- grove:start -->").count(), 1, "CLAUDE.md: exactly 1 grove block");
+    assert_eq!(claude.matches("<!-- grove:end -->").count(), 1);
+    assert_eq!(agents.matches("<!-- grove:start -->").count(), 1, "AGENTS.md: exactly 1 grove block");
+    assert_eq!(agents.matches("<!-- grove:end -->").count(), 1);
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// AC3 + AC6: AGENTS.md is created when absent; when hand-written content
+/// exists it is preserved and the grove block is appended exactly once.
+#[test]
+fn mcp_llm_agents_md_created_and_appended() {
+    let (base, cache, proj) = mcp_llm_setup("agents_append");
+    // Pre-seed explore.json so TUI / non-TTY guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // (a) No AGENTS.md: first run creates it.
+    assert!(!proj.join("AGENTS.md").exists(), "AGENTS.md must not exist before first run");
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out1.status.success(), "stderr: {}", String::from_utf8_lossy(&out1.stderr));
+    assert!(proj.join("AGENTS.md").exists(), "AGENTS.md created on first run");
+    let agents1 = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+    assert!(agents1.contains("<!-- grove:start -->"), "grove block present");
+
+    // (b) Hand-written content present: grove block appended, existing content preserved.
+    // Simulate: add hand-written content before the existing grove block by
+    // prepending it to the current file.
+    let hand = "# My Agent\n\nCustom notes here.\n\n";
+    // Re-seed without a grove block to test the append path.
+    std::fs::write(proj.join("AGENTS.md"), hand).unwrap();
+    // Remove CLAUDE.md so the test doesn't conflict (it was also written).
+    std::fs::remove_file(proj.join("CLAUDE.md")).ok();
+    // Remove grove.lock so init re-provisions (needed to re-write harness).
+    std::fs::remove_file(proj.join("grove.lock")).ok();
+
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out2.status.success(), "stderr: {}", String::from_utf8_lossy(&out2.stderr));
+    let agents2 = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+    assert!(agents2.contains("Custom notes here."), "hand-written content preserved");
+    assert!(agents2.contains("<!-- grove:start -->"), "grove block appended");
+    assert_eq!(agents2.matches("<!-- grove:start -->").count(), 1, "exactly one grove block");
+    assert!(
+        agents2.find("Custom notes").unwrap() < agents2.find("<!-- grove:start -->").unwrap(),
+        "hand-written content precedes grove block"
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}

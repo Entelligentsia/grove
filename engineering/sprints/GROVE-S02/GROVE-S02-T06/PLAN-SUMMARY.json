@@ -1,0 +1,20 @@
+{
+  "objective": "Add Target::McpLlm to grove init --as, wiring explore-mode .mcp.json, idempotent CLAUDE.md and AGENTS.md sentinel blocks, and a first-run TUI launch for explore.json creation.",
+  "key_changes": [
+    "cli/src/init.rs: Add Target::McpLlm variant to the --as value enum with a doc-comment that appears in --help.",
+    "cli/src/init.rs: Non-TTY guard in run() — fail fast only when explore.json absent AND not dry-run AND not terminal; CI re-runs not blocked.",
+    "cli/src/init.rs: run() launches config_tui::run() for first-run McpLlm (explore.json absent); skips TUI on re-runs and dry-run.",
+    "cli/src/init.rs: Dry-run path for McpLlm prints planned harness files (.mcp.json, CLAUDE.md, AGENTS.md) before returning.",
+    "cli/src/init.rs: write_harness() gains a McpLlm early-return branch (3 writes: mcp_json_explore + claude_md + agents_md); existing branches untouched.",
+    "cli/src/init.rs: New write_mcp_json_explore() — same read/merge/.mcp.json pattern as write_mcp_json but args: ['serve', '--explore'].",
+    "cli/src/init.rs: claude_section() gains McpLlm arm: routes mcp__grove__explore; states 7 structural tools activate only as fallback when provider is down.",
+    "cli/src/init.rs: New write_agents_md() — identical sentinel/idempotency logic as write_claude_md targeting AGENTS.md; New agents_section() in harness-neutral framing.",
+    "cli/src/init.rs: Unit tests for write_mcp_json_explore, agents_md idempotency/append, claude_section McpLlm arm, write_harness McpLlm output.",
+    "cli/tests/cli.rs: mcp_llm_dry_run_output_shape — non-TTY dry-run prints planned files, exits 0.",
+    "cli/tests/cli.rs: mcp_llm_steering_block_idempotency — pre-seeded explore.json; two runs; exactly one sentinel block in each of CLAUDE.md and AGENTS.md.",
+    "cli/tests/cli.rs: mcp_llm_agents_md_created_and_appended — AGENTS.md absent then present; grove block appears once; existing content preserved. README.md + docs/setup.md updated."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T22:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

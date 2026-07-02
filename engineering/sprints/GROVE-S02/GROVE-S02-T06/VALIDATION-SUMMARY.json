@@ -1,0 +1,16 @@
+{
+  "objective": "Validated that grove init --as mcp-llm correctly adds Target::McpLlm, writes explore-mode .mcp.json (serve --explore), idempotent CLAUDE.md and AGENTS.md sentinel blocks, non-TTY guard, dry-run output, and first-run TUI delegation against all 7 acceptance criteria.",
+  "key_changes": [
+    "AC1 PASS: Target::McpLlm added to ValueEnum with doc-comment; README.md and docs/setup.md updated.",
+    "AC2 PASS: run() flow order provision→TUI→harness confirmed; dry-run print precedes early-return.",
+    "AC3 PASS: write_mcp_json_explore uses args:[serve,--explore]; CLAUDE.md routes mcp__grove__explore; AGENTS.md harness-neutral; both idempotent via grove:start/end sentinels.",
+    "AC4 PASS: McpLlm early-return in write_harness leaves existing branches byte-identical; all 19 pre-existing unit tests pass.",
+    "AC5 PASS: Dry-run prints 3 planned writes without writing; non-TTY guard bails with init-worded message; explore.json present bypasses guard.",
+    "AC6 PASS: 3 new integration tests present and green (dry-run shape, idempotency, AGENTS.md create/append).",
+    "AC7 PASS: 200 tests passed, 0 failed; clippy clean; no fastcontext in source.",
+    "Edge cases verified: non-TTY first-run fails fast; re-run succeeds; other .mcp.json servers preserved; hand-written AGENTS.md content preserved."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
