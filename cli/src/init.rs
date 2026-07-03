@@ -269,11 +269,22 @@ fn agents_section(langs: &[String], _target: Target) -> String {
         "{CLAUDE_START}
 ## Code navigation: grove explore-mode
 
-**grove** is running in explore-mode (languages: {langs_str}). Route all
-structural code questions through the `explore` tool exposed by the grove MCP
-server. It is a conversational entry point backed by a local LLM and tree-sitter
-tools — use it for where-is / what-defines / who-calls / syntax-check questions
-instead of built-in file search or read tools.
+**grove** is running in explore-mode (languages: {langs_str}). The `explore` tool
+exposed by the grove MCP server is a code **locator** backed by a local LLM and
+tree-sitter tools: it finds WHERE code lives and returns file:line citations.
+
+Ask it ONE narrow, single-focus question per call (where-is / what-defines /
+who-calls) instead of built-in file search — but keep each question targeted.
+For a broad task (\"how does feature F work\"), make a few focused `explore`
+calls to locate the pieces, then read the cited spans and synthesize the answer
+yourself; the local model is light and overshoots on one large compound question.
+
+**Recommended flow to understand a feature:** (1) a few narrow `explore` calls to
+locate the pieces — iterate broad → symbol-specific, each refining from the last;
+(2) read the cited spans — yourself, or via one focused subagent whose prompt
+cites those exact file:line locations; (3) synthesize. Do not spawn a grep-based
+search subagent before locating with grove — that wastes context on what grove
+does locally for free.
 
 **Automatic fallback**: if the grove provider is unreachable, the 7 structural
 grove tools (outline, symbols, source, callers, map, definition, check) are
@@ -300,16 +311,28 @@ fn claude_section(langs: &[String], target: Target) -> String {
             "{CLAUDE_START}
 ## Code navigation: grove explore-mode
 
-**grove** is running in explore-mode (languages: {langs}). Route all structural
-code questions through `{p}explore` — a single conversational entry point backed
-by a local LLM with tree-sitter tools.
+**grove** is running in explore-mode (languages: {langs}). `{p}explore` is a code
+**locator** backed by a local LLM with tree-sitter + text tools — it finds WHERE
+relevant code lives and returns file:line citations. It is not a full-analysis
+oracle.
 
-Use `{p}explore` for every structural code question: where a symbol is defined,
-who calls it, what's in a file, how a directory connects, syntax-check after an
-edit. The explore tool handles tool-selection internally; do **not** call the
+**Ask it ONE narrow, single-focus question per call** (\"where is X defined\",
+\"which files handle Y\", \"who calls Z\") — not a broad multi-part task. For a
+question like \"how does feature F work\", don't delegate the whole thing: make a
+few targeted `{p}explore` calls to locate the pieces, then read the cited spans
+and **synthesize the explanation yourself**. The local model is light and
+overshoots on compound \"find everything and explain how it all works\" prompts.
+The explore tool handles tool-selection internally; do **not** call the
 individual structural tools (outline, symbols, source, callers, map, definition,
 check) directly while the local model is healthy — they are not exposed in
 explore-mode.
+
+**Recommended flow to understand a feature:** (1) make a few narrow
+`{p}explore` calls to locate the pieces — iterate broad → symbol-specific, each
+call refining from the last's results; (2) read the cited spans — yourself, or
+via **one** focused subagent whose prompt cites those exact file:line locations;
+(3) synthesize. **Do not spawn a grep-based search subagent before locating with
+grove** — that spends your metered context on what grove does locally for free.
 
 **Automatic fallback**: if the local model provider is unreachable, grove
 automatically surfaces the 7 structural tools. They will appear in your tool

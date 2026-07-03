@@ -185,11 +185,14 @@ many sources in sequence; instead map first, then read only the symbols that mat
 /// Server instructions for explore mode — delegation-oriented description.
 fn explore_instructions(cfg: &ExploreConfig) -> String {
     format!(
-        "grove is running in explore mode. Questions about this codebase are delegated \
-         to a local AI provider ({model} at {base_url}). Use the `explore` tool to ask \
-         questions about the code — grove handles the structural analysis internally. \
-         If the provider becomes unreachable mid-session, the tool returns an actionable \
-         isError result; restart `grove serve` to recover the standard structural surface.",
+        "grove is in explore mode: the `explore` tool is a code LOCATOR backed by a small \
+         local model ({model} at {base_url}) driving tree-sitter + text search. Ask it \
+         targeted where-is / which-file / who-calls questions and it returns file:line \
+         citations. Because the model is light, keep each question narrow and single-focus: \
+         decompose a broad task into a few focused calls and synthesize the results \
+         yourself — don't delegate one large compound question. If the provider becomes \
+         unreachable mid-session, the tool returns an actionable isError result; restart \
+         `grove serve` to recover the standard structural surface.",
         model = cfg.model,
         base_url = cfg.base_url,
     )
@@ -199,15 +202,24 @@ fn explore_instructions(cfg: &ExploreConfig) -> String {
 fn explore_tool_spec() -> Value {
     json!({
         "name": "explore",
-        "description": "Ask a question about this codebase. grove delegates to a local AI \
-                         provider that runs structural analysis on your behalf and returns \
-                         a synthesized answer.",
+        "description": "Locate WHERE code lives. Ask ONE narrow, single-focus question \
+                         (e.g. \"where is session-cookie signing implemented\") and get back a short \
+                         explanation plus validated file:line citations. It is a LOCATOR backed by a \
+                         small local model over structural + text search — not a full-analysis oracle. \
+                         Keep each call targeted: for a broad task, make a few focused calls (\"where \
+                         are the routes for X\", then \"which function validates Y\") and do your own \
+                         synthesis. Do NOT hand it one compound \"find every file, route, and function \
+                         and explain how it all works\" question — a light model overshoots on those. \
+                         Best flow: a few narrow explore calls to locate the pieces (iterate broad -> \
+                         symbol-specific), then read the cited spans yourself (or hand ONE focused \
+                         subagent a prompt citing those exact file:line locations) and synthesize — \
+                         don't spawn a grep-based search subagent before locating.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": "The question to answer about this codebase."
+                    "description": "One narrow, single-focus locator question, e.g. \"where is the API-key health check defined\". Not a broad, multi-part task."
                 }
             },
             "required": ["question"]
