@@ -139,21 +139,11 @@ fn render_detail(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(para, area);
 }
 
-/// Build the scrollable detail text for a call: a metrics header, then each turn
-/// rendered through the shared request/response pretty-printers, then the answer.
+/// Build the scrollable detail text for a call: each turn rendered through the
+/// shared request/response pretty-printers, then the answer. The call's status +
+/// metrics live in the footer ([`call_metrics`]), not here.
 pub fn detail_lines(c: &Call) -> Vec<String> {
     let mut out = Vec::new();
-    out.push(format!(
-        "query: {}\nturns: {} · tokens: prompt {} / completion {} / total {} · wall {}ms{}",
-        c.query,
-        c.turns,
-        c.tokens.prompt,
-        c.tokens.completion,
-        c.tokens.total,
-        c.wall_ms,
-        if c.truncated { " · TRUNCATED (turn cap)" } else { "" },
-    ));
-    out.push(String::new());
 
     for t in &c.turn_blocks {
         out.push(format!("── turn {} ──────────────────────────", t.turn_index));
@@ -179,14 +169,34 @@ pub fn detail_lines(c: &Call) -> Vec<String> {
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 
+/// The call's status + metrics, shown in the detail-view footer.
+pub fn call_metrics(c: &Call) -> String {
+    let status = if !c.ended {
+        "● in progress…"
+    } else if c.truncated {
+        "⚠ truncated (turn cap)"
+    } else {
+        "✓ done"
+    };
+    format!(
+        "{status} · {} turns · tok {}/{}/{} (p/c/total) · {}ms",
+        c.turns, c.tokens.prompt, c.tokens.completion, c.tokens.total, c.wall_ms,
+    )
+}
+
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
-    let keys = match app.view {
-        View::Sessions => " ↑↓ move · Enter open · q/Esc quit ",
-        View::Calls => " ↑↓ move · Enter open · Esc back · q quit ",
-        View::Detail => " ↑↓/PgUp/PgDn/g/G scroll · Esc back · q quit ",
+    // In the detail view the footer carries the call's status + metrics (with a
+    // short key hint); elsewhere it's the navigation shortcuts.
+    let text = match app.view {
+        View::Sessions => " ↑↓ move · Enter open · q/Esc quit ".to_string(),
+        View::Calls => " ↑↓ move · Enter open · Esc back · q quit ".to_string(),
+        View::Detail => match app.current_call() {
+            Some(c) => format!(" {}  │  ↑↓/PgUp/PgDn scroll · Esc back · q quit ", call_metrics(c)),
+            None => " ↑↓/PgUp/PgDn scroll · Esc back · q quit ".to_string(),
+        },
     };
     let bar = Paragraph::new(Line::from(Span::styled(
-        keys,
+        text,
         Style::default()
             .fg(Color::Black)
             .bg(FOCUSED)
@@ -241,14 +251,31 @@ mod tests {
     }
 
     #[test]
-    fn detail_lines_include_metrics_turn_and_answer() {
+    fn detail_lines_include_turn_and_answer_not_metrics() {
         let lines = detail_lines(&call());
         let joined = lines.join("\n");
-        assert!(joined.contains("total 12"), "metrics header present");
         assert!(joined.contains("turn 1"), "turn header present");
         assert!(joined.contains("where is main"), "request rendered");
         assert!(joined.contains("final answer"), "answer section present");
         assert!(joined.contains("src/main.rs:1"), "answer text present");
+        // Metrics moved to the footer — not in the scrollable body.
+        assert!(!joined.contains("tok "), "metrics must not be in the body");
+    }
+
+    #[test]
+    fn call_metrics_reports_status_and_totals() {
+        let done = call_metrics(&call());
+        assert!(done.contains("done"), "ended call shows done: {done}");
+        assert!(done.contains("tok 10/2/12"), "token counts present: {done}");
+        assert!(done.contains("50ms"), "wall time present: {done}");
+
+        let mut inflight = call();
+        inflight.ended = false;
+        assert!(call_metrics(&inflight).contains("in progress"), "live status");
+
+        let mut trunc = call();
+        trunc.truncated = true;
+        assert!(call_metrics(&trunc).contains("truncated"), "truncated status");
     }
 
     #[test]
