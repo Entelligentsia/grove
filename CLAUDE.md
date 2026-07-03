@@ -108,7 +108,8 @@ grove serve                         # MCP server over stdio
 grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
 grove config [path]                 # open the explore config TUI (requires TTY)
 grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
-grove tap [path] [--listen P] [--upstream URL] [--brief]  # log explore-mode LLM traffic via a proxy
+grove config [path]                 # + Tap toggle (trace to .grove/explore-trace.log) & F3 live-trace view
+grove tap [path] [--listen P] [--upstream URL] [--brief]  # standalone proxy variant of the trace
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order

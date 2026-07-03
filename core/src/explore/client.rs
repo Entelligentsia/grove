@@ -348,7 +348,7 @@ impl ChatRequest {
 }
 
 /// A non-streaming chat-completions response.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
     /// The completion choices; we use the first.
     #[serde(default)]
@@ -363,7 +363,7 @@ impl ChatResponse {
 }
 
 /// A single completion choice.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Choice {
     /// The assistant message for this choice.
     pub message: Message,

@@ -9,6 +9,7 @@ pub enum Field {
     Url,
     Model,
     Mode,
+    Tap,
     Tools,
 }
 
@@ -19,7 +20,8 @@ impl Field {
             Field::Provider => Field::Url,
             Field::Url => Field::Model,
             Field::Model => Field::Mode,
-            Field::Mode => Field::Tools,
+            Field::Mode => Field::Tap,
+            Field::Tap => Field::Tools,
             Field::Tools => Field::Provider,
         }
     }
@@ -31,7 +33,8 @@ impl Field {
             Field::Url => Field::Provider,
             Field::Model => Field::Url,
             Field::Mode => Field::Model,
-            Field::Tools => Field::Mode,
+            Field::Tap => Field::Mode,
+            Field::Tools => Field::Tap,
         }
     }
 }
@@ -81,6 +84,10 @@ pub enum Msg {
     ToolsAddBackspace,
     /// Tools list — confirm add-tool buffer as a new tool entry.
     ToolsAddConfirm,
+    /// Tap field — toggle in-process LLM tracing on/off.
+    TapToggle,
+    /// Toggle the live trace-log view.
+    ToggleLogs,
     /// User pressed save.
     Save,
     /// User pressed quit/cancel.
@@ -113,6 +120,12 @@ pub struct App {
     pub add_tool_buf: String,
     /// Which field is focused.
     pub focus: Field,
+    /// In-process LLM tracing to `.grove/explore-trace.log`.
+    pub tap: bool,
+    /// Whether the live trace-log view is showing (toggled with F3).
+    pub show_logs: bool,
+    /// Tail of the trace log, refreshed by the event loop while `show_logs`.
+    pub logs: Vec<String>,
     /// `true` after the user has manually edited `base_url`, preventing
     /// provider-switch from clobbering a custom endpoint.
     pub dirty_url: bool,
@@ -136,6 +149,9 @@ impl Default for App {
             tool_cursor: 0,
             add_tool_buf: String::new(),
             focus: Field::Provider,
+            tap: cfg.tap,
+            show_logs: false,
+            logs: Vec::new(),
             dirty_url: false,
             last_error: None,
         }
@@ -168,6 +184,9 @@ impl App {
             tool_cursor: 0,
             add_tool_buf: String::new(),
             focus: Field::Provider,
+            tap: cfg.tap,
+            show_logs: false,
+            logs: Vec::new(),
             dirty_url: true, // loaded URL is custom; don't clobber on provider switch
             last_error: None,
         }
@@ -196,6 +215,7 @@ impl App {
             model: self.model.clone(),
             mode,
             allowed_tools,
+            tap: self.tap,
         };
         cfg.validate()?;
         Ok(cfg)

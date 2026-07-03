@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use super::client::{ChatClient, ChatRequest, ClientError, Message};
 use super::config::{ExploreConfig, Mode};
-use super::{grounding, steering, toolset};
+use super::{grounding, steering, toolset, trace};
 
 // --- Bench constants (from the vendored MCP env / mcp_server.py) ------------
 
@@ -212,7 +212,22 @@ pub fn run_explore_reporting(
         let req = ChatRequest::new(messages.clone())
             .with_tools(tools)
             .with_bench_sampling(TEMPERATURE, TOP_P, MAX_COMPLETION_TOKENS, None, qwen);
+        if cfg.tap {
+            if let Ok(mut v) = serde_json::to_value(&req) {
+                // The client fills `model` at send-time; mirror it for the trace.
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("model".to_string(), Value::String(cfg.model.clone()));
+                }
+                trace::append(root, &trace::format_request(&v));
+            }
+        }
+        let t0 = std::time::Instant::now();
         let resp = client.chat(req).map_err(map_client_error)?;
+        if cfg.tap {
+            if let Ok(v) = serde_json::to_value(&resp) {
+                trace::append(root, &trace::format_response(&v, Some(t0.elapsed().as_millis())));
+            }
+        }
         let step = match resp.first_message() {
             Some(m) => m.clone(),
             None => break,
@@ -430,6 +445,7 @@ mod tests {
             model: "qwen3.5:4b".into(),
             mode,
             allowed_tools: vec!["grove".into(), "rg".into()],
+            tap: false,
         }
     }
 

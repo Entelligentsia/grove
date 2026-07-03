@@ -25,12 +25,17 @@ const MODE_DESCS: &[&str] = &[
 
 /// Render the full TUI frame.
 pub fn view(app: &App, frame: &mut Frame) {
+    if app.show_logs {
+        render_logs(app, frame);
+        return;
+    }
+
     let area = frame.area();
 
     // Outer chrome
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title(" grove config — Explore Setup (Tab: next field · S/F2: save · Esc/Q: cancel) ");
+        .title(" grove config — Explore Setup (Tab: field · Space: toggle · F2: save · F3: trace · Esc: cancel) ");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -42,7 +47,8 @@ pub fn view(app: &App, frame: &mut Frame) {
             Constraint::Length(3), // Endpoint URL
             Constraint::Length(3), // Model
             Constraint::Length(5), // Mode (3 items + borders)
-            Constraint::Min(5),    // Allowed Tools
+            Constraint::Length(3), // Tap
+            Constraint::Min(4),    // Allowed Tools
             Constraint::Length(1), // Status bar
         ])
         .split(inner);
@@ -51,8 +57,52 @@ pub fn view(app: &App, frame: &mut Frame) {
     render_url(app, frame, rows[1]);
     render_model(app, frame, rows[2]);
     render_mode(app, frame, rows[3]);
-    render_tools(app, frame, rows[4]);
-    render_status(app, frame, rows[5]);
+    render_tap(app, frame, rows[4]);
+    render_tools(app, frame, rows[5]);
+    render_status(app, frame, rows[6]);
+}
+
+// ── Tap ─────────────────────────────────────────────────────────────────────
+
+fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Field::Tap;
+    let text = if app.tap {
+        "☑ on — tracing LLM traffic to .grove/explore-trace.log  (F3: view live)"
+    } else {
+        "☐ off"
+    };
+    let fg = if focused {
+        FOCUSED
+    } else if app.tap {
+        SELECTED
+    } else {
+        DIM
+    };
+    let para = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(border_style(focused))
+                .title(" Tap — trace LLM traffic (Space: toggle) "),
+        )
+        .style(Style::default().fg(fg));
+    frame.render_widget(para, area);
+}
+
+// ── Live trace-log view ───────────────────────────────────────────────────────
+
+fn render_logs(app: &App, frame: &mut Frame) {
+    let area = frame.area();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(FOCUSED))
+        .title(" Explore trace — .grove/explore-trace.log  (F3/Esc: back · Ctrl-C: quit) ");
+    let inner_h = block.inner(area).height as usize;
+    let scroll = app.logs.len().saturating_sub(inner_h) as u16;
+    let para = Paragraph::new(app.logs.join("\n"))
+        .block(block)
+        .scroll((scroll, 0));
+    frame.render_widget(para, area);
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────────

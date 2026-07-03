@@ -13,6 +13,7 @@ pub mod config;
 pub mod grounding;
 pub mod steering;
 pub mod toolset;
+pub mod trace;
 
 pub use agent::{
     run_explore, run_explore_reporting, ExploreAnswer, ExploreError, NoopReporter, ProgressReporter,

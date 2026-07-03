@@ -94,6 +94,10 @@ pub struct ExploreConfig {
     pub mode: Mode,
     /// The tools the inner explorer is permitted to invoke.
     pub allowed_tools: Vec<String>,
+    /// When true, `grove serve --explore` appends every LLM request/response to
+    /// `.grove/explore-trace.log` (an in-process "tap" — no proxy needed).
+    #[serde(default)]
+    pub tap: bool,
 }
 
 /// Raw wire shape with `String` enum fields, so enum parse failures can name
@@ -107,6 +111,8 @@ struct RawExploreConfig {
     mode: String,
     #[serde(default)]
     allowed_tools: Vec<String>,
+    #[serde(default)]
+    tap: bool,
 }
 
 impl TryFrom<RawExploreConfig> for ExploreConfig {
@@ -119,6 +125,7 @@ impl TryFrom<RawExploreConfig> for ExploreConfig {
             model: raw.model,
             mode: Mode::from_name(&raw.mode)?,
             allowed_tools: raw.allowed_tools,
+            tap: raw.tap,
         })
     }
 }
@@ -146,6 +153,7 @@ impl Default for ExploreConfig {
                 "grep".to_string(),
                 "find".to_string(),
             ],
+            tap: false,
         }
     }
 }

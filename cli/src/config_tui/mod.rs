@@ -72,8 +72,16 @@ fn event_loop(
     root: &Path,
 ) -> Result<()> {
     loop {
+        if app.show_logs {
+            refresh_logs(app, root);
+        }
         terminal.draw(|f| view::view(app, f))?;
 
+        // Poll rather than block, so the live trace view refreshes on a tick
+        // even without keystrokes.
+        if !event::poll(std::time::Duration::from_millis(250))? {
+            continue;
+        }
         let event = event::read()?;
         if let Some(msg) = translate_event(app, event) {
             match update::update(app, msg) {
@@ -99,6 +107,26 @@ fn event_loop(
     }
 }
 
+/// Refresh the in-memory tail of the trace log for the live view (last ~1000
+/// lines; a hint when the file doesn't exist yet).
+fn refresh_logs(app: &mut App, root: &Path) {
+    let path = grove_core::explore::trace::trace_path(root);
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let lines: Vec<String> = s.lines().map(str::to_string).collect();
+            let start = lines.len().saturating_sub(1000);
+            app.logs = lines[start..].to_vec();
+        }
+        Err(_) => {
+            app.logs = vec![
+                format!("(no trace yet at {})", path.display()),
+                "Enable Tap above, save, then run an explore call to see traffic here."
+                    .to_string(),
+            ];
+        }
+    }
+}
+
 /// Translate a crossterm `Event` into an optional `Msg`, taking the current
 /// focus field into account so field-specific key bindings apply only when
 /// that field is active.
@@ -107,11 +135,21 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
         return None;
     };
 
+    // In the live trace-log view, keys just navigate back out (or quit).
+    if app.show_logs {
+        return match code {
+            KeyCode::F(3) | KeyCode::Esc | KeyCode::Char('l') => Some(Msg::ToggleLogs),
+            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(Msg::Quit),
+            _ => None,
+        };
+    }
+
     // Global bindings that apply in any field.
     match code {
         KeyCode::Tab => return Some(Msg::TabNext),
         KeyCode::BackTab => return Some(Msg::TabPrev),
         KeyCode::F(2) => return Some(Msg::Save),
+        KeyCode::F(3) => return Some(Msg::ToggleLogs),
         KeyCode::Esc => return Some(Msg::Quit),
         KeyCode::Char('s') if modifiers.is_empty() && app.focus != Field::Url && app.focus != Field::Model && app.focus != Field::Tools => {
             return Some(Msg::Save);
@@ -147,6 +185,10 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
         Field::Mode => match code {
             KeyCode::Up | KeyCode::Char('k') => Some(Msg::ModeUp),
             KeyCode::Down | KeyCode::Char('j') => Some(Msg::ModeDown),
+            _ => None,
+        },
+        Field::Tap => match code {
+            KeyCode::Char(' ') | KeyCode::Enter => Some(Msg::TapToggle),
             _ => None,
         },
         Field::Tools => match code {

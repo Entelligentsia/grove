@@ -97,6 +97,16 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
 
+        // ── Tap ───────────────────────────────────────────────────────────────
+        Msg::TapToggle => {
+            app.tap = !app.tap;
+            None
+        }
+        Msg::ToggleLogs => {
+            app.show_logs = !app.show_logs;
+            None
+        }
+
         // ── Terminal actions ──────────────────────────────────────────────────
         Msg::Save => Some(Action::Save),
         Msg::Quit => Some(Action::Quit),
@@ -145,6 +155,8 @@ mod tests {
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Mode);
         update(&mut app, Msg::TabNext);
+        assert_eq!(app.focus, Field::Tap);
+        update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Tools);
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Provider); // wrapped
@@ -156,6 +168,19 @@ mod tests {
         assert_eq!(app.focus, Field::Provider);
         update(&mut app, Msg::TabPrev);
         assert_eq!(app.focus, Field::Tools); // wrapped
+    }
+
+    #[test]
+    fn tap_and_logs_toggle() {
+        let mut app = fresh();
+        assert!(!app.tap);
+        update(&mut app, Msg::TapToggle);
+        assert!(app.tap, "tap flips on");
+        update(&mut app, Msg::TapToggle);
+        assert!(!app.tap, "tap flips off");
+        assert!(!app.show_logs);
+        update(&mut app, Msg::ToggleLogs);
+        assert!(app.show_logs, "log view toggles on");
     }
 
     // 2. Provider selection drives URL default (unless URL is dirty).
@@ -264,6 +289,7 @@ mod tests {
             model: "llama3".to_string(),
             mode: grove_core::Mode::Aggressive,
             allowed_tools: vec!["grove".to_string()],
+            tap: true,
         };
         let app = App::from_config(cfg.clone());
         assert_eq!(app.provider, 1, "LlamaCpp should map to index 1");

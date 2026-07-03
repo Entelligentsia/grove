@@ -16,8 +16,8 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde_json::Value;
 
+use grove_core::explore::trace;
 use grove_core::ExploreConfig;
 
 /// Run the tap: listen on `listen`, forward to `upstream` (or the provider from
@@ -114,7 +114,7 @@ fn handle(stream: TcpStream, upstream: &str, brief: bool) -> Result<()> {
 
     let is_post = method.eq_ignore_ascii_case("POST");
     if is_post {
-        log_request(&path, &body, brief);
+        log_body(&format!("→ POST {path}"), &body, trace::format_request, brief);
     }
 
     // Forward via ureq.
@@ -152,9 +152,29 @@ fn handle(stream: TcpStream, upstream: &str, brief: bool) -> Result<()> {
     };
     let ms = t0.elapsed().as_millis();
     if is_post {
-        log_response(&path, &resp_body, ms, brief);
+        log_body(&format!("← {path}"), &resp_body, |v| trace::format_response(v, Some(ms)), brief);
     }
     write_response(&mut writer, status, &resp_headers, &resp_body)
+}
+
+/// Print a JSON body to stdout via the shared formatter, prefixed by `header`.
+/// In `brief` mode, only the formatter's summary (first) line is shown.
+fn log_body(header: &str, body: &[u8], fmt: impl Fn(&serde_json::Value) -> String, brief: bool) {
+    println!("\n{header}");
+    match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(v) => {
+            let block = fmt(&v);
+            if brief {
+                println!("{}", block.lines().next().unwrap_or(&block));
+            } else {
+                println!("{block}");
+            }
+        }
+        Err(_) if !body.is_empty() => {
+            println!("  {}", trace::truncate(&String::from_utf8_lossy(body), 1000));
+        }
+        Err(_) => {}
+    }
 }
 
 /// Read a ureq response into (status, headers, body), dropping hop-by-hop and
@@ -193,128 +213,9 @@ fn write_response(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Pretty logging
-// ---------------------------------------------------------------------------
-
-fn log_request(path: &str, body: &[u8], brief: bool) {
-    println!("\n→ POST {path}");
-    let obj: Value = match serde_json::from_slice(body) {
-        Ok(v) => v,
-        Err(_) => {
-            if !body.is_empty() {
-                println!("  {}", truncate(&String::from_utf8_lossy(body), 2000));
-            }
-            return;
-        }
-    };
-    let Some(msgs) = obj.get("messages").and_then(Value::as_array) else {
-        println!("  {}", truncate(&obj.to_string(), 800));
-        return;
-    };
-    let model = obj.get("model").and_then(Value::as_str).unwrap_or("?");
-    let temp = num(obj.get("temperature"));
-    let maxt = num(obj
-        .get("max_completion_tokens")
-        .or_else(|| obj.get("max_tokens")));
-    let ntools = obj.get("tools").and_then(Value::as_array).map_or(0, Vec::len);
-    println!("  model={model} temp={temp} max_tokens={maxt} tools={ntools} messages={}", msgs.len());
-    if brief {
-        return;
-    }
-    for m in msgs {
-        let role = m.get("role").and_then(Value::as_str).unwrap_or("?");
-        if let Some(tcs) = m.get("tool_calls").and_then(Value::as_array) {
-            let calls: Vec<String> = tcs
-                .iter()
-                .map(|c| format!("{}({})", call_name(c), truncate(&call_args(c), 300)))
-                .collect();
-            if !calls.is_empty() {
-                println!("  [{role}] tool_calls: {}", calls.join(", "));
-            }
-        }
-        if let Some(content) = m.get("content").and_then(Value::as_str) {
-            if !content.is_empty() {
-                println!("  [{role}] {}", truncate(content, 4000));
-            }
-        }
-    }
-}
-
-fn log_response(path: &str, body: &[u8], ms: u128, brief: bool) {
-    println!("← {path}  ({ms}ms)");
-    let obj: Value = match serde_json::from_slice(body) {
-        Ok(v) => v,
-        Err(_) => {
-            if !body.is_empty() {
-                println!("  {}", truncate(&String::from_utf8_lossy(body), 1000));
-            }
-            return;
-        }
-    };
-    if let Some(msg) = obj
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|c| c.first())
-        .and_then(|c| c.get("message"))
-    {
-        if let Some(content) = msg.get("content").and_then(Value::as_str) {
-            if !content.is_empty() {
-                println!("  [assistant] {}", truncate(content, 4000));
-            }
-        }
-        for c in msg.get("tool_calls").and_then(Value::as_array).unwrap_or(&Vec::new()) {
-            println!("  [assistant] call: {}({})", call_name(c), truncate(&call_args(c), 500));
-        }
-    } else if !brief {
-        println!("  {}", truncate(&obj.to_string(), 800));
-    }
-    if let Some(u) = obj.get("usage") {
-        println!(
-            "  usage: prompt={} completion={} total={}",
-            num(u.get("prompt_tokens")),
-            num(u.get("completion_tokens")),
-            num(u.get("total_tokens")),
-        );
-    }
-}
-
-fn call_name(c: &Value) -> String {
-    c.get("function")
-        .and_then(|f| f.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or("?")
-        .to_string()
-}
-
-/// Tool-call arguments — a JSON-encoded string (OpenAI/Ollama) or an object
-/// (llama.cpp); render either compactly.
-fn call_args(c: &Value) -> String {
-    match c.get("function").and_then(|f| f.get("arguments")) {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
-        None => String::new(),
-    }
-}
-
-fn num(v: Option<&Value>) -> String {
-    v.map_or_else(|| "-".to_string(), ToString::to_string)
-}
-
-/// Char-safe truncation (bodies contain multibyte text; never slice mid-char).
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut t: String = s.chars().take(max).collect();
-    t.push('…');
-    t
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn strip_v1_normalizes_base_urls() {
@@ -322,23 +223,5 @@ mod tests {
         assert_eq!(strip_v1("http://localhost:11434/v1/"), "http://localhost:11434");
         assert_eq!(strip_v1("http://localhost:11434"), "http://localhost:11434");
         assert_eq!(strip_v1("http://host/v1//"), "http://host");
-    }
-
-    #[test]
-    fn truncate_is_char_safe() {
-        let s = "é".repeat(100);
-        let out = truncate(&s, 10);
-        assert!(out.chars().count() <= 11); // 10 + ellipsis
-        assert!(out.ends_with('…'));
-        assert_eq!(truncate("short", 10), "short");
-    }
-
-    #[test]
-    fn call_args_handles_string_and_object() {
-        let s = json!({"function": {"arguments": "{\"a\":1}"}});
-        assert_eq!(call_args(&s), "{\"a\":1}");
-        let o = json!({"function": {"arguments": {"a": 1}}});
-        assert_eq!(call_args(&o), "{\"a\":1}");
-        assert_eq!(call_args(&json!({})), "");
     }
 }
