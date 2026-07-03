@@ -187,6 +187,17 @@ Change the active mode at any time with `grove config`.
 - Mid-session loss → `mcp__grove__explore` returns a recoverable `isError`
   response with a restart hint; the outer agent can retry or degrade gracefully.
 
+**Debugging — `grove tap`**: to see exactly what the inner explorer sends to and
+receives from the local model, run a logging proxy in front of the provider and
+route grove through it:
+```
+grove tap                 # forwards to your explore provider; prints every
+                          # prompt, tool call, response, and token count
+# then set the explore base_url to http://localhost:11435/v1 (grove config)
+```
+It forwards requests unchanged (non-streaming); `--upstream <url>`, `--listen
+<port>`, and `--brief` (one-line summaries) are available.
+
 ## As a library — `grove-core`
 
 The same engine ships as a standalone crate, **`grove-core`**, so you can embed

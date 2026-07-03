@@ -34,3 +34,6 @@ anyhow = "1"
 ratatui = "0.29"
 crossterm = "0.28"
 
+# Upstream leg of `grove tap` (explore-mode debug proxy); rustls, same as core.
+ureq = "2"
+

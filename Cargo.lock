@@ -657,6 +657,7 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]

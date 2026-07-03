@@ -43,6 +43,12 @@ All notable changes to grove are documented here. The format follows
   `explore` as a *locator* (find WHERE code lives, return `file:line` citations)
   with a recommended locate → read → synthesize flow, so the calling agent
   engages grove rather than bypassing it with a broad grep subagent.
+- **`grove tap`** — a logging reverse proxy for the explore-mode LLM traffic:
+  forwards to the configured provider (derived from `.grove/explore.json`, or
+  `--upstream`) and prints every request (prompts, tool calls, sampling) and
+  response (assistant output, tool calls, token usage). Point the explore
+  `base_url` at `http://localhost:<port>/v1` to watch the inner explorer's
+  conversation with the local model.
 
 ## [0.2.0] - 2026-07-01
 

@@ -21,6 +21,7 @@ cli/src/fetch.rs       `grove fetch` — install grammars from the hosted regist
 cli/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
 cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision grammars + harness glue
 cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb)
+cli/src/tap.rs         `grove tap` — logging reverse proxy for explore-mode LLM traffic (debug)
 skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 
 core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
@@ -107,6 +108,7 @@ grove serve                         # MCP server over stdio
 grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
 grove config [path]                 # open the explore config TUI (requires TTY)
 grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
+grove tap [path] [--listen P] [--upstream URL] [--brief]  # log explore-mode LLM traffic via a proxy
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order
