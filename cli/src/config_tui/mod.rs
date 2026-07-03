@@ -72,70 +72,46 @@ fn event_loop(
     root: &Path,
 ) -> Result<()> {
     loop {
-        if app.show_logs {
-            refresh_logs(app, root);
-            // Keep the scroll offset valid; pin to the bottom while following.
-            let h = terminal.size()?.height.saturating_sub(2) as usize; // minus borders
-            let max_scroll = app.logs.len().saturating_sub(h);
-            if app.log_follow {
-                app.log_scroll = max_scroll;
-            } else {
-                app.log_scroll = app.log_scroll.min(max_scroll);
-                if app.log_scroll >= max_scroll {
-                    app.log_follow = true; // scrolled to the bottom → re-attach
-                }
-            }
-        }
         terminal.draw(|f| view::view(app, f))?;
 
-        // Poll rather than block, so the live trace view refreshes on a tick
-        // even without keystrokes.
-        if !event::poll(std::time::Duration::from_millis(250))? {
-            continue;
-        }
         let event = event::read()?;
-        if let Some(msg) = translate_event(app, event) {
-            match update::update(app, msg) {
-                Some(Action::Save) => {
-                    match app.to_config() {
-                        Ok(cfg) => {
-                            cfg.save(root)?;
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            // Stay in the TUI; show the error in the status bar.
-                            app.last_error = Some(e.to_string());
-                        }
-                    }
+        let Some(msg) = translate_event(app, event) else {
+            continue;
+        };
+        match update::update(app, msg) {
+            Some(Action::Save) => match app.to_config() {
+                Ok(cfg) => {
+                    cfg.save(root)?;
+                    return Ok(());
                 }
-                Some(Action::Quit) => return Ok(()),
-                None => {
-                    // Clear a previous error whenever the user types.
-                    app.last_error = None;
+                Err(e) => {
+                    // Stay in the TUI; show the error in the status bar.
+                    app.last_error = Some(e.to_string());
                 }
+            },
+            Some(Action::Quit) => return Ok(()),
+            Some(Action::FetchModels) => fetch_models(app),
+            None => {
+                // Clear a previous error whenever the user types.
+                app.last_error = None;
             }
         }
     }
 }
 
-/// Refresh the in-memory tail of the trace log for the live view (last ~1000
-/// lines; a hint when the file doesn't exist yet).
-fn refresh_logs(app: &mut App, root: &Path) {
-    let path = grove_core::explore::trace::trace_path(root);
-    match std::fs::read_to_string(&path) {
-        Ok(s) => {
-            let lines: Vec<String> = s.lines().map(str::to_string).collect();
-            let start = lines.len().saturating_sub(1000);
-            app.logs = lines[start..].to_vec();
-        }
-        Err(_) => {
-            app.logs = vec![
-                format!("(no trace yet at {})", path.display()),
-                "Enable Tap above, save, then run an explore call to see traffic here."
-                    .to_string(),
-            ];
-        }
-    }
+/// Perform the blocking model-list fetch and feed the result back as a `Msg`.
+/// Only `base_url` matters to the provider's `/models` listing.
+fn fetch_models(app: &mut App) {
+    let cfg = ExploreConfig {
+        base_url: app.base_url.clone(),
+        model: app.model.clone(),
+        ..ExploreConfig::default()
+    };
+    let msg = match grove_core::explore::list_models(&cfg) {
+        Ok(list) => Msg::ModelListFetched(list),
+        Err(e) => Msg::ModelFetchError(e),
+    };
+    update::update(app, msg);
 }
 
 /// Translate a crossterm `Event` into an optional `Msg`, taking the current
@@ -146,17 +122,23 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
         return None;
     };
 
-    // In the live trace-log view, keys scroll the log or navigate back out.
-    if app.show_logs {
+    // Ctrl-C is a universal quit.
+    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+        return Some(Msg::Quit);
+    }
+
+    // When the model dropdown is open, keys drive the picker (so Esc closes it
+    // rather than quitting, and typing filters).
+    if app.focus == Field::Model && app.model_dropdown {
         return match code {
-            KeyCode::F(3) | KeyCode::Esc | KeyCode::Char('l') => Some(Msg::ToggleLogs),
-            KeyCode::Up | KeyCode::Char('k') => Some(Msg::LogUp),
-            KeyCode::Down | KeyCode::Char('j') => Some(Msg::LogDown),
-            KeyCode::PageUp => Some(Msg::LogPageUp),
-            KeyCode::PageDown => Some(Msg::LogPageDown),
-            KeyCode::Home | KeyCode::Char('g') => Some(Msg::LogTop),
-            KeyCode::End | KeyCode::Char('G') => Some(Msg::LogBottom),
-            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(Msg::Quit),
+            KeyCode::Tab => Some(Msg::TabNext),
+            KeyCode::BackTab => Some(Msg::TabPrev),
+            KeyCode::Up => Some(Msg::ModelUp),
+            KeyCode::Down => Some(Msg::ModelDown),
+            KeyCode::Enter => Some(Msg::ModelSelect),
+            KeyCode::Esc => Some(Msg::ModelClose),
+            KeyCode::Backspace => Some(Msg::ModelBackspace),
+            KeyCode::Char(c) => Some(Msg::ModelChar(c)),
             _ => None,
         };
     }
@@ -166,20 +148,24 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
         KeyCode::Tab => return Some(Msg::TabNext),
         KeyCode::BackTab => return Some(Msg::TabPrev),
         KeyCode::F(2) => return Some(Msg::Save),
-        KeyCode::F(3) => return Some(Msg::ToggleLogs),
         KeyCode::Esc => return Some(Msg::Quit),
-        KeyCode::Char('s') if modifiers.is_empty() && app.focus != Field::Url && app.focus != Field::Model && app.focus != Field::Tools => {
+        KeyCode::Char('s')
+            if modifiers.is_empty()
+                && app.focus != Field::Url
+                && app.focus != Field::Model
+                && app.focus != Field::Tools =>
+        {
             return Some(Msg::Save);
         }
-        KeyCode::Char('q') if modifiers.is_empty() && app.focus != Field::Url && app.focus != Field::Model && app.focus != Field::Tools => {
+        KeyCode::Char('q')
+            if modifiers.is_empty()
+                && app.focus != Field::Url
+                && app.focus != Field::Model
+                && app.focus != Field::Tools =>
+        {
             return Some(Msg::Quit);
         }
         _ => {}
-    }
-
-    // Ctrl-C is a universal quit.
-    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
-        return Some(Msg::Quit);
     }
 
     // Field-specific bindings.
@@ -195,6 +181,8 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
             _ => None,
         },
         Field::Model => match code {
+            // Down opens the auto-discovery dropdown (and triggers a fetch).
+            KeyCode::Down => Some(Msg::ModelDropdownOpen),
             KeyCode::Char(c) => Some(Msg::ModelChar(c)),
             KeyCode::Backspace => Some(Msg::ModelBackspace),
             _ => None,

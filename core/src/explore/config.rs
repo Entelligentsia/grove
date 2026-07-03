@@ -94,10 +94,22 @@ pub struct ExploreConfig {
     pub mode: Mode,
     /// The tools the inner explorer is permitted to invoke.
     pub allowed_tools: Vec<String>,
-    /// When true, `grove serve --explore` appends every LLM request/response to
-    /// `.grove/explore-trace.log` (an in-process "tap" — no proxy needed).
+    /// When true, `grove serve --explore` records every LLM request/response of
+    /// the session to a structured per-session trace under `.grove/traces/`
+    /// (an in-process "tap" — no proxy needed). Browse it with `grove tap`.
     #[serde(default)]
     pub tap: bool,
+    /// How many past trace sessions to keep under `.grove/traces/` before the
+    /// oldest are pruned. `0` keeps all. Default [`DEFAULT_TRACE_RETAIN`].
+    #[serde(default = "default_trace_retain")]
+    pub trace_retain: u32,
+}
+
+/// Default number of trace sessions retained under `.grove/traces/`.
+pub const DEFAULT_TRACE_RETAIN: u32 = 50;
+
+fn default_trace_retain() -> u32 {
+    DEFAULT_TRACE_RETAIN
 }
 
 /// Raw wire shape with `String` enum fields, so enum parse failures can name
@@ -113,6 +125,8 @@ struct RawExploreConfig {
     allowed_tools: Vec<String>,
     #[serde(default)]
     tap: bool,
+    #[serde(default = "default_trace_retain")]
+    trace_retain: u32,
 }
 
 impl TryFrom<RawExploreConfig> for ExploreConfig {
@@ -126,6 +140,7 @@ impl TryFrom<RawExploreConfig> for ExploreConfig {
             mode: Mode::from_name(&raw.mode)?,
             allowed_tools: raw.allowed_tools,
             tap: raw.tap,
+            trace_retain: raw.trace_retain,
         })
     }
 }
@@ -154,6 +169,7 @@ impl Default for ExploreConfig {
                 "find".to_string(),
             ],
             tap: false,
+            trace_retain: DEFAULT_TRACE_RETAIN,
         }
     }
 }
@@ -260,6 +276,22 @@ mod tests {
         assert_eq!(cfg.model, "qwen2.5-coder:7b");
         assert_eq!(cfg.mode, Mode::Standard);
         assert_eq!(cfg.allowed_tools, vec!["grove", "rg", "grep", "find"]);
+        assert_eq!(cfg.trace_retain, DEFAULT_TRACE_RETAIN);
+    }
+
+    #[test]
+    fn trace_retain_defaults_when_absent() {
+        // A config file written before trace_retain existed must still load,
+        // defaulting the field rather than failing.
+        let json = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "x",
+            "mode": "standard",
+            "allowed_tools": ["grove"]
+        }"#;
+        let cfg: ExploreConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.trace_retain, DEFAULT_TRACE_RETAIN);
     }
 
     #[test]

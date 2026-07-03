@@ -43,14 +43,19 @@ All notable changes to grove are documented here. The format follows
   `explore` as a *locator* (find WHERE code lives, return `file:line` citations)
   with a recommended locate → read → synthesize flow, so the calling agent
   engages grove rather than bypassing it with a broad grep subagent.
-- **`tap` — in-process trace toggle.** A `tap` field in `.grove/explore.json`
-  (toggled in the `grove config` TUI): when on, `grove serve --explore` appends
-  every LLM request/response to `.grove/explore-trace.log` — no proxy, no
-  base_url change. The config TUI has a **live trace view** (press F3) that tails
-  the log while you watch. For wire-level or non-grove debugging, the standalone
-  **`grove tap`** proxy remains: it forwards to the configured provider (or
-  `--upstream`) and prints the same request/response detail; point the explore
-  `base_url` at `http://localhost:<port>/v1` to route through it.
+- **`tap` — structured session tracing + a browser.** A `tap` field in
+  `.grove/explore.json` (toggled in the `grove config` TUI): when on,
+  `grove serve --explore` records every session to a per-session JSONL trace under
+  `.grove/traces/` — a `session` header (client identity from MCP `clientInfo`,
+  model, mode, provider) then a `call_start` / `turn` / `call_end` stream per
+  `explore` call, carrying **token usage and wall time** (a new `usage` object was
+  added to the chat response). **`grove tap`** enables tracing and opens a
+  full-screen browser that drills session → call → turn: session list (agent,
+  model, #calls, total tokens, live marker), per-call metrics, and each turn's
+  request/response pretty-printed. Retention keeps the last `trace_retain` sessions
+  (default 50, `0` = keep all). The old logging **reverse proxy** and the config
+  TUI's F3 live-log view are **removed** — `grove tap` is the single trace tool,
+  no base_url change or extra process needed.
 
 ## [0.2.0] - 2026-07-01
 

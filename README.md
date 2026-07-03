@@ -187,18 +187,19 @@ Change the active mode at any time with `grove config`.
 - Mid-session loss → `mcp__grove__explore` returns a recoverable `isError`
   response with a restart hint; the outer agent can retry or degrade gracefully.
 
-**Debugging — see the inner conversation.** Two ways to watch what the explorer
-sends to and receives from the local model:
+**Debugging — see the inner conversation.** Turn on **Tap** (a `tap` flag in
+`.grove/explore.json`, toggled in `grove config` — or just run `grove tap`, which
+flips it on for you). `grove serve --explore` then records each session to a
+per-session JSONL trace under `.grove/traces/`: a header with the calling agent's
+identity, model and mode, then a `call_start` / `turn` / `call_end` stream per
+`explore` call with **token usage and wall time**.
 
-- **In-process tap (easiest).** Turn on **Tap** in `grove config` (a `tap` flag
-  in `.grove/explore.json`). `grove serve --explore` then appends every
-  request/response to `.grove/explore-trace.log` — no proxy, no base_url change.
-  The config TUI has a **live trace view** (press **F3**) that tails the log as
-  calls happen.
-- **Standalone proxy (wire-level / any client).** `grove tap` runs a logging
-  reverse proxy in front of the provider; point the explore `base_url` at
-  `http://localhost:11435/v1` to route through it. `--upstream`, `--listen`, and
-  `--brief` are available.
+Run **`grove tap`** to browse them in a full-screen TUI — drill session → call →
+turn: the session list shows agent, model, call count, total tokens and a live
+marker; opening a call shows its metrics and each turn's request/response. It
+refreshes live, so you can watch a session as it runs. Retention keeps the last
+`trace_retain` sessions (default 50). `grove tap --no-enable` opens the browser
+without changing the config.
 
 ## As a library — `grove-core`
 

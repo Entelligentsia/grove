@@ -2,18 +2,20 @@
 //!
 //! `update()` takes an `App` by mutable reference and a `Msg`, applies the
 //! transition in place, and returns an optional `Action` when the event loop
-//! should perform a side-effect (save or quit).
+//! should perform a side-effect (save, quit, or fetch the model list).
 
 use crate::config_tui::model::{Action, App, Msg, LLAMACPP_DEFAULT_URL, OLLAMA_DEFAULT_URL};
 
-/// Apply `msg` to `app`; return `Some(Action)` if the loop should terminate.
+/// Apply `msg` to `app`; return `Some(Action)` if the loop should act.
 pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
     match msg {
         Msg::TabNext => {
+            app.model_dropdown = false;
             app.focus = app.focus.next();
             None
         }
         Msg::TabPrev => {
+            app.model_dropdown = false;
             app.focus = app.focus.prev();
             None
         }
@@ -42,13 +44,56 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
 
-        // ── Model text buffer ────────────────────────────────────────────────
+        // ── Model text buffer + dropdown ─────────────────────────────────────
         Msg::ModelChar(c) => {
             app.model.push(c);
+            app.model_cursor = 0; // re-filter from the top
             None
         }
         Msg::ModelBackspace => {
             app.model.pop();
+            app.model_cursor = 0;
+            None
+        }
+        Msg::ModelDropdownOpen => {
+            app.model_dropdown = true;
+            app.model_cursor = 0;
+            app.model_status = Some("fetching models…".to_string());
+            Some(Action::FetchModels)
+        }
+        Msg::ModelUp => {
+            app.model_cursor = app.model_cursor.saturating_sub(1);
+            None
+        }
+        Msg::ModelDown => {
+            let last = app.model_filtered().len().saturating_sub(1);
+            app.model_cursor = (app.model_cursor + 1).min(last);
+            None
+        }
+        Msg::ModelSelect => {
+            if let Some(pick) = app.model_filtered().get(app.model_cursor) {
+                app.model = pick.clone();
+            }
+            app.model_dropdown = false;
+            None
+        }
+        Msg::ModelClose => {
+            app.model_dropdown = false;
+            None
+        }
+        Msg::ModelListFetched(list) => {
+            app.model_status = if list.is_empty() {
+                Some("no models reported — type one".to_string())
+            } else {
+                None
+            };
+            app.model_list = list;
+            app.model_cursor = 0;
+            None
+        }
+        Msg::ModelFetchError(e) => {
+            app.model_list.clear();
+            app.model_status = Some(format!("fetch failed ({e}) — type a model"));
             None
         }
 
@@ -102,49 +147,10 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             app.tap = !app.tap;
             None
         }
-        Msg::ToggleLogs => {
-            app.show_logs = !app.show_logs;
-            if app.show_logs {
-                app.log_follow = true; // enter at the tail
-            }
-            None
-        }
-        Msg::LogUp => {
-            app.log_follow = false;
-            app.log_scroll = app.log_scroll.saturating_sub(1);
-            None
-        }
-        Msg::LogDown => {
-            // The event loop clamps to the bottom and re-attaches `log_follow`.
-            app.log_scroll += 1;
-            None
-        }
-        Msg::LogPageUp => {
-            app.log_follow = false;
-            app.log_scroll = app.log_scroll.saturating_sub(10);
-            None
-        }
-        Msg::LogPageDown => {
-            app.log_scroll += 10;
-            None
-        }
-        Msg::LogTop => {
-            app.log_follow = false;
-            app.log_scroll = 0;
-            None
-        }
-        Msg::LogBottom => {
-            app.log_follow = true;
-            None
-        }
 
         // ── Terminal actions ──────────────────────────────────────────────────
         Msg::Save => Some(Action::Save),
         Msg::Quit => Some(Action::Quit),
-
-        // Stub extension point — AC #5 out of scope.
-        #[allow(dead_code)]
-        Msg::ModelListFetched(_) => None,
     }
 }
 
@@ -202,28 +208,13 @@ mod tests {
     }
 
     #[test]
-    fn tap_and_logs_toggle() {
+    fn tap_toggles() {
         let mut app = fresh();
         assert!(!app.tap);
         update(&mut app, Msg::TapToggle);
         assert!(app.tap, "tap flips on");
         update(&mut app, Msg::TapToggle);
         assert!(!app.tap, "tap flips off");
-        assert!(!app.show_logs);
-        update(&mut app, Msg::ToggleLogs);
-        assert!(app.show_logs, "log view toggles on");
-        assert!(app.log_follow, "enters the log view following the tail");
-    }
-
-    #[test]
-    fn log_scroll_releases_and_reattaches_follow() {
-        let mut app = fresh();
-        update(&mut app, Msg::ToggleLogs);
-        assert!(app.log_follow);
-        update(&mut app, Msg::LogUp);
-        assert!(!app.log_follow, "scrolling up releases follow");
-        update(&mut app, Msg::LogBottom);
-        assert!(app.log_follow, "End re-attaches follow");
     }
 
     // 2. Provider selection drives URL default (unless URL is dirty).
@@ -280,7 +271,57 @@ mod tests {
         assert!(app.tools[0].1, "should be reselected after second toggle");
     }
 
-    // 5. Save action.
+    // 5. Model auto-discovery dropdown.
+    #[test]
+    fn model_dropdown_open_requests_fetch() {
+        let mut app = fresh();
+        let action = update(&mut app, Msg::ModelDropdownOpen);
+        assert_eq!(action, Some(Action::FetchModels));
+        assert!(app.model_dropdown, "dropdown is now open");
+        assert!(app.model_status.is_some(), "shows a fetching status");
+    }
+
+    #[test]
+    fn model_list_fetch_populates_and_select_sets_model() {
+        let mut app = fresh();
+        update(&mut app, Msg::ModelDropdownOpen);
+        update(
+            &mut app,
+            Msg::ModelListFetched(vec!["qwen2.5-coder:7b".into(), "llama3:8b".into()]),
+        );
+        assert!(app.model_status.is_none(), "status cleared on non-empty list");
+        // Filtering: typing narrows the list.
+        app.model.clear();
+        for c in "llama".chars() {
+            update(&mut app, Msg::ModelChar(c));
+        }
+        assert_eq!(app.model_filtered(), vec!["llama3:8b".to_string()]);
+        update(&mut app, Msg::ModelSelect);
+        assert_eq!(app.model, "llama3:8b");
+        assert!(!app.model_dropdown, "selecting closes the dropdown");
+    }
+
+    #[test]
+    fn model_fetch_error_falls_back_to_free_text() {
+        let mut app = fresh();
+        update(&mut app, Msg::ModelDropdownOpen);
+        update(&mut app, Msg::ModelFetchError("connection refused".into()));
+        assert!(app.model_list.is_empty());
+        assert!(app.model_status.as_deref().unwrap().contains("fetch failed"));
+        // Free-text entry still works.
+        update(&mut app, Msg::ModelChar('x'));
+        assert!(app.model.ends_with('x'));
+    }
+
+    #[test]
+    fn tab_closes_open_dropdown() {
+        let mut app = fresh();
+        app.model_dropdown = true;
+        update(&mut app, Msg::TabNext);
+        assert!(!app.model_dropdown, "moving focus closes the dropdown");
+    }
+
+    // 6. Save / quit actions.
     #[test]
     fn save_returns_action() {
         let mut app = fresh();
@@ -288,7 +329,6 @@ mod tests {
         assert_eq!(action, Some(Action::Save));
     }
 
-    // 6. Cancel action — does not mutate state.
     #[test]
     fn quit_returns_action_without_mutation() {
         let mut app = fresh();
@@ -333,6 +373,7 @@ mod tests {
             mode: grove_core::Mode::Aggressive,
             allowed_tools: vec!["grove".to_string()],
             tap: true,
+            trace_retain: 25,
         };
         let app = App::from_config(cfg.clone());
         assert_eq!(app.provider, 1, "LlamaCpp should map to index 1");
@@ -340,6 +381,7 @@ mod tests {
         assert_eq!(app.model, "llama3");
         assert_eq!(app.mode, 2, "Aggressive should map to index 2");
         assert_eq!(app.tools, vec![("grove".to_string(), true)]);
+        assert_eq!(app.trace_retain, 25, "retention carried through unchanged");
         assert!(app.dirty_url, "loaded config must set dirty_url=true");
 
         // Round-trip back

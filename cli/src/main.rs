@@ -9,6 +9,7 @@ mod config_tui;
 mod init;
 mod mcp;
 mod tap;
+mod trace_tui;
 
 use std::path::PathBuf;
 
@@ -170,21 +171,15 @@ enum Cmd {
         #[arg(long = "standard")]
         standard: bool,
     },
-    /// Log explore-mode LLM traffic through a proxy — a debug aid for `--as
-    /// mcp-llm`. Point your explore `base_url` at `http://localhost:<port>/v1`.
+    /// Enable explore-mode tracing and browse recorded sessions in a TUI — a
+    /// debug aid for `--as mcp-llm`. Records to `.grove/traces/`; no proxy.
     Tap {
-        /// Project directory used to derive the upstream provider (default: current).
+        /// Project directory holding `.grove/` (default: current).
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// Port to listen on.
-        #[arg(long, default_value_t = 11435)]
-        listen: u16,
-        /// Upstream base URL (default: derived from .grove/explore.json `base_url`).
-        #[arg(long)]
-        upstream: Option<String>,
-        /// One-line summaries instead of full prompt/response bodies.
-        #[arg(long)]
-        brief: bool,
+        /// Open the browser without turning tracing on in the config.
+        #[arg(long = "no-enable")]
+        no_enable: bool,
     },
 }
 
@@ -341,7 +336,7 @@ fn main() -> Result<()> {
             println!("wrote grove.lock ({} grammars)", lock);
         }
         Cmd::Serve { path, explore, standard } => mcp::serve(&path, explore, standard)?,
-        Cmd::Tap { path, listen, upstream, brief } => tap::run(&path, listen, upstream, brief)?,
+        Cmd::Tap { path, no_enable } => tap::run(&path, no_enable)?,
     }
     Ok(())
 }

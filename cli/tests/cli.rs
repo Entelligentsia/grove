@@ -721,6 +721,76 @@ fn config_in_non_tty_fails_fast() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// `grove tap` (default) turns on tracing in the explore config before opening
+/// the browser. The TUI itself needs a TTY, so here (non-TTY) it enables the
+/// setting, then exits non-zero on the terminal guard — but the config write
+/// must have already landed with `tap: true`.
+#[test]
+fn tap_enables_tracing_in_config() {
+    let dir = fixture("tap_enable");
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": ["grove"],
+            "tap": false
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let out = grove(&dir, &["tap"]);
+    // Non-TTY: the browser can't open, so a non-zero exit is expected.
+    assert!(!out.status.success(), "tap should fail the TTY guard in a non-TTY");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal") || stderr.contains("tracing enabled"),
+        "stderr should mention enabling tracing or the TTY guard, got: {stderr}"
+    );
+
+    // The enable step ran before the guard: tap is now true on disk.
+    let cfg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
+            .unwrap();
+    assert_eq!(cfg["tap"], serde_json::json!(true), "tap flipped on in explore.json");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `grove tap --no-enable` must NOT modify the config; it only opens the browser
+/// (which then fails the non-TTY guard).
+#[test]
+fn tap_no_enable_leaves_config_untouched() {
+    let dir = fixture("tap_no_enable");
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    let original = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "llama3",
+        "mode": "standard",
+        "allowed_tools": ["grove"],
+        "tap": false
+    })
+    .to_string();
+    std::fs::write(grove_dir.join("explore.json"), &original).unwrap();
+
+    let out = grove(&dir, &["tap", "--no-enable"]);
+    assert!(!out.status.success(), "tap --no-enable still fails the TTY guard in a non-TTY");
+
+    let cfg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
+            .unwrap();
+    assert_eq!(cfg["tap"], serde_json::json!(false), "--no-enable must not flip tap");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// GROVE-S02-T07 (AC1b): two consecutive `grove init --as mcp-llm --dry-run`
 /// invocations write no files and produce stable output.
 #[test]

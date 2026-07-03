@@ -20,15 +20,17 @@ cli/src/registry.rs    grammar resolver, cache-location precedence, catalog/inde
 cli/src/fetch.rs       `grove fetch` — install grammars from the hosted registry
 cli/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
 cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision grammars + harness glue
-cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb)
-cli/src/tap.rs         `grove tap` — logging reverse proxy for explore-mode LLM traffic (debug)
+cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — incl. model-list dropdown
+cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
+cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
 skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 
 core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
   mod.rs               re-exports; public surface is run_explore[_reporting]()
-  config.rs            ExploreConfig — .grove/explore.json serde + atomic save
-  client.rs            ChatClient trait + OpenAiCompatClient + health_probe()
-  agent.rs             bounded loop (≤ 6 turns, forced-final-answer, no byte budget); plan-first state machine + progress
+  config.rs            ExploreConfig — .grove/explore.json serde + atomic save (tap, trace_retain)
+  client.rs            ChatClient trait + OpenAiCompatClient + health_probe() + list_models() + Usage
+  agent.rs             bounded loop (≤ 6 turns, forced-final-answer, no byte budget); plan-first state machine + progress + trace
+  trace.rs             TraceWriter (per-session JSONL under .grove/traces/) + request/response pretty-printers
   toolset.rs           the 4 inner tools (Grove/Read/Glob/Grep) + submit_plan — schemas + dispatch
   steering.rs          per-arm system prompts (standard=merit / balanced=plan-first / aggressive=coerce)
   grounding.rs         <final_answer> citation parse + filesystem validation
@@ -106,10 +108,9 @@ grove serve                         # MCP server over stdio
 
 # setup / registry
 grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
-grove config [path]                 # open the explore config TUI (requires TTY)
+grove config [path]                 # open the explore config TUI (requires TTY); Tap toggle + model dropdown
 grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
-grove config [path]                 # + Tap toggle (trace to .grove/explore-trace.log) & F3 live-trace view
-grove tap [path] [--listen P] [--upstream URL] [--brief]  # standalone proxy variant of the trace
+grove tap [path] [--no-enable]      # enable session tracing (.grove/traces/) + browse it in a TUI
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order

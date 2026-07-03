@@ -46,6 +46,9 @@ pub enum Action {
     Save,
     /// Exit without touching the on-disk config.
     Quit,
+    /// Fetch the provider's model list (blocking IO the loop performs, then feeds
+    /// back a [`Msg::ModelListFetched`] / [`Msg::ModelFetchError`]).
+    FetchModels,
 }
 
 /// Application-level messages produced by the event loop and consumed by
@@ -68,6 +71,19 @@ pub enum Msg {
     ModelChar(char),
     /// Model field — backspace.
     ModelBackspace,
+    /// Model field — open the auto-discovery dropdown (triggers a fetch).
+    ModelDropdownOpen,
+    /// Model dropdown — move the highlight up/down.
+    ModelUp,
+    ModelDown,
+    /// Model dropdown — accept the highlighted entry.
+    ModelSelect,
+    /// Model dropdown — close without selecting.
+    ModelClose,
+    /// Model dropdown — the fetched model ids arrived.
+    ModelListFetched(Vec<String>),
+    /// Model dropdown — the fetch failed (message shown, free-text still works).
+    ModelFetchError(String),
     /// Mode list — up/prev.
     ModeUp,
     /// Mode list — down/next.
@@ -84,26 +100,12 @@ pub enum Msg {
     ToolsAddBackspace,
     /// Tools list — confirm add-tool buffer as a new tool entry.
     ToolsAddConfirm,
-    /// Tap field — toggle in-process LLM tracing on/off.
+    /// Tap field — toggle session tracing on/off.
     TapToggle,
-    /// Toggle the live trace-log view.
-    ToggleLogs,
-    /// Trace view — scroll up/down one line.
-    LogUp,
-    LogDown,
-    /// Trace view — scroll up/down one page.
-    LogPageUp,
-    LogPageDown,
-    /// Trace view — jump to top (stop following) / bottom (resume following).
-    LogTop,
-    LogBottom,
     /// User pressed save.
     Save,
     /// User pressed quit/cancel.
     Quit,
-    /// Stub extension point for future model auto-discovery (AC #5, out-of-scope).
-    #[allow(dead_code)]
-    ModelListFetched(Vec<String>),
 }
 
 /// Default base URLs for each provider.
@@ -129,18 +131,18 @@ pub struct App {
     pub add_tool_buf: String,
     /// Which field is focused.
     pub focus: Field,
-    /// In-process LLM tracing to `.grove/explore-trace.log`.
+    /// Session tracing to `.grove/traces/` (browse with `grove tap`).
     pub tap: bool,
-    /// Whether the live trace-log view is showing (toggled with F3).
-    pub show_logs: bool,
-    /// Tail of the trace log, refreshed by the event loop while `show_logs`.
-    pub logs: Vec<String>,
-    /// Scroll offset (top line shown) in the trace view; kept pinned to the
-    /// bottom by the event loop while `log_follow`.
-    pub log_scroll: usize,
-    /// When true, the trace view sticks to the newest lines; scrolling up
-    /// releases it, scrolling back to the bottom re-attaches.
-    pub log_follow: bool,
+    /// Trace-session retention, carried through unchanged (edited via config file).
+    pub trace_retain: u32,
+    /// Whether the model auto-discovery dropdown is open.
+    pub model_dropdown: bool,
+    /// Model ids fetched from the provider's `/models` listing.
+    pub model_list: Vec<String>,
+    /// Highlighted entry within the filtered dropdown.
+    pub model_cursor: usize,
+    /// Transient dropdown status (fetching / error / empty), shown in the list.
+    pub model_status: Option<String>,
     /// `true` after the user has manually edited `base_url`, preventing
     /// provider-switch from clobbering a custom endpoint.
     pub dirty_url: bool,
@@ -150,28 +152,7 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let cfg = ExploreConfig::default();
-        Self {
-            provider: 0, // Ollama
-            base_url: cfg.base_url,
-            model: cfg.model,
-            mode: 0, // Standard
-            tools: cfg
-                .allowed_tools
-                .into_iter()
-                .map(|t| (t, true))
-                .collect(),
-            tool_cursor: 0,
-            add_tool_buf: String::new(),
-            focus: Field::Provider,
-            tap: cfg.tap,
-            show_logs: false,
-            logs: Vec::new(),
-            log_scroll: 0,
-            log_follow: true,
-            dirty_url: false,
-            last_error: None,
-        }
+        App::from_config(ExploreConfig::default()).reset_dirty()
     }
 }
 
@@ -202,13 +183,32 @@ impl App {
             add_tool_buf: String::new(),
             focus: Field::Provider,
             tap: cfg.tap,
-            show_logs: false,
-            logs: Vec::new(),
-            log_scroll: 0,
-            log_follow: true,
+            trace_retain: cfg.trace_retain,
+            model_dropdown: false,
+            model_list: Vec::new(),
+            model_cursor: 0,
+            model_status: None,
             dirty_url: true, // loaded URL is custom; don't clobber on provider switch
             last_error: None,
         }
+    }
+
+    /// The default-construction path: same as `from_config(default)` but with
+    /// `dirty_url` cleared so provider switches refresh the URL default.
+    fn reset_dirty(mut self) -> Self {
+        self.dirty_url = false;
+        self
+    }
+
+    /// The dropdown entries matching the current model buffer (case-insensitive
+    /// substring). An empty buffer shows the full list.
+    pub fn model_filtered(&self) -> Vec<String> {
+        let needle = self.model.to_lowercase();
+        self.model_list
+            .iter()
+            .filter(|m| needle.is_empty() || m.to_lowercase().contains(&needle))
+            .cloned()
+            .collect()
     }
 
     /// Convert TUI state back to a validated [`ExploreConfig`].
@@ -235,6 +235,7 @@ impl App {
             mode,
             allowed_tools,
             tap: self.tap,
+            trace_retain: self.trace_retain,
         };
         cfg.validate()?;
         Ok(cfg)

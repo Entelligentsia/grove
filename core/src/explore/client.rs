@@ -353,6 +353,11 @@ pub struct ChatResponse {
     /// The completion choices; we use the first.
     #[serde(default)]
     pub choices: Vec<Choice>,
+    /// Token accounting for this completion, when the provider reports it. Both
+    /// Ollama and llama.cpp emit an OpenAI-style `usage` object; it is the source
+    /// of the per-turn / per-call token metrics the trace subsystem records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
 }
 
 impl ChatResponse {
@@ -360,6 +365,22 @@ impl ChatResponse {
     pub fn first_message(&self) -> Option<&Message> {
         self.choices.first().map(|c| &c.message)
     }
+}
+
+/// OpenAI-style token accounting for a completion. All fields default to `0`
+/// when a provider omits them, so a partial `usage` object never fails to parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Usage {
+    /// Tokens consumed by the prompt (input).
+    #[serde(default)]
+    pub prompt_tokens: u32,
+    /// Tokens generated in the completion (output).
+    #[serde(default)]
+    pub completion_tokens: u32,
+    /// Prompt + completion. Providers usually report this; when absent it can be
+    /// recomputed as `prompt_tokens + completion_tokens`.
+    #[serde(default)]
+    pub total_tokens: u32,
 }
 
 /// A single completion choice.
@@ -641,6 +662,34 @@ pub fn health_probe(cfg: &ExploreConfig) -> Result<(), HealthError> {
     }
 }
 
+/// List the model ids the provider currently serves (its `/models` listing).
+///
+/// Powers the `grove config` model dropdown (auto-discovery). Uses the same
+/// tolerant, short-deadline GET as [`health_probe`] but returns the raw id list
+/// instead of matching one. Any transport / parse failure yields a `String`
+/// error so the caller can fall back to free-text entry without blocking on a
+/// hard dependency (the local server may simply not be running yet).
+pub fn list_models(cfg: &ExploreConfig) -> Result<Vec<String>, String> {
+    let base = cfg.base_url.trim_end_matches('/');
+    let url = format!("{base}/models");
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_TIMEOUT)
+        .timeout(PROBE_TIMEOUT)
+        .build();
+
+    let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+    let raw = resp.into_string().map_err(|e| e.to_string())?;
+    let listing: ModelsResponse =
+        serde_json::from_str(&raw).map_err(|e| format!("unparseable /models response: {e}"))?;
+    Ok(listing
+        .data
+        .into_iter()
+        .map(|m| m.id)
+        .filter(|id| !id.is_empty())
+        .collect())
+}
+
 /// Best-effort tolerant model matching.
 ///
 /// An empty listing is treated as a match (some servers report no models even
@@ -806,6 +855,30 @@ mod tests {
         // …and deserializing it back yields the same normalized ToolCall.
         let back: ToolCall = serde_json::from_value(v).unwrap();
         assert_eq!(back, tc);
+    }
+
+    #[test]
+    fn usage_is_parsed_when_present_and_absent() {
+        // Present: the token accounting is captured for the trace metrics.
+        let with = r#"{"choices":[{"message":{"role":"assistant","content":"hi"}}],
+            "usage":{"prompt_tokens":120,"completion_tokens":8,"total_tokens":128}}"#;
+        let resp: ChatResponse = serde_json::from_str(with).unwrap();
+        let u = resp.usage.expect("usage present");
+        assert_eq!(u.prompt_tokens, 120);
+        assert_eq!(u.completion_tokens, 8);
+        assert_eq!(u.total_tokens, 128);
+
+        // Absent: older/leaner responses still parse, usage is None.
+        let without = r#"{"choices":[{"message":{"role":"assistant","content":"hi"}}]}"#;
+        let resp: ChatResponse = serde_json::from_str(without).unwrap();
+        assert!(resp.usage.is_none());
+
+        // Partial: a usage object missing a field defaults it to 0, never fails.
+        let partial = r#"{"choices":[],"usage":{"prompt_tokens":5}}"#;
+        let resp: ChatResponse = serde_json::from_str(partial).unwrap();
+        let u = resp.usage.unwrap();
+        assert_eq!(u.prompt_tokens, 5);
+        assert_eq!(u.completion_tokens, 0);
     }
 
     #[test]

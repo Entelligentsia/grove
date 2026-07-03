@@ -30,10 +30,7 @@ serde_json = "1"
 ignore = "0.4"
 anyhow = "1"
 
-# Full-screen config TUI (grove config verb)
+# Full-screen config + trace TUIs (grove config / grove tap verbs)
 ratatui = "0.29"
 crossterm = "0.28"
-
-# Upstream leg of `grove tap` (explore-mode debug proxy); rustls, same as core.
-ureq = "2"
 

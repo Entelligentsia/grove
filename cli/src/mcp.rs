@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use grove_core::explore::{
     health_probe, run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient,
-    ProgressReporter,
+    ProgressReporter, SessionMeta, TraceWriter,
 };
 use grove_core::{ops, registry};
 
@@ -76,6 +76,10 @@ pub fn serve(root: &Path, force_explore: bool, force_standard: bool) -> Result<(
     let mut stdout = std::io::stdout();
     eprintln!("grove mcp: ready on stdio");
 
+    // Opened lazily on `initialize` (once the client identity is known) when the
+    // explore surface has tap enabled; `None` in every other case.
+    let mut trace_writer: Option<TraceWriter> = None;
+
     for line in stdin.lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -94,7 +98,17 @@ pub fn serve(root: &Path, force_explore: bool, force_standard: bool) -> Result<(
         let method = req.get("method").and_then(Value::as_str).unwrap_or("");
         let params = req.get("params").cloned().unwrap_or(Value::Null);
 
-        let response = match handle(method, &params, &surface) {
+        // On initialize, the client identity arrives — open the session trace so
+        // every subsequent explore call is recorded under it.
+        if method == "initialize" && trace_writer.is_none() {
+            if let Surface::Explore { cfg, root } = &surface {
+                if cfg.tap {
+                    trace_writer = open_session_trace(cfg, root, &params);
+                }
+            }
+        }
+
+        let response = match handle(method, &params, &surface, trace_writer.as_ref()) {
             Outcome::Notify => continue,
             Outcome::Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Outcome::Err { code, message } => json!({
@@ -118,7 +132,33 @@ enum Outcome {
     Notify,
 }
 
-fn handle(method: &str, params: &Value, surface: &Surface) -> Outcome {
+/// Open a session trace for an explore surface, deriving the id from the MCP
+/// `clientInfo` in the `initialize` params. Best-effort: a write failure yields
+/// `None` and tracing silently no-ops.
+fn open_session_trace(cfg: &ExploreConfig, root: &Path, params: &Value) -> Option<TraceWriter> {
+    let ci = params.get("clientInfo");
+    let name = ci.and_then(|c| c.get("name")).and_then(Value::as_str).unwrap_or("unknown");
+    let version = ci.and_then(|c| c.get("version")).and_then(Value::as_str).unwrap_or("");
+    let meta = SessionMeta::new(
+        &cfg.model,
+        &enum_str(&cfg.mode),
+        &enum_str(&cfg.provider),
+        &cfg.base_url,
+        name,
+        version,
+    );
+    TraceWriter::open(root, &meta, cfg.trace_retain)
+}
+
+/// The lowercase on-disk spelling of a serde-lowercased enum (Mode / Provider).
+fn enum_str<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_value(v)
+        .ok()
+        .and_then(|x| x.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn handle(method: &str, params: &Value, surface: &Surface, trace: Option<&TraceWriter>) -> Outcome {
     match method {
         "initialize" => {
             // Answer with the client's version only if we support it; otherwise
@@ -147,7 +187,7 @@ fn handle(method: &str, params: &Value, surface: &Surface) -> Outcome {
         },
         "tools/call" => match surface {
             Surface::Standard => call_tool(params),
-            Surface::Explore { cfg, root } => call_explore_tool(params, cfg, root),
+            Surface::Explore { cfg, root } => call_explore_tool(params, cfg, root, trace),
         },
         other => Outcome::Err {
             code: -32601,
@@ -286,7 +326,12 @@ fn progress_token(params: &Value) -> Option<Value> {
 }
 
 /// Dispatch the `explore` tool call in explore-mode surface.
-fn call_explore_tool(params: &Value, cfg: &ExploreConfig, root: &Path) -> Outcome {
+fn call_explore_tool(
+    params: &Value,
+    cfg: &ExploreConfig,
+    root: &Path,
+    trace: Option<&TraceWriter>,
+) -> Outcome {
     let question = match resolve_explore_question(params) {
         Some(q) => q,
         None => {
@@ -303,7 +348,7 @@ fn call_explore_tool(params: &Value, cfg: &ExploreConfig, root: &Path) -> Outcom
         Some(r) => r,
         None => &noop,
     };
-    match run_explore_reporting(&question, root, cfg, &client, sink) {
+    match run_explore_reporting(&question, root, cfg, &client, sink, trace) {
         Ok(answer) => Outcome::Ok(tool_text(&json!(answer.text), false)),
         Err(ExploreError::ProviderDown { url, detail }) => Outcome::Ok(tool_text(
             &json!(format!(
@@ -694,28 +739,28 @@ mod tests {
 
     #[test]
     fn initialize_echoes_supported_version_else_default() {
-        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" }), &Surface::Standard));
+        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" }), &Surface::Standard, None));
         assert_eq!(v["protocolVersion"], json!("2024-11-05"), "echo a supported version");
         assert_eq!(v["serverInfo"]["name"], json!("grove"));
         assert!(v["instructions"].as_str().unwrap().contains("symbol-id"));
 
-        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" }), &Surface::Standard));
+        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" }), &Surface::Standard, None));
         assert_eq!(v2["protocolVersion"], json!(DEFAULT_PROTOCOL), "unknown -> our latest");
     }
 
     #[test]
     fn ping_and_tools_list_and_notifications() {
-        assert_eq!(ok(handle("ping", &Value::Null, &Surface::Standard)), json!({}));
+        assert_eq!(ok(handle("ping", &Value::Null, &Surface::Standard, None)), json!({}));
 
-        let v = ok(handle("tools/list", &Value::Null, &Surface::Standard));
+        let v = ok(handle("tools/list", &Value::Null, &Surface::Standard, None));
         let names: Vec<&str> = v["tools"].as_array().unwrap().iter()
             .map(|t| t["name"].as_str().unwrap()).collect();
         for expected in ["outline", "symbols", "source", "check", "callers", "map", "definition"] {
             assert!(names.contains(&expected), "tools/list missing {expected}");
         }
 
-        assert!(matches!(handle("notifications/initialized", &Value::Null, &Surface::Standard), Outcome::Notify));
-        assert!(matches!(handle("notifications/cancelled", &Value::Null, &Surface::Standard), Outcome::Notify));
+        assert!(matches!(handle("notifications/initialized", &Value::Null, &Surface::Standard, None), Outcome::Notify));
+        assert!(matches!(handle("notifications/cancelled", &Value::Null, &Surface::Standard, None), Outcome::Notify));
     }
 
     #[test]
@@ -746,7 +791,7 @@ mod tests {
 
     #[test]
     fn unknown_method_is_method_not_found() {
-        match handle("does/not/exist", &Value::Null, &Surface::Standard) {
+        match handle("does/not/exist", &Value::Null, &Surface::Standard, None) {
             Outcome::Err { code, message } => {
                 assert_eq!(code, -32601);
                 assert!(message.contains("method not found"));

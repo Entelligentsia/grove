@@ -21,9 +21,10 @@ use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
 
-use super::client::{ChatClient, ChatRequest, ClientError, Message};
+use super::client::{ChatClient, ChatRequest, ClientError, Message, Usage};
 use super::config::{ExploreConfig, Mode};
-use super::{grounding, steering, toolset, trace};
+use super::trace::TraceWriter;
+use super::{grounding, steering, toolset};
 
 // --- Bench constants (from the vendored MCP env / mcp_server.py) ------------
 
@@ -140,18 +141,24 @@ pub fn run_explore(
     cfg: &ExploreConfig,
     client: &dyn ChatClient,
 ) -> Result<ExploreAnswer, ExploreError> {
-    run_explore_reporting(question, root, cfg, client, &NoopReporter)
+    run_explore_reporting(question, root, cfg, client, &NoopReporter, None)
 }
 
 /// Explore `question` over `root`, delegating to the local model via `client`
 /// and reporting per-turn progress to `progress`. Direct port of
 /// `_instrumented_loop` (which subsumes `_agent_loop` when plan-first is off).
+///
+/// When `trace` is `Some`, each model round-trip is recorded to the session's
+/// structured trace (one `call_start` at entry, a `turn` per round-trip with its
+/// usage + wall time, a `call_end` before returning). `None` disables tracing
+/// with zero overhead — [`run_explore`] passes `None`.
 pub fn run_explore_reporting(
     question: &str,
     root: &Path,
     cfg: &ExploreConfig,
     client: &dyn ChatClient,
     progress: &dyn ProgressReporter,
+    trace: Option<&TraceWriter>,
 ) -> Result<ExploreAnswer, ExploreError> {
     // Progress bar spans the worst case: one tick per turn, plus a final tick.
     let total = MAX_TURNS + 2;
@@ -174,6 +181,12 @@ pub fn run_explore_reporting(
     if let Some(plan) = &cached_plan {
         messages.push(Message::user(format!("{CACHED_HINT}{plan}")));
     }
+
+    // Trace this call, if a session writer is attached. `call_id` correlates the
+    // per-turn and end events; `agg` accumulates token usage across turns.
+    let call_id = trace.map(|tw| tw.call_start(question)).unwrap_or(0);
+    let call_t0 = std::time::Instant::now();
+    let mut agg = Usage::default();
 
     let mut phase = if do_recon { Phase::Recon } else { Phase::Execute };
     let mut grove_turns = 0usize;
@@ -212,21 +225,26 @@ pub fn run_explore_reporting(
         let req = ChatRequest::new(messages.clone())
             .with_tools(tools)
             .with_bench_sampling(TEMPERATURE, TOP_P, MAX_COMPLETION_TOKENS, None, qwen);
-        if cfg.tap {
-            if let Ok(mut v) = serde_json::to_value(&req) {
-                // The client fills `model` at send-time; mirror it for the trace.
-                if let Some(obj) = v.as_object_mut() {
-                    obj.insert("model".to_string(), Value::String(cfg.model.clone()));
-                }
-                trace::append(root, &trace::format_request(&v));
+        // Snapshot the request body for the trace before the client consumes it,
+        // mirroring the `model` the client fills in at send-time.
+        let req_trace = trace.map(|_| {
+            let mut v = serde_json::to_value(&req).unwrap_or(Value::Null);
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("model".to_string(), Value::String(cfg.model.clone()));
             }
-        }
+            v
+        });
         let t0 = std::time::Instant::now();
         let resp = client.chat(req).map_err(map_client_error)?;
-        if cfg.tap {
-            if let Ok(v) = serde_json::to_value(&resp) {
-                trace::append(root, &trace::format_response(&v, Some(t0.elapsed().as_millis())));
+        let wall = t0.elapsed().as_millis();
+        if let (Some(tw), Some(req_v)) = (trace, &req_trace) {
+            if let Some(u) = resp.usage {
+                agg.prompt_tokens = agg.prompt_tokens.saturating_add(u.prompt_tokens);
+                agg.completion_tokens = agg.completion_tokens.saturating_add(u.completion_tokens);
+                agg.total_tokens = agg.total_tokens.saturating_add(u.total_tokens);
             }
+            let resp_v = serde_json::to_value(&resp).unwrap_or(Value::Null);
+            tw.turn(call_id, n, req_v, &resp_v, resp.usage, wall);
         }
         let step = match resp.first_message() {
             Some(m) => m.clone(),
@@ -241,11 +259,11 @@ pub fn run_explore_reporting(
             // is eventually forced to submit_plan).
             if phase == Phase::Execute {
                 progress.report(total, total, "grounding answer");
-                return Ok(ExploreAnswer {
-                    text: grounding::get_final_answer(&last_text, root),
-                    turns: n,
-                    truncated: false,
-                });
+                let text = grounding::get_final_answer(&last_text, root);
+                if let Some(tw) = trace {
+                    tw.call_end(call_id, &text, n, agg, call_t0.elapsed().as_millis(), false);
+                }
+                return Ok(ExploreAnswer { text, turns: n, truncated: false });
             }
             continue;
         }
@@ -300,11 +318,12 @@ pub fn run_explore_reporting(
 
     progress.report(total, total, "grounding answer");
     // Fell out via the turn cap: return the best-effort last text, grounded.
-    Ok(ExploreAnswer {
-        text: grounding::get_final_answer(&last_text, root),
-        turns: n.saturating_sub(1),
-        truncated: true,
-    })
+    let text = grounding::get_final_answer(&last_text, root);
+    let turns = n.saturating_sub(1);
+    if let Some(tw) = trace {
+        tw.call_end(call_id, &text, turns, agg, call_t0.elapsed().as_millis(), true);
+    }
+    Ok(ExploreAnswer { text, turns, truncated: true })
 }
 
 /// A short human-facing summary of a turn's tool activity, for the next progress
@@ -416,6 +435,7 @@ mod tests {
                 },
                 finish_reason: None,
             }],
+            usage: None,
         }
     }
 
@@ -435,6 +455,7 @@ mod tests {
                 },
                 finish_reason: None,
             }],
+            usage: None,
         }
     }
 
@@ -446,6 +467,7 @@ mod tests {
             mode,
             allowed_tools: vec!["grove".into(), "rg".into()],
             tap: false,
+            trace_retain: 50,
         }
     }
 
@@ -527,7 +549,8 @@ mod tests {
         let rec = Recorder {
             ticks: RefCell::new(Vec::new()),
         };
-        run_explore_reporting("q", Path::new("."), &cfg(Mode::Standard), &client, &rec).unwrap();
+        run_explore_reporting("q", Path::new("."), &cfg(Mode::Standard), &client, &rec, None)
+            .unwrap();
         let ticks = rec.ticks.borrow();
         // At least: turn 1 pre-call, turn 2 pre-call, final "grounding answer".
         assert!(ticks.len() >= 3, "got {} ticks", ticks.len());

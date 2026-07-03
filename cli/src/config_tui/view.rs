@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -25,17 +25,12 @@ const MODE_DESCS: &[&str] = &[
 
 /// Render the full TUI frame.
 pub fn view(app: &App, frame: &mut Frame) {
-    if app.show_logs {
-        render_logs(app, frame);
-        return;
-    }
-
     let area = frame.area();
 
-    // Outer chrome
+    // Outer chrome — shortcuts now live in the footer, not the title.
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title(" grove config — Explore Setup (Tab: field · Space: toggle · F2: save · F3: trace · Esc: cancel) ");
+        .title(" grove config — Explore Setup ");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -50,6 +45,7 @@ pub fn view(app: &App, frame: &mut Frame) {
             Constraint::Length(3), // Tap
             Constraint::Min(4),    // Allowed Tools
             Constraint::Length(1), // Status bar
+            Constraint::Length(1), // Footer shortcuts
         ])
         .split(inner);
 
@@ -60,6 +56,12 @@ pub fn view(app: &App, frame: &mut Frame) {
     render_tap(app, frame, rows[4]);
     render_tools(app, frame, rows[5]);
     render_status(app, frame, rows[6]);
+    render_footer(app, frame, rows[7]);
+
+    // The model dropdown floats over the lower rows when open.
+    if app.focus == Field::Model && app.model_dropdown {
+        render_model_dropdown(app, frame, rows[2]);
+    }
 }
 
 // ── Tap ─────────────────────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ pub fn view(app: &App, frame: &mut Frame) {
 fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Field::Tap;
     let text = if app.tap {
-        "☑ on — tracing LLM traffic to .grove/explore-trace.log  (F3: view live)"
+        "☑ on — recording sessions to .grove/traces/  (browse: grove tap)"
     } else {
         "☐ off"
     };
@@ -83,26 +85,9 @@ fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(border_style(focused))
-                .title(" Tap — trace LLM traffic (Space: toggle) "),
+                .title(" Tap — trace LLM sessions (Space: toggle) "),
         )
         .style(Style::default().fg(fg));
-    frame.render_widget(para, area);
-}
-
-// ── Live trace-log view ───────────────────────────────────────────────────────
-
-fn render_logs(app: &App, frame: &mut Frame) {
-    let area = frame.area();
-    let status = if app.log_follow { "following" } else { "scrolled" };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(FOCUSED))
-        .title(format!(
-            " Explore trace — .grove/explore-trace.log  [{status}]  (↑↓/PgUp/PgDn/g/G: scroll · F3/Esc: back · Ctrl-C: quit) "
-        ));
-    let para = Paragraph::new(app.logs.join("\n"))
-        .block(block)
-        .scroll((app.log_scroll as u16, 0));
     frame.render_widget(para, area);
 }
 
@@ -161,15 +146,70 @@ fn render_url(app: &App, frame: &mut Frame, area: Rect) {
 fn render_model(app: &App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Field::Model;
     let cursor_suffix = if focused { "█" } else { "" };
+    let title = if focused {
+        " Model (↓ to pick from provider) "
+    } else {
+        " Model "
+    };
     let para = Paragraph::new(format!("{}{}", app.model, cursor_suffix))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(border_style(focused))
-                .title(" Model "),
+                .title(title),
         )
         .style(Style::default().fg(if focused { FOCUSED } else { NORMAL }));
     frame.render_widget(para, area);
+}
+
+/// The floating auto-discovery dropdown under the Model field.
+fn render_model_dropdown(app: &App, frame: &mut Frame, model_area: Rect) {
+    let filtered = app.model_filtered();
+    let rows: Vec<ListItem> = if filtered.is_empty() {
+        let msg = app
+            .model_status
+            .clone()
+            .unwrap_or_else(|| "no matches — Esc to close".to_string());
+        vec![ListItem::new(Line::from(Span::styled(msg, Style::default().fg(DIM))))]
+    } else {
+        filtered
+            .iter()
+            .map(|m| ListItem::new(Line::from(Span::styled(m.clone(), Style::default().fg(NORMAL)))))
+            .collect()
+    };
+
+    // Height: entries (capped) + borders; width matches the model field.
+    let shown = filtered.len().clamp(1, 8) as u16;
+    let height = (shown + 2).clamp(3, model_area.height.saturating_add(10));
+    let full = frame.area();
+    let y = (model_area.y + model_area.height).min(full.height.saturating_sub(height));
+    let popup = Rect {
+        x: model_area.x + 1,
+        y,
+        width: model_area.width.saturating_sub(2),
+        height,
+    };
+
+    let title = match &app.model_status {
+        Some(s) => format!(" Models · {s} "),
+        None => " Models (↑↓ select · type to filter · Enter · Esc) ".to_string(),
+    };
+    let list = List::new(rows)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(FOCUSED))
+                .title(title),
+        )
+        .highlight_style(Style::default().fg(FOCUSED).add_modifier(Modifier::BOLD))
+        .highlight_symbol("▸ ");
+
+    let mut state = ListState::default();
+    if !filtered.is_empty() {
+        state.select(Some(app.model_cursor.min(filtered.len() - 1)));
+    }
+    frame.render_widget(Clear, popup);
+    frame.render_stateful_widget(list, popup, &mut state);
 }
 
 // ── Mode ──────────────────────────────────────────────────────────────────────
@@ -274,6 +314,31 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         Span::styled(hint, Style::default().fg(DIM))
     };
     frame.render_widget(Paragraph::new(Line::from(text)), area);
+}
+
+// ── Footer shortcut bar ─────────────────────────────────────────────────────
+
+fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
+    // Context-sensitive to the focused field; global keys always shown.
+    let field_keys = match app.focus {
+        Field::Provider => "↑↓ select provider",
+        Field::Url => "type to edit URL",
+        Field::Model if app.model_dropdown => "↑↓ pick · type filter · Enter select · Esc close",
+        Field::Model => "type model · ↓ browse provider models",
+        Field::Mode => "↑↓ select mode",
+        Field::Tap => "Space toggle tracing",
+        Field::Tools => "↑↓ move · Space toggle · type+Enter add",
+    };
+    let text = format!(" {field_keys}  │  Tab next · F2 save · Esc cancel ");
+    let bar = Paragraph::new(Line::from(Span::styled(
+        text,
+        Style::default()
+            .fg(Color::Black)
+            .bg(FOCUSED)
+            .add_modifier(Modifier::BOLD),
+    )))
+    .style(Style::default().bg(FOCUSED));
+    frame.render_widget(bar, area);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
