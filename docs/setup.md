@@ -33,13 +33,20 @@ grove init --as both     # MCP wiring and grammars, for skill + MCP side by side
 grove init --as mcp-llm  # explore-mode: .mcp.json (serve --explore) + CLAUDE.md + AGENTS.md
 ```
 
-## Explore-mode — `grove init --as mcp-llm`
+## Explore-mode — `grove init --as mcp-llm` · ⚠️ Experimental
+
+> **Experimental / opt-in — unreleased.** Behaviour, the `.grove/explore.json`
+> config format, and the tool contract may change without notice. The standard
+> `--as mcp|skill|both` targets and the 7-tool `grove serve` are unaffected. See
+> the README's *Delegated local-LLM mode* section for the architecture diagram.
 
 `--as mcp-llm` wires grove in **explore-mode**: instead of exposing the 7
 structural tools directly, the MCP server surfaces a single `explore` tool
-backed by a local LLM (configured via `.grove/explore.json`). The agent routes
-all code questions through `mcp__grove__explore`; the local model selects the
-appropriate grove tree-sitter tool internally.
+backed by a local LLM (configured via `.grove/explore.json`). The outer agent
+asks `mcp__grove__explore` narrow *where-is* questions; the inner explorer
+locates the code with grove's tree-sitter + text tools and returns validated
+`file:line` citations. If the provider is unhealthy at startup, grove falls back
+to the standard 7 structural tools.
 
 What it writes:
 

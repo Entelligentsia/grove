@@ -125,13 +125,42 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 Add `--json` to any command for the agent-facing shape. Full reference + examples:
 **[Tools](docs/tools.md)**.
 
-## Delegated local-LLM mode (`mcp__grove__explore`)
+## Delegated local-LLM mode (`mcp__grove__explore`) · ⚠️ Experimental
+
+> **Experimental / opt-in — unreleased.** The default grove (the CLI and the
+> standard 7-tool `grove serve`) is unaffected. This mode's behaviour, its config
+> (`.grove/explore.json`), and the tool contract may change without notice.
 
 **What it is**: `mcp__grove__explore` is a single MCP tool the outer coding agent
-calls with a natural-language question. Grove's inner Rust explorer agent then
-drives its own tool-calling loop locally — using your configured local or
-OpenAI-compatible LLM — and returns a synthesised answer. The outer agent never
-sees the individual tool calls; it just gets the result.
+calls with **one narrow "where is X" question**. Grove's inner Rust explorer
+agent drives a short, bounded tool-calling loop locally — against your configured
+local / OpenAI-compatible LLM (Ollama, llama.cpp) — and returns a short
+explanation plus **validated `file:line` citations**. It is a *locator* (it finds
+WHERE relevant code lives), not a full-analysis oracle: ask a few targeted
+questions and synthesize the results yourself. The outer agent never sees the
+inner tool calls — and never spends its own context on them.
+
+```
+   outer coding agent (Claude / Cursor / …)
+      │  explore("where is session-cookie signing?")     ▲  explanation +
+      │  — one narrow locator question —                 │  file:line citations
+      ▼                                                  │  (+ live progress ticks)
+ ┌────────────────────  grove serve --explore  ──────────┴──────────────────────┐
+ │  startup health probe (/models):                                             │
+ │     healthy   → surface ONLY  mcp__grove__explore                            │
+ │     unhealthy → fall back to the 7 structural tools   (never a dead server)  │
+ │                                                                              │
+ │  inner explorer  (core::explore) — a port of the proven delegation agent:    │
+ │     bounded loop  ≤ 6 turns · forced final answer at the cap · no byte budget│
+ │                                                                              │
+ │         local LLM  ⇄  Grove · Read · Glob · Grep                             │
+ │      (Ollama / llama.cpp,     Grove → grove binary,  Grep/Glob → ripgrep,    │
+ │       OpenAI-compatible)      Read in-process                                │
+ │                                                                              │
+ │     arms:  standard (merit) · balanced (plan-first) · aggressive (coerce)    │
+ │     result: <final_answer> citations, each validated against the filesystem  │
+ └──────────────────────────────────────────────────────────────────────────────┘
+```
 
 **Setup**:
 ```

@@ -23,14 +23,19 @@ cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision 
 cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb)
 skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 
-core/src/explore/      inner explorer engine (mcp-llm mode)
-  mod.rs               re-exports; public surface is run_explore()
+core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
+  mod.rs               re-exports; public surface is run_explore[_reporting]()
   config.rs            ExploreConfig — .grove/explore.json serde + atomic save
   client.rs            ChatClient trait + OpenAiCompatClient + health_probe()
-  agent.rs             bounded loop (≤ 25 turns / 128 KiB), mode state machine
-  toolset.rs           tool schema registry, build_*_toolset(), dispatch_tool()
-  steering.rs          system prompts for Standard / Balanced / Aggressive
+  agent.rs             bounded loop (≤ 6 turns, forced-final-answer, no byte budget); plan-first state machine + progress
+  toolset.rs           the 4 inner tools (Grove/Read/Glob/Grep) + submit_plan — schemas + dispatch
+  steering.rs          per-arm system prompts (standard=merit / balanced=plan-first / aggressive=coerce)
+  grounding.rs         <final_answer> citation parse + filesystem validation
+  prompts/             system/tool/steering prompt assets, embedded verbatim (include_str!)
 ```
+
+**mcp-llm mode is experimental** (unreleased) — a direct port of the delegation
+study's bench agent. The default CLI + 7-tool `grove serve` are the stable surface.
 
 Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
 For mcp-llm mode: `mcp.rs` → `core::explore::run_explore` → inner loop → answer.
@@ -230,6 +235,7 @@ Personas live in `.forge/personas/`.
 |----------|---------|
 | [Plan](.forge/workflows/plan_task.md) | Research codebase → implementation plan |
 | [Implement](.forge/workflows/implement_plan.md) | Execute approved plan → code changes |
-| [Sprint plan](.forge/workflows/architect_sprint_plan.md) | Sprint planning and task decomposition |
-| [Sprint intake](.forge/workflows/architect_sprint_intake.md) | Sprint intake and requirements elicitation |
+| [Run task](.claude/workflows/wfl-run-task.js) | Full task pipeline (plan → implement → review → approve → commit) |
+| [Run sprint](.claude/workflows/wfl-run-sprint.js) | Full sprint orchestration |
+| [Fix bug](.claude/workflows/wfl-fix-bug.js) | Triage → fix → verify |
 <!-- /forge-workflow-links -->
