@@ -104,6 +104,37 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
         }
         Msg::ToggleLogs => {
             app.show_logs = !app.show_logs;
+            if app.show_logs {
+                app.log_follow = true; // enter at the tail
+            }
+            None
+        }
+        Msg::LogUp => {
+            app.log_follow = false;
+            app.log_scroll = app.log_scroll.saturating_sub(1);
+            None
+        }
+        Msg::LogDown => {
+            // The event loop clamps to the bottom and re-attaches `log_follow`.
+            app.log_scroll += 1;
+            None
+        }
+        Msg::LogPageUp => {
+            app.log_follow = false;
+            app.log_scroll = app.log_scroll.saturating_sub(10);
+            None
+        }
+        Msg::LogPageDown => {
+            app.log_scroll += 10;
+            None
+        }
+        Msg::LogTop => {
+            app.log_follow = false;
+            app.log_scroll = 0;
+            None
+        }
+        Msg::LogBottom => {
+            app.log_follow = true;
             None
         }
 
@@ -181,6 +212,18 @@ mod tests {
         assert!(!app.show_logs);
         update(&mut app, Msg::ToggleLogs);
         assert!(app.show_logs, "log view toggles on");
+        assert!(app.log_follow, "enters the log view following the tail");
+    }
+
+    #[test]
+    fn log_scroll_releases_and_reattaches_follow() {
+        let mut app = fresh();
+        update(&mut app, Msg::ToggleLogs);
+        assert!(app.log_follow);
+        update(&mut app, Msg::LogUp);
+        assert!(!app.log_follow, "scrolling up releases follow");
+        update(&mut app, Msg::LogBottom);
+        assert!(app.log_follow, "End re-attaches follow");
     }
 
     // 2. Provider selection drives URL default (unless URL is dirty).

@@ -74,6 +74,17 @@ fn event_loop(
     loop {
         if app.show_logs {
             refresh_logs(app, root);
+            // Keep the scroll offset valid; pin to the bottom while following.
+            let h = terminal.size()?.height.saturating_sub(2) as usize; // minus borders
+            let max_scroll = app.logs.len().saturating_sub(h);
+            if app.log_follow {
+                app.log_scroll = max_scroll;
+            } else {
+                app.log_scroll = app.log_scroll.min(max_scroll);
+                if app.log_scroll >= max_scroll {
+                    app.log_follow = true; // scrolled to the bottom → re-attach
+                }
+            }
         }
         terminal.draw(|f| view::view(app, f))?;
 
@@ -135,10 +146,16 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
         return None;
     };
 
-    // In the live trace-log view, keys just navigate back out (or quit).
+    // In the live trace-log view, keys scroll the log or navigate back out.
     if app.show_logs {
         return match code {
             KeyCode::F(3) | KeyCode::Esc | KeyCode::Char('l') => Some(Msg::ToggleLogs),
+            KeyCode::Up | KeyCode::Char('k') => Some(Msg::LogUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(Msg::LogDown),
+            KeyCode::PageUp => Some(Msg::LogPageUp),
+            KeyCode::PageDown => Some(Msg::LogPageDown),
+            KeyCode::Home | KeyCode::Char('g') => Some(Msg::LogTop),
+            KeyCode::End | KeyCode::Char('G') => Some(Msg::LogBottom),
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(Msg::Quit),
             _ => None,
         };

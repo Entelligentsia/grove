@@ -93,15 +93,16 @@ fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
 
 fn render_logs(app: &App, frame: &mut Frame) {
     let area = frame.area();
+    let status = if app.log_follow { "following" } else { "scrolled" };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(FOCUSED))
-        .title(" Explore trace — .grove/explore-trace.log  (F3/Esc: back · Ctrl-C: quit) ");
-    let inner_h = block.inner(area).height as usize;
-    let scroll = app.logs.len().saturating_sub(inner_h) as u16;
+        .title(format!(
+            " Explore trace — .grove/explore-trace.log  [{status}]  (↑↓/PgUp/PgDn/g/G: scroll · F3/Esc: back · Ctrl-C: quit) "
+        ));
     let para = Paragraph::new(app.logs.join("\n"))
         .block(block)
-        .scroll((scroll, 0));
+        .scroll((app.log_scroll as u16, 0));
     frame.render_widget(para, area);
 }
 

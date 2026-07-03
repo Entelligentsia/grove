@@ -88,6 +88,15 @@ pub enum Msg {
     TapToggle,
     /// Toggle the live trace-log view.
     ToggleLogs,
+    /// Trace view — scroll up/down one line.
+    LogUp,
+    LogDown,
+    /// Trace view — scroll up/down one page.
+    LogPageUp,
+    LogPageDown,
+    /// Trace view — jump to top (stop following) / bottom (resume following).
+    LogTop,
+    LogBottom,
     /// User pressed save.
     Save,
     /// User pressed quit/cancel.
@@ -126,6 +135,12 @@ pub struct App {
     pub show_logs: bool,
     /// Tail of the trace log, refreshed by the event loop while `show_logs`.
     pub logs: Vec<String>,
+    /// Scroll offset (top line shown) in the trace view; kept pinned to the
+    /// bottom by the event loop while `log_follow`.
+    pub log_scroll: usize,
+    /// When true, the trace view sticks to the newest lines; scrolling up
+    /// releases it, scrolling back to the bottom re-attaches.
+    pub log_follow: bool,
     /// `true` after the user has manually edited `base_url`, preventing
     /// provider-switch from clobbering a custom endpoint.
     pub dirty_url: bool,
@@ -152,6 +167,8 @@ impl Default for App {
             tap: cfg.tap,
             show_logs: false,
             logs: Vec::new(),
+            log_scroll: 0,
+            log_follow: true,
             dirty_url: false,
             last_error: None,
         }
@@ -187,6 +204,8 @@ impl App {
             tap: cfg.tap,
             show_logs: false,
             logs: Vec::new(),
+            log_scroll: 0,
+            log_follow: true,
             dirty_url: true, // loaded URL is custom; don't clobber on provider switch
             last_error: None,
         }
