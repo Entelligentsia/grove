@@ -1,0 +1,20 @@
+{
+  "objective": "Re-reviewed the T03 run_explore agent loop (mode steering, two-level tool gating, Balanced phase machine, bounds, tests) against the approved PLAN and all 8 ACs after the prior revision verdict.",
+  "key_changes": [
+    "RESOLVED (blocking): clippy -p grove-cst --lib --all-targets -- -D warnings now clean; dead-code helpers empty_test_root/rand_suffix removed from agent.rs.",
+    "RESOLVED (blocking): BALANCED_RECON_TURNS = 2 in toolset.rs, matching AC-4 and the approved PLAN (was 8).",
+    "RESOLVED: config.rs field_reassign_with_default lint fixed via struct-update syntax.",
+    "Verified independently: 39 explore tests pass; no 'fastcontext' in core/src; core Cargo.toml clap-free.",
+    "AC-1 signature exact + re-exported from mod.rs; AC-2 7 ops in-process + shell via Command(current_dir=root).",
+    "AC-3 two-level gating sound; shell allowlist checked pre-spawn, args as vector, no interpolation.",
+    "AC-4 modes-as-data; Aggressive tool_choice hint correctly dropped (prompt-only steering); Balanced 3-phase machine correct.",
+    "AC-5 bounds -> Ok(ExploreAnswer{truncated:true}); AC-6 ClientError::Connection -> ExploreError::ProviderDown.",
+    "ADVISORY: byte_bound_terminates_loop asserts nothing and never crosses the 128 KiB bound; byte path untested.",
+    "ADVISORY: aggressive_toolset_same_as_standard is tautological; never constructs Mode::Aggressive.",
+    "ADVISORY: submit_plan special-case precedes is_in_toolset gate; hallucinated submit_plan in Standard/Aggressive is honoured, not refused (benign, minor AC-3 edge).",
+    "ADVISORY: balanced_phase_transitions test under-asserts (checks completion, not toolset narrowing to submit_plan-only)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

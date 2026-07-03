@@ -1,0 +1,18 @@
+{
+  "objective": "Fix AC-7 validation failure: rewrite byte_bound_terminates_loop to genuinely exceed MAX_TOOL_RESULT_BYTES and assert truncated=true with turns < MAX_TURNS.",
+  "key_changes": [
+    "core/src/explore/agent.rs: rewrote byte_bound_terminates_loop — replaced vacuous 20-call client with ScriptedClient emitting 1,500 hallucinated 'x' tool calls in one response",
+    "1,500 × ~93-byte corrective_refusal ≈ 139,500 bytes > MAX_TOOL_RESULT_BYTES (131,072) — byte bound fires on turn 1",
+    "Added assertion: assert!(answer.truncated) — byte bound must set truncated = true",
+    "Added assertion: assert!(answer.turns < MAX_TURNS) — confirms byte path not turn path fired",
+    "No filesystem dependency; hallucinated tool 'x' triggers corrective_refusal() in-process",
+    "All 177 tests pass: 126 unit + 32 integration + 18 CLI + 1 doc-test",
+    "cargo clippy -p grove-cst --lib --all-targets -- -D warnings: clean"
+  ],
+  "files_changed": [
+    "core/src/explore/agent.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

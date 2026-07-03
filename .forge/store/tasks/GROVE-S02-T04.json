@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S02-T04",
+  "sprintId": "GROVE-S02",
+  "title": "grove serve explore mode — exclusive surface (healthy) / structural fallback (unhealthy)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T04",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S02-T03"
+  ],
+  "description": "grove serve gains a mode: with mcp-llm config present (or explicit flag) AND provider healthy at startup, tools/list returns exactly one tool: explore (mcp__grove__explore). If the startup health probe FAILS, serve falls back to the standard 7-tool structural surface (identical to --as mcp) with a descriptive stderr note — never a dead server. Mid-session provider connection error returns a recoverable isError on the explore call (typed ProviderDown from T03); server stays up. Default-mode serve byte-identical — existing tests/cli.rs MCP cases and smoke test pass unchanged. New deterministic integration case: explore mode + unreachable provider surfaces the 7 structural tools."
+}

@@ -1,0 +1,22 @@
+{
+  "objective": "Adversarial review of the T02 plan for an OpenAI-compatible chat client + health probe in core::explore::client, verified against the actual repo (T01 config, Cargo deps, stack checklist).",
+  "key_changes": [
+    "Verdict: Approved — all 7 task acceptance criteria covered by concrete plan sections; mapping table in PLAN_REVIEW.md.",
+    "Verified independently: ExploreConfig (T01) exists with base_url/model/provider; ureq=2 rustls already in core/Cargo.toml (used by fetch.rs); no new dependency needed.",
+    "base_url includes /v1, so {base_url}/chat/completions and {base_url}/models paths are correct for both Ollama and llama.cpp.",
+    "Testing strategy matches project convention: inline #[cfg(test)] modules, no HTTP mocks, error-before-connect boundary, cargo test --release --locked + clippy -D warnings.",
+    "ClientError Connection-vs-Protocol split via ureq::Error Transport/Status correctly serves the D3 shutdown mapping for T03/T04.",
+    "Advisory: tool-role Message must carry tool_call_id per OpenAI schema.",
+    "Advisory: llama.cpp /v1/models may report file path/alias, not the configured tag — use tolerant model matching to avoid false ModelMissing.",
+    "Advisory: set explicit request timeouts; decide whether mid-generation read timeout maps to Connection (D3) or Protocol.",
+    "Advisory: include HTTP error-response body in Protocol/Http errors for actionable messages.",
+    "Advisory: use a deterministic unreachable target (e.g. 127.0.0.1:1) for the connection-error test to avoid CI flakiness."
+  ],
+  "findings": [
+    "Plan is feasible, complete, and architecture-aligned; no revision items.",
+    "Five non-blocking advisories recorded for the implementation phase (tool_call_id, model-id matching, timeouts, error bodies, test determinism)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

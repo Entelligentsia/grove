@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on grove init --as mcp-llm: Target::McpLlm variant, explore-mode .mcp.json, idempotent CLAUDE.md/AGENTS.md steering, non-TTY guard, dry-run, and first-run TUI delegation.",
+  "key_changes": [
+    "Clean additive CLI change — Target::McpLlm auto-derives --as mcp-llm and --help via clap ValueEnum; no bespoke arg plumbing.",
+    "Reuses proven idioms: .mcp.json read/merge pattern, grove:start/end sentinel idempotency, and the T05 IsTerminal guard.",
+    "Existing init targets left byte-untouched via a write_harness McpLlm early-return; all 19 pre-existing unit tests remain green.",
+    "writes_mcp() stays false for McpLlm so the generic ready block never double-prints.",
+    "serve --explore registered per the stdio MCP server contract; no protocol surface change.",
+    "No migrations, schema, or deployment-topology impact; single-binary distribution unaffected.",
+    "Backward-compatible: existing mcp|skill|both flows unchanged; docs (README.md, docs/setup.md) updated.",
+    "Code review and validation both approved: 200 tests pass, clippy -D warnings clean, no stray fastcontext string.",
+    "Follow-up: cosmetic rename of shared CLAUDE_START/END constants to neutral GROVE_START/END now that they span two harness files.",
+    "Follow-up: reconcile AC2(b) wording (says pre-populated) with implemented skip-TUI-on-rerun behaviour if the AC is revisited."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

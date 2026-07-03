@@ -1,0 +1,25 @@
+{
+  "objective": "Add health-gated explore mode to grove serve: healthy provider → exclusive explore tool surface; unhealthy provider → transparent fallback to the 7-tool standard structural surface; mid-session provider loss → recoverable isError result.",
+  "key_changes": [
+    "cli/src/main.rs: Serve variant extended to struct with path: PathBuf (default '.'), --explore bool, --standard bool flags; dispatch arm updated to mcp::serve(&path, explore, standard)",
+    "cli/src/mcp.rs: Added Surface enum (Standard | Explore{cfg,root}) and determine_surface() with force_standard > force_explore/config > health precedence",
+    "cli/src/mcp.rs: serve() gains (root: &Path, force_explore: bool, force_standard: bool) signature; calls determine_surface() once before request loop",
+    "cli/src/mcp.rs: handle() gains surface: &Surface param; branches initialize/tools-list/tools-call on surface type",
+    "cli/src/mcp.rs: explore_instructions(cfg) — delegation-oriented instructions naming model and base_url",
+    "cli/src/mcp.rs: explore_tool_spec() — single explore tool with plain object schema (no anyOf/oneOf), question:string required",
+    "cli/src/mcp.rs: call_explore_tool() — missing question → isError; Ok(answer) → text; ProviderDown → isError with restart hint; Client → isError",
+    "cli/src/mcp.rs: All existing unit tests updated to pass &Surface::Standard to refactored handle() 3-arg signature",
+    "cli/tests/cli.rs: New integration test explore_mode_unhealthy_provider_falls_back_to_standard_surface — port 1 unreachable → 7 tools + 'falling back' in stderr",
+    "Unhealthy startup: health_probe failure → eprintln fallback note to stderr, Surface::Standard (existing code reused verbatim)",
+    "Load failure: ExploreConfig::load failure → eprintln load-failure note to stderr, Surface::Standard",
+    "All 178 tests pass (126 core + 32 cli unit + 19 integration + 1 doc)"
+  ],
+  "files_changed": [
+    "cli/src/main.rs",
+    "cli/src/mcp.rs",
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

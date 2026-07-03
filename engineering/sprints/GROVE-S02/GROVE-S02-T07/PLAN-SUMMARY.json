@@ -1,0 +1,20 @@
+{
+  "objective": "Add cross-cutting integration tests (grove config non-TTY, init idempotency, allowlist enforcement), a naming-guard test, mcp-llm docs in README/CHANGELOG/CLAUDE.md, and bump the version to 0.3.0 to close sprint S02.",
+  "key_changes": [
+    "cli/tests/cli.rs: new test config_in_non_tty_fails_fast (AC1a) — spawn grove config piped, 5s timeout guard, assert exit non-zero + stderr describes TTY requirement",
+    "cli/tests/cli.rs: new test mcp_llm_dry_run_twice_is_stable (AC1b) — double dry-run writes no files, stable output",
+    "cli/tests/cli.rs: new test mcp_llm_mcp_json_no_duplicate_grove_entry (AC1b) — double real init, parse .mcp.json, assert exactly 1 grove key with args:[serve,--explore]",
+    "cli/tests/cli.rs: new test naming_guard_no_fastcontext_in_source (AC2) — walks core/src/, cli/src/, README.md, skills/ asserting 'fastcontext' absent case-insensitively",
+    "core/src/explore/agent.rs: new unit test allowlist_enforcement_find_refused (AC1c) — ScriptedClient with allowed_tools omitting find; model calls find; corrective_refusal returned; loop recovers",
+    "README.md: new section 'Delegated local-LLM mode (mcp__grove__explore)' — what it is, setup, 3 modes with trade-offs, health/fallback semantics",
+    "CHANGELOG.md: new ## [0.3.0] - 2026-07-02 section — grove init --as mcp-llm, grove config, grove serve --explore, health-gated startup, inner explorer engine",
+    "CLAUDE.md: architecture map updated with core/src/explore/ module breakdown and cli/src/config_tui/",
+    "CLAUDE.md: Commands block updated — grove config, grove serve --explore/--standard, grove init with mcp-llm target",
+    "cli/Cargo.toml: version 0.2.0 → 0.3.0 and grove-cst pin updated",
+    "core/Cargo.toml: version 0.2.0 → 0.3.0",
+    "dist/npm/package.json: version 0.2.0 → 0.3.0"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T19:30:00Z",
+  "artifact_ref": "PLAN.md"
+}

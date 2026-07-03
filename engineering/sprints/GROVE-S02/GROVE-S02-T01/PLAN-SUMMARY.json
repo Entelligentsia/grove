@@ -1,0 +1,18 @@
+{
+  "objective": "Build a typed, serde-backed ExploreConfig model persisted to project-local .grove/explore.json as the shared vocabulary for the S02 mcp-llm inner explorer subsystem.",
+  "key_changes": [
+    "Add `pub mod explore;` to core/src/lib.rs; optionally re-export config types in the curated public surface",
+    "New core/src/explore/mod.rs re-exporting ExploreConfig, Provider, Mode",
+    "New core/src/explore/config.rs: Provider{Ollama,LlamaCpp}, Mode{Standard,Balanced,Aggressive}, ExploreConfig struct",
+    "ExploreConfig::load/save/validate against project-local .grove/explore.json (sibling to .grove/grammars/)",
+    "Atomic save: write temp file in same dir then rename — hardening over existing plain fs::write registry pattern",
+    "Fail-fast validation: missing-file steers to `grove init --as mcp-llm`/`grove config`; bad enum names field + legal values",
+    "Default impl yields Ollama defaults (http://localhost:11434/v1, Standard mode, allowed_tools=[grove,rg,grep,find])",
+    "Inline #[cfg(test)] tests: serde round-trip, defaults, validation errors, atomic-write behavior",
+    "Gates: cargo tree shows no clap; no `fastcontext` string; build/clippy/test clean",
+    "Purely additive — only lib.rs edited among existing files; no schema/migration/version bump"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

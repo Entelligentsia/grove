@@ -2,7 +2,7 @@
 # Published as `grove-cst-cli` (`grove` is taken by an unrelated crate), but the
 # installed binary stays `grove` (see `[[bin]]` below).
 name = "grove-cst-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Structural, byte-precise, token-cheap access to a codebase for coding agents — tree-sitter over a CLI and an MCP server."
 license = "MIT"
@@ -19,7 +19,7 @@ path = "src/main.rs"
 [dependencies]
 # Core library — AST engine, registry, fetch, ingest. Published as `grove-cst`;
 # the imported crate name is still `grove_core` (its `[lib] name`).
-grove-cst = { path = "../core", version = "=0.2.0" }
+grove-cst = { path = "../core", version = "=0.3.0" }
 
 # CLI + output
 clap = { version = "4", features = ["derive"] }
@@ -29,4 +29,8 @@ serde_json = "1"
 # Gitignore-aware file walking (same crate ripgrep uses)
 ignore = "0.4"
 anyhow = "1"
+
+# Full-screen config + trace TUIs (grove config / grove tap verbs)
+ratatui = "0.29"
+crossterm = "0.28"
 

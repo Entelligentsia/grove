@@ -40,6 +40,7 @@
 //! ```
 
 pub mod engine;
+pub mod explore;
 pub mod init;
 pub mod ops;
 pub mod registry;
@@ -60,3 +61,5 @@ pub use engine::{Defect, Symbol};
 pub use ops::{CallSite, FileMap, MapEntry, SourceResult};
 /// The grammar-provisioning entry point behind `grove init` (see [`init`]).
 pub use init::provision_project;
+/// The explore subsystem configuration model (see [`explore`]).
+pub use explore::{ExploreConfig, Mode, Provider};

@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S02-T02",
+  "sprintId": "GROVE-S02",
+  "title": "OpenAI-compatible chat client + health probe (core::explore::client)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T02",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S02-T01"
+  ],
+  "description": "ChatClient trait + OpenAiCompatClient over ureq/rustls speaking chat-completions with tool calls (non-streaming) against Ollama (default) and llama.cpp base URLs. health_probe() verifies endpoint + model availability with typed errors distinguishing unreachable vs model-missing. Provider dialect quirks isolated in this module. Tests to the error-before-connect boundary (no HTTP mocks) plus request/response serde round-trips."
+}

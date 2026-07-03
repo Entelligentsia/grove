@@ -1,0 +1,10 @@
+{
+  "taskId": "GROVE-S02-T01",
+  "sprintId": "GROVE-S02",
+  "title": "Explore config model + persistence (core::explore::config)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T01",
+  "estimate": "M",
+  "dependencies": [],
+  "description": "New core module core::explore with config.rs: ExploreConfig { provider (Ollama|LlamaCpp), base_url, model, mode (Standard|Balanced|Aggressive), allowed_tools } with serde load/save/validate against project-local .grove/explore.json. Defaults: Ollama at http://localhost:11434/v1. Descriptive errors on missing/invalid config. Unit tests: round-trip, defaults, validation. grove-core stays clap-free. No fastcontext naming anywhere."
+}

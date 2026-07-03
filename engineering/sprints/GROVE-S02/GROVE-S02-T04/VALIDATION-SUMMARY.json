@@ -1,0 +1,16 @@
+{
+  "objective": "Validate all 7 ACs for health-gated explore-mode surface in `grove serve`: mode selection/precedence, startup health gate, explore tool schema, isError paths, provider-loss recovery, byte-identical default mode, and hygiene gates.",
+  "key_changes": [
+    "AC-1 PASS: determine_surface() precedence force_standard > force_explore|config_exists > health_probe; --explore/--standard clap flags in main.rs; mcp.rs stays thin.",
+    "AC-2 PASS: health_probe called once pre-loop; healthy → 1 tool (plain object schema, no anyOf/oneOf); unhealthy → 7-tool fallback + 'falling back' stderr note; initialize always succeeds.",
+    "AC-3 PASS: call_explore_tool uses real OpenAiCompatClient; missing question → isError:true; all ExploreError variants → isError:true; match exhaustive over ProviderDown|Client.",
+    "AC-4 PASS: ExploreError::ProviderDown → isError:true with actionable endpoint/grove-config/restart message; server does not crash or exit.",
+    "AC-5 PASS: No config + no --explore flag → Surface::Standard; tool_specs/instructions/call_tool unchanged; all 32 unit tests and 19 integration tests pass.",
+    "AC-6 PASS: explore_mode_unhealthy_provider_falls_back_to_standard_surface integration test: port-1 URL → 7 tools + 'falling back' in stderr + initialize OK.",
+    "AC-7 PASS: cargo test --release --locked → 178 pass, 0 fail; clippy --all-targets -D warnings → clean; grep fastcontext cli/src/ core/src/ → CLEAN.",
+    "Advisory (not blocking): no direct unit test for missing-question isError path or explore_tool_spec() no-anyOf/oneOf shape; exercised transitively."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

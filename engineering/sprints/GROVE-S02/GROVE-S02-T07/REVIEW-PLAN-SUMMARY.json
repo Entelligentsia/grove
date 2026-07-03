@@ -1,0 +1,17 @@
+{
+  "objective": "Adversarial review of the plan for cross-cutting integration tests, naming guard, mcp-llm docs, and the 0.3.0 version bump closing sprint S02.",
+  "key_changes": [
+    "Every load-bearing symbol verified on disk: ScriptedClient, corrective_refusal, is_in_toolset, build_full_toolset, run_explore, ExploreAnswer.turns all exist.",
+    "AC1a: non-TTY guard string 'interactive terminal' confirmed at cli/src/config_tui/mod.rs:39.",
+    "AC1b: write_mcp_json_explore uses object-key overwrite (MCP_SERVER_KEY) with args ['serve','--explore'] — dedup claim correct.",
+    "AC1b: mcp_llm_steering_block_idempotency (cli.rs:588) and mcp_llm_setup helper (cli.rs:541) exist — plan correctly avoids duplication and reuses setup.",
+    "AC1c: distinct from shell_binary_not_in_allowlist_is_refused (dispatch path) — tests loop-level is_in_toolset->corrective_refusal gating via allowed_tools. Not redundant.",
+    "AC2: naming-guard scan scope excludes cli/tests/ so the test's own literal cannot self-trip; anchors to CARGO_MANIFEST_DIR/..",
+    "Non-TTY test correctly avoids Command::output() hang via spawn+poll+kill with 5s deadline.",
+    "All 5 ACs mapped to concrete tests/doc edits; version bump touches 4 files + Cargo.lock per RELEASING.md.",
+    "Advisory: confirm answer.turns==1 off-by-one; keep AC1c allowlist angle explicit; prefer std walk over ignore::Walk; record AC4 checklist pass in PR desc."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

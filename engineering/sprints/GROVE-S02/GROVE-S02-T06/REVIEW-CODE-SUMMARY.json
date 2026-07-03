@@ -1,0 +1,17 @@
+{
+  "objective": "Assessed the grove init --as mcp-llm implementation: Target::McpLlm, explore-mode .mcp.json, idempotent CLAUDE.md/AGENTS.md steering, non-TTY guard, dry-run, and first-run TUI delegation.",
+  "key_changes": [
+    "AC1: Target::McpLlm variant added with --help doc-comment; ValueEnum auto-derives --as mcp-llm; README updated in both --as references.",
+    "AC2: flow order provision -> first-run config_tui::run(root,None) -> write_harness; dry-run harness print correctly precedes the provisioned.is_empty() early-return (plan-review advisory honoured).",
+    "AC3: .mcp.json registers [serve,--explore] via the read/merge pattern (preserves other servers); CLAUDE.md + AGENTS.md use grove:start/end sentinel for idempotent in-place updates.",
+    "AC4: McpLlm handled by dedicated write_harness early-return; writes_mcp() still false for McpLlm so generic ready block never double-prints; existing targets byte-untouched.",
+    "AC5: dry-run prints planned writes and skips TUI+writes; non-TTY guard bails first-run only with an init-worded message.",
+    "AC6: 3 integration tests present and green (dry-run shape, steering idempotency, AGENTS.md create/append).",
+    "AC7 verified independently: cargo test --bins 51 passed (incl 7 new McpLlm unit tests); --test cli mcp_llm 3 passed; clippy --all-targets -D warnings clean; no 'fastcontext' string.",
+    "Advisory (non-blocking): AC2(b) 'pre-populated if file exists' is implemented as skip-TUI-on-rerun — correct for CI ergonomics and matches approved PLAN.",
+    "Advisory (non-blocking): AGENTS.md reuses CLAUDE_START/END sentinel constants; cosmetic rename to neutral names would read cleaner."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

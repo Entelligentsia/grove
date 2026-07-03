@@ -4,6 +4,59 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Delegated local-LLM mode (`--as mcp-llm`) · ⚠️ Experimental
+
+> **Experimental / opt-in.** This mode is under active development; its
+> behaviour, the config format (`.grove/explore.json`), and the tool contract
+> may change without a major-version bump. The default grove surfaces — the CLI
+> and the standard 7-tool `grove serve` — are unaffected. Architecture and setup
+> are in the README's *Delegated local-LLM mode* section.
+
+- **`grove init --as mcp-llm`** — new init target that provisions the delegated
+  local-LLM harness: writes `.mcp.json` (a `grove serve --explore` entry), seeds
+  idempotent steering blocks in `CLAUDE.md` and `AGENTS.md`, and launches an
+  interactive TUI to configure the inference backend on first run.
+- **`grove config`** — TUI verb to view and edit the explore config
+  (`.grove/explore.json`) at any time. Requires a TTY; exits with a clear error
+  otherwise.
+- **`grove serve --explore`** — a second serve face that exposes a single
+  `mcp__grove__explore` tool instead of the 7 structural tools. A startup health
+  probe (`/models`) decides the surface: **healthy** → explore-only; **unhealthy
+  → transparent fallback to the 7 structural tools** (never a dead server).
+  Mid-session provider loss returns a recoverable `isError` with a restart hint.
+- **Inner explorer engine (`core::explore`)** — a pure-Rust agent loop that is a
+  direct port of the delegation study's proven bench agent: turn-bounded
+  (≤ 6 turns) with a forced-final-answer at the cap (no byte-budget abort); a
+  four-tool inner set (`Grove` command-tool · `Read` · `Glob` · `Grep`);
+  `<final_answer>` citation grounding with filesystem validation; and an
+  OpenAI-compatible client (Ollama default, llama.cpp) using bench sampling
+  (`max_completion_tokens` 1024, `temperature` 0; qwen `enable_thinking=false`).
+- **Three steering arms** — `standard` (merit: the model picks tools freely),
+  `balanced` (plan-first: recon → commit a plan → execute, plan cached per repo),
+  and `aggressive` (coerce: grove-first steering).
+- **MCP progress notifications** — long delegated calls emit per-turn
+  `notifications/progress` (keyed off the caller's `_meta.progressToken`) so the
+  waiting client sees liveness instead of a silent wait.
+- **Locator-framed steering** — the tool description and init blocks frame
+  `explore` as a *locator* (find WHERE code lives, return `file:line` citations)
+  with a recommended locate → read → synthesize flow, so the calling agent
+  engages grove rather than bypassing it with a broad grep subagent.
+- **`tap` — structured session tracing + a browser.** A `tap` field in
+  `.grove/explore.json` (toggled in the `grove config` TUI): when on,
+  `grove serve --explore` records every session to a per-session JSONL trace under
+  `.grove/traces/` — a `session` header (client identity from MCP `clientInfo`,
+  model, mode, provider) then a `call_start` / `turn` / `call_end` stream per
+  `explore` call, carrying **token usage and wall time** (a new `usage` object was
+  added to the chat response). **`grove tap`** enables tracing and opens a
+  full-screen browser that drills session → call → turn: session list (agent,
+  model, #calls, total tokens, live marker), per-call metrics, and each turn's
+  request/response pretty-printed. Retention keeps the last `trace_retain` sessions
+  (default 50, `0` = keep all). The old logging **reverse proxy** and the config
+  TUI's F3 live-log view are **removed** — `grove tap` is the single trace tool,
+  no base_url change or extra process needed.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

@@ -401,6 +401,91 @@ fn index_writes_catalog() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// GROVE-S02-T04 (AC-6): when `.grove/explore.json` names an unreachable provider,
+/// `grove serve` falls back to the standard 7-tool structural surface and emits a
+/// diagnostic note to stderr. No real provider is required — port 1 fails immediately.
+#[test]
+fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_cli_test_{}_explore_fallback",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // Port 1 is IANA reserved — guaranteed connection-refused (fast fail).
+    let config = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:1/v1",
+        "model": "nomodel",
+        "mode": "standard",
+        "allowed_tools": []
+    });
+    std::fs::write(
+        dir.join(".grove").join("explore.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove"))
+        .arg("serve")
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove serve");
+
+    let mut stdin = child.stdin.take().unwrap();
+    // initialize (id=1)
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18" }
+    });
+    writeln!(stdin, "{init_req}").unwrap();
+    // tools/list (id=2)
+    let list_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    writeln!(stdin, "{list_req}").unwrap();
+    drop(stdin); // close stdin → server exits at EOF
+
+    let output = child.wait_with_output().expect("grove serve to finish");
+
+    // Parse stdout lines and find the tools/list response (id=2).
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let tools_response = stdout_str
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|v| v["id"] == serde_json::json!(2))
+        .expect("tools/list response (id=2) must be present");
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("result.tools is an array");
+    assert_eq!(
+        tools.len(),
+        7,
+        "unhealthy explore provider must fall back to the 7-tool standard surface, got: {tools:?}"
+    );
+
+    let stderr_str = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr_str.contains("falling back"),
+        "stderr must contain 'falling back' diagnostic; got: {stderr_str}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn unknown_extension_errors() {
     let dir = fixture("badext");
@@ -447,4 +532,406 @@ fn map_returns_definitions_with_references() {
     assert!(entries2.iter().all(|e| e["kind"] == "function"), "kind filter works");
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GROVE-S02-T06 (AC1-AC7): `grove init --as mcp-llm` integration tests.
+///
+/// Shared setup: fake OS cache with the rust grammar (same pattern as
+/// `init_provisions_and_wires_harness_per_target`).
+fn mcp_llm_setup(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let base = std::env::temp_dir().join(format!("grove_cli_test_{}_mcp_llm_{tag}", std::process::id()));
+    let cache = base.join("cache");
+    let rust_cache = cache.join("grove").join("grammars").join("rust");
+    std::fs::create_dir_all(&rust_cache).unwrap();
+    std::fs::write(rust_cache.join("grammar.wasm"), b"").unwrap();
+    let proj = base.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join("lib.rs"), "fn helper() {}\n").unwrap();
+    (base, cache, proj)
+}
+
+fn grove_mcp_llm(proj: &Path, cache: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(args)
+        .current_dir(proj)
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
+        .env("XDG_CACHE_HOME", cache)
+        .output()
+        .expect("running grove init --as mcp-llm")
+}
+
+/// AC5: dry-run prints the planned harness files and exits 0 (non-TTY, no explore.json).
+/// The non-TTY guard is bypassed because --dry-run is set.
+#[test]
+fn mcp_llm_dry_run_output_shape() {
+    let (base, cache, proj) = mcp_llm_setup("dry_run");
+    let out = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {err}\nstdout: {text}");
+    assert!(text.contains("detected"), "dry-run narrates detection: {text}");
+    assert!(text.contains("mcp.json"), "dry-run prints .mcp.json: {text}");
+    assert!(text.contains("CLAUDE.md"), "dry-run prints CLAUDE.md: {text}");
+    assert!(text.contains("AGENTS.md"), "dry-run prints AGENTS.md: {text}");
+    // No files written.
+    assert!(!proj.join(".mcp.json").exists(), "dry-run writes no .mcp.json");
+    assert!(!proj.join("CLAUDE.md").exists(), "dry-run writes no CLAUDE.md");
+    assert!(!proj.join("AGENTS.md").exists(), "dry-run writes no AGENTS.md");
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// AC3 + AC6: two consecutive runs produce exactly one grove sentinel block in
+/// each of CLAUDE.md and AGENTS.md. Pre-seed explore.json so the non-TTY
+/// guard is bypassed (CI re-runs work without an interactive terminal).
+#[test]
+fn mcp_llm_steering_block_idempotency() {
+    let (base, cache, proj) = mcp_llm_setup("idempotency");
+    // Pre-seed .grove/explore.json so the TUI is not launched and the non-TTY
+    // guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // First run.
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    let err1 = String::from_utf8_lossy(&out1.stderr);
+    assert!(out1.status.success(), "first run failed — stderr: {err1}");
+
+    // Second run (idempotency).
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    let err2 = String::from_utf8_lossy(&out2.stderr);
+    assert!(out2.status.success(), "second run failed — stderr: {err2}");
+
+    let claude = std::fs::read_to_string(proj.join("CLAUDE.md")).unwrap();
+    let agents = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+
+    assert_eq!(claude.matches("<!-- grove:start -->").count(), 1, "CLAUDE.md: exactly 1 grove block");
+    assert_eq!(claude.matches("<!-- grove:end -->").count(), 1);
+    assert_eq!(agents.matches("<!-- grove:start -->").count(), 1, "AGENTS.md: exactly 1 grove block");
+    assert_eq!(agents.matches("<!-- grove:end -->").count(), 1);
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// AC3 + AC6: AGENTS.md is created when absent; when hand-written content
+/// exists it is preserved and the grove block is appended exactly once.
+#[test]
+fn mcp_llm_agents_md_created_and_appended() {
+    let (base, cache, proj) = mcp_llm_setup("agents_append");
+    // Pre-seed explore.json so TUI / non-TTY guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // (a) No AGENTS.md: first run creates it.
+    assert!(!proj.join("AGENTS.md").exists(), "AGENTS.md must not exist before first run");
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out1.status.success(), "stderr: {}", String::from_utf8_lossy(&out1.stderr));
+    assert!(proj.join("AGENTS.md").exists(), "AGENTS.md created on first run");
+    let agents1 = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+    assert!(agents1.contains("<!-- grove:start -->"), "grove block present");
+
+    // (b) Hand-written content present: grove block appended, existing content preserved.
+    // Simulate: add hand-written content before the existing grove block by
+    // prepending it to the current file.
+    let hand = "# My Agent\n\nCustom notes here.\n\n";
+    // Re-seed without a grove block to test the append path.
+    std::fs::write(proj.join("AGENTS.md"), hand).unwrap();
+    // Remove CLAUDE.md so the test doesn't conflict (it was also written).
+    std::fs::remove_file(proj.join("CLAUDE.md")).ok();
+    // Remove grove.lock so init re-provisions (needed to re-write harness).
+    std::fs::remove_file(proj.join("grove.lock")).ok();
+
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out2.status.success(), "stderr: {}", String::from_utf8_lossy(&out2.stderr));
+    let agents2 = std::fs::read_to_string(proj.join("AGENTS.md")).unwrap();
+    assert!(agents2.contains("Custom notes here."), "hand-written content preserved");
+    assert!(agents2.contains("<!-- grove:start -->"), "grove block appended");
+    assert_eq!(agents2.matches("<!-- grove:start -->").count(), 1, "exactly one grove block");
+    assert!(
+        agents2.find("Custom notes").unwrap() < agents2.find("<!-- grove:start -->").unwrap(),
+        "hand-written content precedes grove block"
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// GROVE-S02-T07 (AC1a): `grove config` exits non-zero and reports the
+/// interactive-terminal requirement when stdout is not a TTY.
+#[test]
+fn config_in_non_tty_fails_fast() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = fixture("config_non_tty");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["config"])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawn grove config");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_) => break,
+            None if Instant::now() >= deadline => {
+                child.kill().ok();
+                child.wait().ok();
+                panic!("grove config did not exit within 5 s — non-TTY guard may be missing");
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    let out = child.wait_with_output().expect("wait_with_output");
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit from grove config in non-TTY, got success"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal"),
+        "stderr should mention 'interactive terminal', got: {stderr}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `grove tap` (default) turns on tracing in the explore config before opening
+/// the browser. The TUI itself needs a TTY, so here (non-TTY) it enables the
+/// setting, then exits non-zero on the terminal guard — but the config write
+/// must have already landed with `tap: true`.
+#[test]
+fn tap_enables_tracing_in_config() {
+    let dir = fixture("tap_enable");
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": ["grove"],
+            "tap": false
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let out = grove(&dir, &["tap"]);
+    // Non-TTY: the browser can't open, so a non-zero exit is expected.
+    assert!(!out.status.success(), "tap should fail the TTY guard in a non-TTY");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal") || stderr.contains("tracing enabled"),
+        "stderr should mention enabling tracing or the TTY guard, got: {stderr}"
+    );
+
+    // The enable step ran before the guard: tap is now true on disk.
+    let cfg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
+            .unwrap();
+    assert_eq!(cfg["tap"], serde_json::json!(true), "tap flipped on in explore.json");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `grove tap --no-enable` must NOT modify the config; it only opens the browser
+/// (which then fails the non-TTY guard).
+#[test]
+fn tap_no_enable_leaves_config_untouched() {
+    let dir = fixture("tap_no_enable");
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    let original = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "llama3",
+        "mode": "standard",
+        "allowed_tools": ["grove"],
+        "tap": false
+    })
+    .to_string();
+    std::fs::write(grove_dir.join("explore.json"), &original).unwrap();
+
+    let out = grove(&dir, &["tap", "--no-enable"]);
+    assert!(!out.status.success(), "tap --no-enable still fails the TTY guard in a non-TTY");
+
+    let cfg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
+            .unwrap();
+    assert_eq!(cfg["tap"], serde_json::json!(false), "--no-enable must not flip tap");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GROVE-S02-T07 (AC1b): two consecutive `grove init --as mcp-llm --dry-run`
+/// invocations write no files and produce stable output.
+#[test]
+fn mcp_llm_dry_run_twice_is_stable() {
+    let (base, cache, proj) = mcp_llm_setup("dry_run2");
+
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm", "--dry-run"]);
+
+    let text1 = String::from_utf8_lossy(&out1.stdout);
+    let text2 = String::from_utf8_lossy(&out2.stdout);
+    let err1 = String::from_utf8_lossy(&out1.stderr);
+    let err2 = String::from_utf8_lossy(&out2.stderr);
+
+    assert!(out1.status.success(), "first dry-run failed — stderr: {err1}");
+    assert!(out2.status.success(), "second dry-run failed — stderr: {err2}");
+
+    // No files written.
+    assert!(!proj.join(".mcp.json").exists(), "dry-run must not write .mcp.json");
+    assert!(!proj.join("CLAUDE.md").exists(), "dry-run must not write CLAUDE.md");
+    assert!(!proj.join("AGENTS.md").exists(), "dry-run must not write AGENTS.md");
+    assert!(!proj.join("grove.lock").exists(), "dry-run must not write grove.lock");
+
+    // Stable output: both runs report the same key strings.
+    for key in &["detected", "mcp.json", "CLAUDE.md", "AGENTS.md"] {
+        assert!(text1.contains(key), "run1 output missing '{key}': {text1}");
+        assert!(text2.contains(key), "run2 output missing '{key}': {text2}");
+    }
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// GROVE-S02-T07 (AC1b): after two real `grove init --as mcp-llm` invocations
+/// the resulting `.mcp.json` contains exactly one `"grove"` key under
+/// `mcpServers` with `args: ["serve", "--explore"]`.
+#[test]
+fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
+    let (base, cache, proj) = mcp_llm_setup("mcp_json_dedup");
+
+    // Pre-seed explore.json so the non-TTY guard is bypassed.
+    let grove_dir = proj.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("explore.json"),
+        serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "mode": "standard",
+            "allowed_tools": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // First run.
+    let out1 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out1.status.success(), "first run failed — stderr: {}", String::from_utf8_lossy(&out1.stderr));
+
+    // Second run — should overwrite, not duplicate.
+    let out2 = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    assert!(out2.status.success(), "second run failed — stderr: {}", String::from_utf8_lossy(&out2.stderr));
+
+    let mcp_json_path = proj.join(".mcp.json");
+    assert!(mcp_json_path.exists(), ".mcp.json must exist after init");
+    let mcp_raw = std::fs::read_to_string(&mcp_json_path).unwrap();
+    let mcp: serde_json::Value = serde_json::from_str(&mcp_raw)
+        .expect(".mcp.json must be valid JSON");
+
+    let servers = mcp["mcpServers"]
+        .as_object()
+        .expect("mcpServers must be an object");
+    let grove_count = servers.keys().filter(|k| *k == "grove").count();
+    assert_eq!(grove_count, 1, "expected exactly 1 'grove' key, found {grove_count}");
+
+    let args = mcp["mcpServers"]["grove"]["args"]
+        .as_array()
+        .expect("grove entry must have an args array");
+    let arg_strs: Vec<&str> = args.iter()
+        .map(|v| v.as_str().expect("arg must be string"))
+        .collect();
+    assert_eq!(arg_strs, vec!["serve", "--explore"], "grove args must be [serve, --explore]");
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// GROVE-S02-T07 (AC2): none of the source files in core/src/, cli/src/,
+/// README.md, or skills/ contain the string "fastcontext" (case-insensitive).
+/// This guards against accidental reintroduction of the old branding.
+///
+/// NOTE: cli/tests/ is intentionally excluded so this test's own literal
+/// does not self-trip.
+#[test]
+fn naming_guard_no_fastcontext_in_source() {
+    // Anchor to the workspace root from cli/tests/cli.rs.
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("cli/ must have a parent workspace directory");
+
+    fn collect_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        if !root.exists() {
+            return out;
+        }
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read_dir").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        out
+    }
+
+    let mut scan_targets: Vec<std::path::PathBuf> = Vec::new();
+    // Recursive source directories (exclude cli/tests/ to avoid the literal here).
+    for src_dir in &["core/src", "cli/src"] {
+        scan_targets.extend(collect_files(&workspace.join(src_dir)));
+    }
+    // Top-level docs.
+    scan_targets.push(workspace.join("README.md"));
+    // Skills directory.
+    scan_targets.extend(collect_files(&workspace.join("skills")));
+
+    let mut violations: Vec<String> = Vec::new();
+    for path in &scan_targets {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if content.to_lowercase().contains("fastcontext") {
+                violations.push(path.display().to_string());
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "'fastcontext' found in {} file(s):\n{}",
+        violations.len(),
+        violations.join("\n")
+    );
 }

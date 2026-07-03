@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on the health-gated explore-mode surface for `grove serve` (GROVE-S02-T04).",
+  "key_changes": [
+    "mcp.rs stays thin (surface selection + formatting); core::explore owns execution — respects the CLI/core boundary.",
+    "Startup gate D3: health_probe once pre-loop, surface bound for session; precedence force_standard > (force_explore|config) > health_probe is coherent.",
+    "Fail-safe: unhealthy/load-failure → transparent 7-tool fallback + stderr note; initialize always answers; stdout protocol-only.",
+    "Mid-session ProviderDown → isError:true with actionable message; server never crashes/exits.",
+    "AC-5 backward compat met: default mode byte-identical; Standard branch reuses tool_specs/instructions/call_tool verbatim.",
+    "explore tool schema is plain object (no anyOf/oneOf) — conforms to MCP checklist across all supported protocol versions.",
+    "Gates green: 178 tests pass, clippy --all-targets -D warnings clean, no 'fastcontext' string.",
+    "No cross-module impact; change confined to cli/src/main.rs and cli/src/mcp.rs.",
+    "Deployment: no version bump (sprint-final, additive), no regeneration, opt-in via config/flag.",
+    "Follow-up: add direct unit guards for missing-question isError branch and explore_tool_spec no-anyOf/oneOf shape."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

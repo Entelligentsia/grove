@@ -1,0 +1,24 @@
+{
+  "objective": "Build a typed, serde-backed ExploreConfig model persisted to project-local .grove/explore.json as the shared vocabulary for the S02 mcp-llm inner explorer subsystem.",
+  "key_changes": [
+    "Added `pub mod explore;` to core/src/lib.rs and re-exported ExploreConfig, Mode, Provider in the curated public surface",
+    "New core/src/explore/mod.rs — module root re-exporting the config types",
+    "New core/src/explore/config.rs — Provider{Ollama,LlamaCpp}, Mode{Standard,Balanced,Aggressive}, ExploreConfig struct, all serde-backed (lowercase enum spellings)",
+    "ExploreConfig::config_path resolves <root>/.grove/explore.json (sibling to .grove/grammars/)",
+    "load() reads+deserializes+validates; missing file steers to `grove init --as mcp-llm` / `grove config`",
+    "save() validates then writes atomically (temp file + rename) — hardening over the registry's plain fs::write",
+    "validate() rejects empty base_url/model, naming the offending field",
+    "Field-named enum errors via a private RawExploreConfig + manual Deserialize (serde's stock unknown-variant error names neither field nor struct) — satisfies AC #3",
+    "Default yields Ollama defaults with pinned model qwen2.5-coder:7b and allowed_tools=[grove,rg,grep,find] (review advisories #1, #2)",
+    "8 inline tests cover serde round-trip, defaults, validation errors, and atomic-write (no leftover temp file)",
+    "Gates green: full suite 146 tests pass, build warning-clean, clippy -D warnings clean, no clap in cargo tree, no fastcontext in core/"
+  ],
+  "files_changed": [
+    "core/src/lib.rs",
+    "core/src/explore/mod.rs",
+    "core/src/explore/config.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

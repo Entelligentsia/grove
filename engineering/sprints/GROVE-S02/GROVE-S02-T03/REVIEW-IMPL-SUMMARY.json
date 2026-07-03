@@ -1,0 +1,15 @@
+{
+  "objective": "Re-review after validation revision: verify the AC-7 byte-bound test (byte_bound_terminates_loop) genuinely exceeds MAX_TOOL_RESULT_BYTES with real assertions.",
+  "key_changes": [
+    "BLOCKER RESOLVED: byte_bound_terminates_loop now scripts 1,500 hallucinated 'x' tool calls in one response; 1,500 x 91-byte corrective_refusal ~= 136,500 bytes > MAX_TOOL_RESULT_BYTES (131,072) — byte bound fires on turn 1.",
+    "Real assertions present: assert!(answer.truncated) and assert!(answer.turns < MAX_TURNS) — the latter proves the byte path fired, not the turn path (turns==1).",
+    "Ok-not-Err enforced via .expect(); hermetic — 'x' never in toolset so corrective_refusal returns in-process, dispatch_tool never reached, no filesystem dependency.",
+    "Verified independently: cargo test -p grove-cst --lib explore:: -> 39 passed, 0 failed (incl. byte_bound + turn_bound).",
+    "AC-8 holds after the test-file edit: cargo clippy -p grove-cst --lib --all-targets -- -D warnings clean.",
+    "AC-1..AC-6 unchanged and re-spot-checked: signature+re-export, two-level gating, shell allowlist w/ args-vector, modes-as-data + BALANCED_RECON_TURNS=2, both bounds -> Ok(truncated:true), Connection -> ProviderDown.",
+    "ADVISORY (non-blocking): aggressive_toolset_same_as_standard tautological; submit_plan special-case precedes is_in_toolset gate; balanced_phase_transitions under-asserts. None affect ACs."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

@@ -1,0 +1,20 @@
+{
+  "objective": "Adversarial code review of the T02 OpenAI-compatible chat client + health probe, verifying all 7 acceptance criteria, all 5 plan-review advisories, and the test evidence independently against the working tree.",
+  "key_changes": [
+    "Re-review after revision: wrote CODE_REVIEW.md with verdict Approved, independently verifying the truncate() char-boundary fix and re-running the full evidence suite."
+  ],
+  "findings": [
+    "Verdict: Approved — the single blocking defect from the prior review is resolved with a correct fix and a genuine regression test; everything else re-verified clean.",
+    "Fix verified: truncate() walks back to a char boundary (while cut>0 && !is_char_boundary(cut)) before slicing; cut==0 is always a boundary so it cannot panic; byte count preserved.",
+    "Regression test truncate_does_not_panic_on_multibyte_boundary: 499 ASCII + 50 multi-byte chars straddle the 500-byte cut, asserts no panic and char-boundary prefix <= 500 bytes.",
+    "Independently re-ran cargo test --release --locked -p grove-cst (107 lib + 12 explore::client green) and clippy -p grove-cst -D warnings (clean); no 'fastcontext' in core/src/explore/.",
+    "No scope creep: git status shows only client.rs (new) and mod.rs (wiring + re-exports); core/Cargo.toml untouched — no-new-dependency outcome holds.",
+    "All 7 acceptance criteria met: ChatClient seam, ureq/rustls (no new dep), full wire model, dialect normalization, health_probe typing, mock-free tests.",
+    "All 5 plan-review advisories dispositioned: tool_call_id, tolerant .gguf/alias model matching, timeouts (10s/300s/30s), error bodies carried, deterministic 127.0.0.1:1 tests.",
+    "Advisory (non-blocking): model_available substring matching can false-positive (llama3 vs llama31) — documented tolerant-by-design.",
+    "Advisory (non-blocking): non-2xx on /models maps to Unreachable with status detail — acceptable; revisit if T04 needs a finer distinction."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

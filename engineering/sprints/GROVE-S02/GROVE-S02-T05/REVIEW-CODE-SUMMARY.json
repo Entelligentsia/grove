@@ -1,0 +1,21 @@
+{
+  "objective": "Reviewed the ratatui config TUI + `grove config` verb implementation against the approved PLAN and the seven acceptance criteria.",
+  "key_changes": [
+    "AC #1-4 verified: 5-field TUI (view.rs), grove config pre-populated via App::from_config, atomic save via core ExploreConfig::save+validate, non-TTY guard.",
+    "Non-TTY fast-fail verified manually: `echo '' | grove config .` exits 1 with 'interactive terminal' message.",
+    "Clippy clean (cargo clippy -p grove-cst-cli -- -D warnings) and 12/12 headless update.rs tests pass — re-ran independently.",
+    "Architecture honored: ratatui/crossterm confined to cli/Cargo.toml; grep confirms core is TUI-free. Elm-style update() is pure and headlessly tested.",
+    "All 4 PLAN_REVIEW advisories addressed: terminal restore on all exit paths, dirty_url=true on from_config (with test), single-source-of-truth URL constants, no 'fastcontext' literal.",
+    "Provider->URL coupling correct: dirty_url gate prevents clobbering custom endpoints; OLLAMA/LLAMACPP default constants match core provider defaults (11434/8080).",
+    "AC #5 model auto-discovery correctly out of scope with #[allow(dead_code)] Msg::ModelListFetched extension point; AC #6 binary size recorded (13,296,264 bytes).",
+    "Finding (non-blocking): PLAN promised a cli/tests/cli.rs integration test for the non-TTY guard; not delivered. Guard verified manually; recommend adding the assert_cmd test as follow-up.",
+    "Finding (informational): in Tools field, j/k/space are consumed by nav/toggle so can't be typed into new tool names — acceptable for tool identifiers."
+  ],
+  "findings": [
+    "AC #1-4, #5-7 all satisfied; implementation matches approved PLAN and is architecture-aligned.",
+    "One non-blocking gap: promised non-TTY integration test in cli/tests/cli.rs was not added (behavior verified manually)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

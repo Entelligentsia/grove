@@ -12,18 +12,36 @@ for usage. This file is the orientation for *continuing development*.
 ## Architecture — one engine, two faces
 
 ```
-src/main.rs      CLI dispatch (clap) — every verb; thin, delegates to modules
-src/ops.rs       the operations as a library — the shared engine BOTH faces call
-src/mcp.rs       MCP server — newline-delimited JSON-RPC 2.0 over stdio (hand-rolled)
-src/engine.rs    wasm load + Query-based tag extraction + check + position helpers
-src/registry.rs  grammar resolver, cache-location precedence, catalog/index, lockfile
-src/fetch.rs     `grove fetch` — install grammars from the hosted registry
-src/ingest.rs    `grove ingest` — build registry artifacts from upstream releases
-src/init.rs      `grove init [--as mcp|skill|both]` — provision grammars + harness glue
-skills/grove/    SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
+cli/src/main.rs        CLI dispatch (clap) — every verb; thin, delegates to modules
+cli/src/ops.rs         structural operations — the shared engine BOTH faces call
+cli/src/mcp.rs         MCP server — newline-delimited JSON-RPC 2.0 over stdio
+cli/src/engine.rs      wasm load + Query-based tag extraction + check + position helpers
+cli/src/registry.rs    grammar resolver, cache-location precedence, catalog/index, lockfile
+cli/src/fetch.rs       `grove fetch` — install grammars from the hosted registry
+cli/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
+cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision grammars + harness glue
+cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — incl. model-list dropdown
+cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
+cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
+skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
+
+core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
+  mod.rs               re-exports; public surface is run_explore[_reporting]()
+  config.rs            ExploreConfig — .grove/explore.json serde + atomic save (tap, trace_retain)
+  client.rs            ChatClient trait + OpenAiCompatClient + health_probe() + list_models() + Usage
+  agent.rs             bounded loop (≤ 6 turns, forced-final-answer, no byte budget); plan-first state machine + progress + trace
+  trace.rs             TraceWriter (per-session JSONL under .grove/traces/) + request/response pretty-printers
+  toolset.rs           the 4 inner tools (Grove/Read/Glob/Grep) + submit_plan — schemas + dispatch
+  steering.rs          per-arm system prompts (standard=merit / balanced=plan-first / aggressive=coerce)
+  grounding.rs         <final_answer> citation parse + filesystem validation
+  prompts/             system/tool/steering prompt assets, embedded verbatim (include_str!)
 ```
 
+**mcp-llm mode is experimental** (unreleased) — a direct port of the delegation
+study's bench agent. The default CLI + 7-tool `grove serve` are the stable surface.
+
 Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
+For mcp-llm mode: `mcp.rs` → `core::explore::run_explore` → inner loop → answer.
 **Never put engine logic in `main` or `mcp`** — they only format. `ops` returns
 typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP server emits JSON.
 
@@ -89,7 +107,10 @@ grove definition <name> [-d <dir>] | --at <file:line:col>   # line/col 1-based
 grove serve                         # MCP server over stdio
 
 # setup / registry
-grove init [path] [--as mcp|skill|both] [--dry-run]  # provision grammars + chosen harness glue
+grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
+grove config [path]                 # open the explore config TUI (requires TTY); Tap toggle + model dropdown
+grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
+grove tap [path] [--no-enable]      # enable session tracing (.grove/traces/) + browse it in a TUI
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order
@@ -218,6 +239,7 @@ Personas live in `.forge/personas/`.
 |----------|---------|
 | [Plan](.forge/workflows/plan_task.md) | Research codebase → implementation plan |
 | [Implement](.forge/workflows/implement_plan.md) | Execute approved plan → code changes |
-| [Sprint plan](.forge/workflows/architect_sprint_plan.md) | Sprint planning and task decomposition |
-| [Sprint intake](.forge/workflows/architect_sprint_intake.md) | Sprint intake and requirements elicitation |
+| [Run task](.claude/workflows/wfl-run-task.js) | Full task pipeline (plan → implement → review → approve → commit) |
+| [Run sprint](.claude/workflows/wfl-run-sprint.js) | Full sprint orchestration |
+| [Fix bug](.claude/workflows/wfl-fix-bug.js) | Triage → fix → verify |
 <!-- /forge-workflow-links -->

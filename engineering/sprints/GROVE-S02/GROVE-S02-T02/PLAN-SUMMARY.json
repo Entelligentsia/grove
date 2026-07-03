@@ -1,0 +1,20 @@
+{
+  "objective": "Plan a non-streaming OpenAI-compatible chat client (with tool calls) + health probe in core::explore::client over the existing ureq/rustls stack, working against Ollama and llama.cpp with typed errors.",
+  "key_changes": [
+    "New core/src/explore/client.rs: wire model (ChatRequest/ChatResponse/Message/ToolCall/Tool), ChatClient trait, OpenAiCompatClient, ClientError, health_probe, HealthError.",
+    "ChatClient trait is the T03 dependency point (never the concrete type); OpenAiCompatClient::new(&ExploreConfig) POSTs {base_url}/chat/completions via ureq rustls, no new HTTP/TLS dep.",
+    "Wire model covers messages (system/user/assistant/tool), tools with JSON-schema params (serde_json::Value), tool_choice, response tool_calls; non-streaming only.",
+    "Dialect normalization for Ollama vs llama.cpp lives solely in this module: tolerant handling of tool-call `arguments` (object vs JSON-string), uniform ToolCall shape to callers.",
+    "ClientError enum distinguishes Connection (D3 shutdown signal) from Protocol/HTTP, derived from ureq::Error variant (Transport vs Status).",
+    "health_probe GETs {base_url}/models; HealthError distinguishes Unreachable vs ModelMissing, each with an actionable message.",
+    "Wire client.rs into mod.rs via pub mod client + re-exports of the public surface.",
+    "Cargo.toml unchanged (preferred): serde_json::Value covers arbitrary tool schemas; no new dependency.",
+    "No persisted schema/config changes — all new types are in-memory transport types; task only reads ExploreConfig.",
+    "Tests (no HTTP mocks): serde round-trips, both provider fixtures deserialize to identical normalized ToolCall, unreachable URL -> Connection/Unreachable errors.",
+    "Verify with cargo test --release --locked and cargo clippy -- -D warnings; assert no 'fastcontext' string.",
+    "Additive, non-material change; no version bump, no regeneration, no consumer breakage."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

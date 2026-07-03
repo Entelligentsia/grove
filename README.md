@@ -65,7 +65,7 @@ grove init
 writes `.mcp.json` (the tools exist) + a `CLAUDE.md` steering directive (the
 agent reaches for grove instead of grep) + `grove.lock`. That's it — your agent
 now has structural sight. Other install channels (Homebrew, npm, cargo, agent
-skill) and `--as mcp|skill|both` are in **[Install](docs/install.md)** and
+skill) and `--as mcp|skill|both|mcp-llm` are in **[Install](docs/install.md)** and
 **[Setup](docs/setup.md)**.
 
 > As an **agent skill** (Claude Code, Cursor, Codex, Cline, …):
@@ -125,6 +125,82 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 Add `--json` to any command for the agent-facing shape. Full reference + examples:
 **[Tools](docs/tools.md)**.
 
+## Delegated local-LLM mode (`mcp__grove__explore`) · ⚠️ Experimental
+
+> **Experimental / opt-in — unreleased.** The default grove (the CLI and the
+> standard 7-tool `grove serve`) is unaffected. This mode's behaviour, its config
+> (`.grove/explore.json`), and the tool contract may change without notice.
+
+**What it is**: `mcp__grove__explore` is a single MCP tool the outer coding agent
+calls with **one narrow "where is X" question**. Grove's inner Rust explorer
+agent drives a short, bounded tool-calling loop locally — against your configured
+local / OpenAI-compatible LLM (Ollama, llama.cpp) — and returns a short
+explanation plus **validated `file:line` citations**. It is a *locator* (it finds
+WHERE relevant code lives), not a full-analysis oracle: ask a few targeted
+questions and synthesize the results yourself. The outer agent never sees the
+inner tool calls — and never spends its own context on them.
+
+```
+   outer coding agent (Claude / Cursor / …)
+      │  explore("where is session-cookie signing?")     ▲  explanation +
+      │  — one narrow locator question —                 │  file:line citations
+      ▼                                                  │  (+ live progress ticks)
+ ┌────────────────────  grove serve --explore  ──────────┴──────────────────────┐
+ │  startup health probe (/models):                                             │
+ │     healthy   → surface ONLY  mcp__grove__explore                            │
+ │     unhealthy → fall back to the 7 structural tools   (never a dead server)  │
+ │                                                                              │
+ │  inner explorer  (core::explore) — a port of the proven delegation agent:    │
+ │     bounded loop  ≤ 6 turns · forced final answer at the cap · no byte budget│
+ │                                                                              │
+ │         local LLM  ⇄  Grove · Read · Glob · Grep                             │
+ │      (Ollama / llama.cpp,     Grove → grove binary,  Grep/Glob → ripgrep,    │
+ │       OpenAI-compatible)      Read in-process                                │
+ │                                                                              │
+ │     arms:  standard (merit) · balanced (plan-first) · aggressive (coerce)    │
+ │     result: <final_answer> citations, each validated against the filesystem  │
+ └──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Setup**:
+```
+grove init --as mcp-llm   # interactive setup TUI (requires TTY)
+grove config              # revisit / change settings at any time
+```
+
+**Three steering modes** (trade-off in one line each):
+
+| Mode | Trade-off |
+|---|---|
+| `standard` | inner model picks tools naturally — lowest overhead, works well with capable models |
+| `balanced` | two-phase plan → execute — best grounding and lowest hallucination rate, highest wall-clock |
+| `aggressive` | grove-first steering prompts — cost/quality sweet spot for smaller models |
+
+Change the active mode at any time with `grove config`.
+
+**Health semantics**:
+- Startup: `grove serve --explore` probes the configured provider (`/models`).
+  - **Healthy** → expose `mcp__grove__explore` only.
+  - **Unhealthy at startup** → transparent fallback: the 7 structural tools
+    (`outline`, `symbols`, `source`, `check`, `callers`, `map`, `definition`)
+    are surfaced instead so the outer agent is never left tool-less.
+- Mid-session loss → `mcp__grove__explore` returns a recoverable `isError`
+  response with a restart hint; the outer agent can retry or degrade gracefully.
+
+**Debugging — see the inner conversation.** Turn on **Tap** (a `tap` flag in
+`.grove/explore.json`, toggled in `grove config` — or just run `grove tap`, which
+flips it on for you). `grove serve --explore` then records each session to a
+per-session JSONL trace under `.grove/traces/`: a header with the calling agent's
+identity, model and mode, then a `call_start` / `turn` / `call_end` stream per
+`explore` call with **token usage and wall time**.
+
+Run **`grove tap`** to browse them in a full-screen TUI — drill session → call →
+turn: the session list shows agent, model, call count, total tokens and a live
+marker; opening a call shows its metrics and each turn's request/response. It
+refreshes live, so you can watch a session as it runs. Retention keeps the last
+`trace_retain` sessions (default 50). `grove tap --no-enable` opens the browser
+without changing the config.
+
 ## As a library — `grove-core`
 
 The same engine ships as a standalone crate, **`grove-core`**, so you can embed
@@ -177,7 +253,7 @@ point behind `grove init`. Crate overview and full API surface:
 ## Documentation
 
 - **[Install](docs/install.md)** — curl/Homebrew/npm/cargo, build from source, the agent skill
-- **[Setup](docs/setup.md)** — `grove init`, `--as mcp|skill|both`, what it writes, offline/dry-run
+- **[Setup](docs/setup.md)** — `grove init`, `--as mcp|skill|both|mcp-llm`, what it writes, offline/dry-run
 - **[Languages & grammars](docs/languages.md)** — the WASM registry, `fetch`/`lock`, where grammars live, profiles
 - **[Tools](docs/tools.md)** — the seven tools, `--json`, `symbol-id`, examples
 - **[MCP server](docs/mcp.md)** — `grove serve`, `.mcp.json`, steering, error model

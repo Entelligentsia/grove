@@ -1,0 +1,13 @@
+{
+  "taskId": "GROVE-S02-T06",
+  "sprintId": "GROVE-S02",
+  "title": "grove init --as mcp-llm — target, harness steering (CLAUDE.md/AGENTS.md), .mcp.json",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T06",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S02-T04",
+    "GROVE-S02-T05"
+  ],
+  "description": "Add Target::McpLlm (--as mcp-llm) to cli/src/init.rs: run provision_project (grammars + lock), launch the T05 TUI to produce .grove/explore.json, write .mcp.json registering grove serve in explore mode, and write idempotent steering sections to CLAUDE.md AND AGENTS.md (sentinel-block pattern) routing exploration through __explore. Existing --as mcp|skill|both|grammars behavior unchanged (existing init tests pass). --dry-run supported."
+}

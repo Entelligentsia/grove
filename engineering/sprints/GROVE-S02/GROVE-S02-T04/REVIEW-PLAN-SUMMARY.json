@@ -1,0 +1,18 @@
+{
+  "objective": "Assess the GROVE-S02-T04 plan for the health-gated explore-mode surface in `grove serve` against the task ACs and the real core::explore + mcp.rs code.",
+  "key_changes": [
+    "All API assumptions independently verified against source: run_explore signature, ExploreError variants (ProviderDown/Client), ExploreAnswer.text, ExploreConfig fields.",
+    "Import path grove_core::explore::{health_probe,run_explore,ExploreConfig,ExploreError,OpenAiCompatClient} confirmed valid — explore/mod.rs re-exports all five from agent/client/config submodules.",
+    "health_probe returns HealthError::{Unreachable,ModelMissing}, satisfying AC-2 'unreachable or model-missing' gate.",
+    "Surface-once-at-startup (D3) design is sound; force_standard > force_explore/config > health precedence is coherent.",
+    "Refactor scope correct: serve()/handle() are the described change points; existing unit tests call handle() directly and are covered by the &Surface::Standard update.",
+    "AC-5 byte-identical default mode is credible — unhealthy path reuses existing tool_specs/instructions/call_tool verbatim.",
+    "Advisory: only the AC-6 fallback test is added; the deterministic missing-question -> isError branch (AC-3) is unit-testable without a provider and should get a regression guard.",
+    "Advisory: consider a unit assertion that explore_tool_spec() has no top-level anyOf/oneOf (locks AC-2 schema shape).",
+    "Advisory: AC-7 'no fastcontext string' not addressed in the plan; verify via grep in review-code.",
+    "Advisory: --explore with no config file falls back to Standard via load-failure; ensure stderr note distinguishes load-failure from provider-unhealthy."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on the run_explore bounded inner agent loop (mode steering, two-level tool gating, Balanced phase machine, graceful bounds) in core::explore.",
+  "key_changes": [
+    "Crate boundary correct: run_explore in core::explore, 7 ops called in-process, core stays clap-free (clap confined to CLI crate per stack.md).",
+    "Security sound: two-level gating (tools[] omission + corrective refusal) plus pre-spawn allowlist check, args as Vec, no shell interpolation (AC-3).",
+    "Modes-as-data over one loop; Aggressive tool_choice hint correctly dropped for prompt-only steering; Balanced 3-phase machine with BALANCED_RECON_TURNS=2 matches AC-4.",
+    "Bounds graceful: MAX_TURNS=25 and MAX_TOOL_RESULT_BYTES=131072 both return Ok(ExploreAnswer{truncated:true}), not error (AC-5).",
+    "Error model aligned with D3: ClientError::Connection -> ExploreError::ProviderDown (AC-6); T04 maps to recoverable isError, server stays up.",
+    "Additive change: no new Cargo deps, 7 ops' contracts untouched, no version bump, no migrations, zero deploy-time operational impact.",
+    "All 8 ACs PASS; code review Approved; validation Approved; 177 tests green (126 unit + 32 integ + 18 CLI + 1 doc), 0 regressions.",
+    "Follow-up (non-blocking): tighten tautological aggressive_toolset_same_as_standard test to actually construct Mode::Aggressive.",
+    "Follow-up (non-blocking): close submit_plan gating edge (special-case precedes is_in_toolset, so hallucinated submit_plan in Standard/Aggressive is honoured).",
+    "Follow-up (non-blocking): extend balanced_phase_transitions to assert phase-1 narrows to submit_plan-only after recon, not just completion."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

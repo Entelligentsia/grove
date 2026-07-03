@@ -1,0 +1,41 @@
+{
+  "sprintId": "GROVE-S02",
+  "title": "grove init --as mcp-llm — local-LLM delegated exploration (mcp__grove__explore)",
+  "status": "active",
+  "path": "engineering/sprints/GROVE-S02",
+  "taskIds": [
+    "GROVE-S02-T01",
+    "GROVE-S02-T02",
+    "GROVE-S02-T03",
+    "GROVE-S02-T04",
+    "GROVE-S02-T05",
+    "GROVE-S02-T06",
+    "GROVE-S02-T07"
+  ],
+  "createdAt": "2026-07-02T00:00:00Z",
+  "executionMode": "sequential",
+  "goal": "Add `grove init --as mcp-llm`: a pure-Rust inner explorer (OpenAI-compat client; Ollama default, llama.cpp supported) exposed as the ONLY MCP tool (mcp__grove__explore) via a new grove serve mode; a full-screen setup TUI (also re-launchable via `grove config`) collecting provider/URL/model/mode/allowed-bash-tools; three steering modes (standard=merit, balanced=plan-execute, aggressive=grove-first); idempotent CLAUDE.md/AGENTS.md steering routing exploration through __explore; startup health probe with runtime connection errors shutting the server down.",
+  "description": "Productizes the local-delegation sidebench findings (code-analyzer-testbench/studies/fastcontext-sidebench: ~16-18x mean total-metered-context reduction at grounding parity). Decisions D1-D6 resolved in intake: pure Rust (no Python, no fastcontext naming), OpenAI-compat transport, startup probe + fail-fast shutdown, solid TUI + grove config verb, exclusive explore-only tool surface, functional correctness only (benchmarks post-impl). Requirements: engineering/sprints/GROVE-S02/SPRINT_REQUIREMENTS.md. Plan: engineering/sprints/GROVE-S02/SPRINT_PLAN.md.",
+  "dependencies": {
+    "GROVE-S02-T02": [
+      "GROVE-S02-T01"
+    ],
+    "GROVE-S02-T03": [
+      "GROVE-S02-T02"
+    ],
+    "GROVE-S02-T04": [
+      "GROVE-S02-T03"
+    ],
+    "GROVE-S02-T05": [
+      "GROVE-S02-T01"
+    ],
+    "GROVE-S02-T06": [
+      "GROVE-S02-T04",
+      "GROVE-S02-T05"
+    ],
+    "GROVE-S02-T07": [
+      "GROVE-S02-T04",
+      "GROVE-S02-T06"
+    ]
+  }
+}

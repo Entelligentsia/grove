@@ -5,8 +5,11 @@
 
 use grove_core::{ops, registry, fetch, ingest};
 
+mod config_tui;
 mod init;
 mod mcp;
+mod tap;
+mod trace_tui;
 
 use std::path::PathBuf;
 
@@ -147,8 +150,37 @@ enum Cmd {
     Languages,
     /// Write grove.lock pinning each registry grammar's version + content hash.
     Lock,
+    /// Open the full-screen config TUI to set up (or edit) the explore config.
+    ///
+    /// Requires an interactive terminal. Opens pre-populated when
+    /// `.grove/explore.json` already exists; starts from defaults otherwise.
+    Config {
+        /// Project directory (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Run as an MCP server over stdio (the agent-facing face).
-    Serve,
+    Serve {
+        /// Project directory used to locate .grove/explore.json (default: current dir).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Force explore mode even if .grove/explore.json is absent.
+        #[arg(long = "explore")]
+        explore: bool,
+        /// Force standard structural mode (ignore .grove/explore.json if present).
+        #[arg(long = "standard")]
+        standard: bool,
+    },
+    /// Enable explore-mode tracing and browse recorded sessions in a TUI — a
+    /// debug aid for `--as mcp-llm`. Records to `.grove/traces/`; no proxy.
+    Tap {
+        /// Project directory holding `.grove/` (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Open the browser without turning tracing on in the config.
+        #[arg(long = "no-enable")]
+        no_enable: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -264,6 +296,11 @@ fn main() -> Result<()> {
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
         }
+        Cmd::Config { path } => {
+            // Load existing config if present; start from defaults otherwise.
+            let existing = grove_core::ExploreConfig::load(&path).ok();
+            config_tui::run(&path, existing)?;
+        }
         Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
         Cmd::Ingest { only, sources, out } => ingest::run(&sources, &out, &only)?,
@@ -298,7 +335,8 @@ fn main() -> Result<()> {
             let lock = registry::write_lock(std::path::Path::new("grove.lock"))?;
             println!("wrote grove.lock ({} grammars)", lock);
         }
-        Cmd::Serve => mcp::serve()?,
+        Cmd::Serve { path, explore, standard } => mcp::serve(&path, explore, standard)?,
+        Cmd::Tap { path, no_enable } => tap::run(&path, no_enable)?,
     }
     Ok(())
 }

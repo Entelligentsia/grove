@@ -6,11 +6,15 @@
 //! protocol channel — all diagnostics go to stderr.
 
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
+use grove_core::explore::{
+    health_probe, run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient,
+    ProgressReporter, SessionMeta, TraceWriter,
+};
 use grove_core::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
@@ -23,11 +27,58 @@ const DEFAULT_PROTOCOL: &str = "2025-06-18";
 /// unknown version back (which would falsely claim support).
 const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// Which tool surface the server exposes for this session.
+enum Surface {
+    /// The standard 7-tool structural surface (existing behaviour).
+    Standard,
+    /// The explore surface: single delegating tool; healthy provider confirmed.
+    Explore { cfg: ExploreConfig, root: PathBuf },
+}
+
+/// Probe whether explore mode can be activated for `root`.
+///
+/// Precedence: `force_standard` wins over everything; then a config file or
+/// `force_explore` trigger explore; then `health_probe` confirms the provider
+/// is up. Any failure at any step falls back to `Surface::Standard` with a
+/// diagnostic on stderr.
+fn determine_surface(root: &Path, force_explore: bool, force_standard: bool) -> Surface {
+    if force_standard {
+        return Surface::Standard;
+    }
+
+    let is_explore = force_explore || ExploreConfig::config_path(root).exists();
+    if !is_explore {
+        return Surface::Standard;
+    }
+
+    let cfg = match ExploreConfig::load(root) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("grove serve: could not load explore config ({e}); falling back to standard structural surface");
+            return Surface::Standard;
+        }
+    };
+
+    match health_probe(&cfg) {
+        Ok(()) => Surface::Explore { cfg, root: root.to_path_buf() },
+        Err(e) => {
+            eprintln!("grove serve: explore provider unhealthy ({e}); falling back to standard structural surface");
+            Surface::Standard
+        }
+    }
+}
+
 /// Run the stdio server loop until EOF on stdin.
-pub fn serve() -> Result<()> {
+pub fn serve(root: &Path, force_explore: bool, force_standard: bool) -> Result<()> {
+    let surface = determine_surface(root, force_explore, force_standard);
+
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     eprintln!("grove mcp: ready on stdio");
+
+    // Opened lazily on `initialize` (once the client identity is known) when the
+    // explore surface has tap enabled; `None` in every other case.
+    let mut trace_writer: Option<TraceWriter> = None;
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -47,7 +98,17 @@ pub fn serve() -> Result<()> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or("");
         let params = req.get("params").cloned().unwrap_or(Value::Null);
 
-        let response = match handle(method, &params) {
+        // On initialize, the client identity arrives — open the session trace so
+        // every subsequent explore call is recorded under it.
+        if method == "initialize" && trace_writer.is_none() {
+            if let Surface::Explore { cfg, root } = &surface {
+                if cfg.tap {
+                    trace_writer = open_session_trace(cfg, root, &params);
+                }
+            }
+        }
+
+        let response = match handle(method, &params, &surface, trace_writer.as_ref()) {
             Outcome::Notify => continue,
             Outcome::Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Outcome::Err { code, message } => json!({
@@ -71,7 +132,33 @@ enum Outcome {
     Notify,
 }
 
-fn handle(method: &str, params: &Value) -> Outcome {
+/// Open a session trace for an explore surface, deriving the id from the MCP
+/// `clientInfo` in the `initialize` params. Best-effort: a write failure yields
+/// `None` and tracing silently no-ops.
+fn open_session_trace(cfg: &ExploreConfig, root: &Path, params: &Value) -> Option<TraceWriter> {
+    let ci = params.get("clientInfo");
+    let name = ci.and_then(|c| c.get("name")).and_then(Value::as_str).unwrap_or("unknown");
+    let version = ci.and_then(|c| c.get("version")).and_then(Value::as_str).unwrap_or("");
+    let meta = SessionMeta::new(
+        &cfg.model,
+        &enum_str(&cfg.mode),
+        &enum_str(&cfg.provider),
+        &cfg.base_url,
+        name,
+        version,
+    );
+    TraceWriter::open(root, &meta, cfg.trace_retain)
+}
+
+/// The lowercase on-disk spelling of a serde-lowercased enum (Mode / Provider).
+fn enum_str<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_value(v)
+        .ok()
+        .and_then(|x| x.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn handle(method: &str, params: &Value, surface: &Surface, trace: Option<&TraceWriter>) -> Outcome {
     match method {
         "initialize" => {
             // Answer with the client's version only if we support it; otherwise
@@ -81,17 +168,27 @@ fn handle(method: &str, params: &Value) -> Outcome {
                 Some(v) if SUPPORTED_PROTOCOLS.contains(&v) => v,
                 _ => DEFAULT_PROTOCOL,
             };
+            let instrs = match surface {
+                Surface::Standard => instructions(),
+                Surface::Explore { cfg, .. } => explore_instructions(cfg),
+            };
             Outcome::Ok(json!({
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": SERVER_NAME, "title": "grove", "version": SERVER_VERSION },
-                "instructions": instructions(),
+                "instructions": instrs,
             }))
         }
         "notifications/initialized" | "notifications/cancelled" => Outcome::Notify,
         "ping" => Outcome::Ok(json!({})),
-        "tools/list" => Outcome::Ok(json!({ "tools": tool_specs() })),
-        "tools/call" => call_tool(params),
+        "tools/list" => match surface {
+            Surface::Standard => Outcome::Ok(json!({ "tools": tool_specs() })),
+            Surface::Explore { .. } => Outcome::Ok(json!({ "tools": [explore_tool_spec()] })),
+        },
+        "tools/call" => match surface {
+            Surface::Standard => call_tool(params),
+            Surface::Explore { cfg, root } => call_explore_tool(params, cfg, root, trace),
+        },
         other => Outcome::Err {
             code: -32601,
             message: format!("method not found: {other}"),
@@ -123,6 +220,146 @@ definition-and-reference graph of a directory in one call. Use `source` only \
 for the few load-bearing definitions you need to read in full. Avoid fetching \
 many sources in sequence; instead map first, then read only the symbols that matter."
     )
+}
+
+/// Server instructions for explore mode — delegation-oriented description.
+fn explore_instructions(cfg: &ExploreConfig) -> String {
+    format!(
+        "grove is in explore mode: the `explore` tool is a code LOCATOR backed by a small \
+         local model ({model} at {base_url}) driving tree-sitter + text search. Ask it \
+         targeted where-is / which-file / who-calls questions and it returns file:line \
+         citations. Because the model is light, keep each question narrow and single-focus: \
+         decompose a broad task into a few focused calls and synthesize the results \
+         yourself — don't delegate one large compound question. If the provider becomes \
+         unreachable mid-session, the tool returns an actionable isError result; restart \
+         `grove serve` to recover the standard structural surface.",
+        model = cfg.model,
+        base_url = cfg.base_url,
+    )
+}
+
+/// The single explore-mode tool spec. Uses a plain object schema (no anyOf/oneOf).
+fn explore_tool_spec() -> Value {
+    json!({
+        "name": "explore",
+        "description": "Locate WHERE code lives. Ask ONE narrow, single-focus question \
+                         (e.g. \"where is session-cookie signing implemented\") and get back a short \
+                         explanation plus validated file:line citations. It is a LOCATOR backed by a \
+                         small local model over structural + text search — not a full-analysis oracle. \
+                         Keep each call targeted: for a broad task, make a few focused calls (\"where \
+                         are the routes for X\", then \"which function validates Y\") and do your own \
+                         synthesis. Do NOT hand it one compound \"find every file, route, and function \
+                         and explain how it all works\" question — a light model overshoots on those. \
+                         Best flow: a few narrow explore calls to locate the pieces (iterate broad -> \
+                         symbol-specific), then read the cited spans yourself (or hand ONE focused \
+                         subagent a prompt citing those exact file:line locations) and synthesize — \
+                         don't spawn a grep-based search subagent before locating.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "One narrow, single-focus locator question, e.g. \"where is the API-key health check defined\". Not a broad, multi-part task."
+                }
+            },
+            "required": ["question"]
+        },
+        "annotations": { "title": "Explore the codebase", "readOnlyHint": true, "openWorldHint": false }
+    })
+}
+
+/// Argument keys accepted for the `explore` tool's question, in priority order.
+/// The schema declares `question`, but small/varied callers often paraphrase the
+/// key; accept the obvious synonyms so a one-word miss runs instead of hard-failing.
+const EXPLORE_QUESTION_KEYS: [&str; 4] = ["question", "query", "request", "prompt"];
+
+/// Resolve the explore question from a `tools/call` params object, tolerating
+/// synonym keys. Returns `None` only when no recognized key holds a string.
+fn resolve_explore_question(params: &Value) -> Option<String> {
+    let args = params.get("arguments")?;
+    EXPLORE_QUESTION_KEYS
+        .iter()
+        .find_map(|k| args.get(k).and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+/// A progress sink that writes MCP `notifications/progress` to stdout during a
+/// long `explore` call, so the waiting client sees liveness (and doesn't trip
+/// its tool-call idle timeout) instead of a silent multi-second wait.
+///
+/// Writing to `std::io::stdout()` here is safe: `serve` is single-threaded and
+/// blocks in `run_explore_reporting` until it returns, so these notification
+/// lines are emitted strictly before the tool's final response line — no
+/// interleaving with the serve loop's own writer.
+struct StdoutProgress {
+    token: Value,
+}
+
+impl ProgressReporter for StdoutProgress {
+    fn report(&self, progress: usize, total: usize, message: &str) {
+        let note = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": self.token,
+                "progress": progress,
+                "total": total,
+                "message": message,
+            },
+        });
+        let mut out = std::io::stdout().lock();
+        // Best-effort: a broken pipe just means the client went away.
+        let _ = writeln!(out, "{note}");
+        let _ = out.flush();
+    }
+}
+
+/// Extract the caller's `_meta.progressToken` from a `tools/call` params object.
+/// Absent → the client didn't opt into progress, so we stay silent.
+fn progress_token(params: &Value) -> Option<Value> {
+    let tok = params.get("_meta")?.get("progressToken")?;
+    if tok.is_null() {
+        None
+    } else {
+        Some(tok.clone())
+    }
+}
+
+/// Dispatch the `explore` tool call in explore-mode surface.
+fn call_explore_tool(
+    params: &Value,
+    cfg: &ExploreConfig,
+    root: &Path,
+    trace: Option<&TraceWriter>,
+) -> Outcome {
+    let question = match resolve_explore_question(params) {
+        Some(q) => q,
+        None => {
+            return Outcome::Ok(tool_text(
+                &json!("missing required argument: question"),
+                true,
+            ));
+        }
+    };
+    let client = OpenAiCompatClient::new(cfg);
+    let reporter = progress_token(params).map(|token| StdoutProgress { token });
+    let noop = grove_core::explore::NoopReporter;
+    let sink: &dyn ProgressReporter = match &reporter {
+        Some(r) => r,
+        None => &noop,
+    };
+    match run_explore_reporting(&question, root, cfg, &client, sink, trace) {
+        Ok(answer) => Outcome::Ok(tool_text(&json!(answer.text), false)),
+        Err(ExploreError::ProviderDown { url, detail }) => Outcome::Ok(tool_text(
+            &json!(format!(
+                "provider down ({url}): {detail}; \
+                 check the endpoint / run `grove config` / \
+                 restart grove to pick up the structural fallback"
+            )),
+            true,
+        )),
+        Err(ExploreError::Client(msg)) => Outcome::Ok(tool_text(&json!(msg), true)),
+    }
 }
 
 /// The tool catalogue, with LLM-facing descriptions. Descriptions are
@@ -366,6 +603,35 @@ fn tool_text(value: &Value, is_error: bool) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn explore_question_resolves_canonical_and_synonym_keys() {
+        for key in ["question", "query", "request", "prompt"] {
+            let params = json!({ "arguments": { key: "what does this do?" } });
+            assert_eq!(
+                resolve_explore_question(&params).as_deref(),
+                Some("what does this do?"),
+                "key `{key}` should resolve to the question"
+            );
+        }
+    }
+
+    #[test]
+    fn explore_question_prefers_canonical_over_synonym() {
+        let params = json!({ "arguments": { "question": "canonical", "request": "synonym" } });
+        assert_eq!(resolve_explore_question(&params).as_deref(), Some("canonical"));
+    }
+
+    #[test]
+    fn explore_question_missing_is_none() {
+        assert_eq!(resolve_explore_question(&json!({ "arguments": {} })), None);
+        assert_eq!(resolve_explore_question(&json!({})), None);
+        // A non-string value under a recognized key is not a usable question.
+        assert_eq!(
+            resolve_explore_question(&json!({ "arguments": { "question": 42 } })),
+            None
+        );
+    }
+
     /// Run the `definition` tool and return its parsed JSON payload.
     fn definition(args: Value) -> Value {
         let params = json!({ "name": "definition", "arguments": args });
@@ -473,28 +739,28 @@ mod tests {
 
     #[test]
     fn initialize_echoes_supported_version_else_default() {
-        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" })));
+        let v = ok(handle("initialize", &json!({ "protocolVersion": "2024-11-05" }), &Surface::Standard, None));
         assert_eq!(v["protocolVersion"], json!("2024-11-05"), "echo a supported version");
         assert_eq!(v["serverInfo"]["name"], json!("grove"));
         assert!(v["instructions"].as_str().unwrap().contains("symbol-id"));
 
-        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" })));
+        let v2 = ok(handle("initialize", &json!({ "protocolVersion": "1999-01-01" }), &Surface::Standard, None));
         assert_eq!(v2["protocolVersion"], json!(DEFAULT_PROTOCOL), "unknown -> our latest");
     }
 
     #[test]
     fn ping_and_tools_list_and_notifications() {
-        assert_eq!(ok(handle("ping", &Value::Null)), json!({}));
+        assert_eq!(ok(handle("ping", &Value::Null, &Surface::Standard, None)), json!({}));
 
-        let v = ok(handle("tools/list", &Value::Null));
+        let v = ok(handle("tools/list", &Value::Null, &Surface::Standard, None));
         let names: Vec<&str> = v["tools"].as_array().unwrap().iter()
             .map(|t| t["name"].as_str().unwrap()).collect();
         for expected in ["outline", "symbols", "source", "check", "callers", "map", "definition"] {
             assert!(names.contains(&expected), "tools/list missing {expected}");
         }
 
-        assert!(matches!(handle("notifications/initialized", &Value::Null), Outcome::Notify));
-        assert!(matches!(handle("notifications/cancelled", &Value::Null), Outcome::Notify));
+        assert!(matches!(handle("notifications/initialized", &Value::Null, &Surface::Standard, None), Outcome::Notify));
+        assert!(matches!(handle("notifications/cancelled", &Value::Null, &Surface::Standard, None), Outcome::Notify));
     }
 
     #[test]
@@ -525,7 +791,7 @@ mod tests {
 
     #[test]
     fn unknown_method_is_method_not_found() {
-        match handle("does/not/exist", &Value::Null) {
+        match handle("does/not/exist", &Value::Null, &Surface::Standard, None) {
             Outcome::Err { code, message } => {
                 assert_eq!(code, -32601);
                 assert!(message.contains("method not found"));

@@ -1,0 +1,35 @@
+{
+  "objective": "Add cross-cutting integration tests (grove config non-TTY, init idempotency, allowlist enforcement), a naming-guard test, mcp-llm docs in README/CHANGELOG/CLAUDE.md, and bump the version to 0.3.0 to close sprint S02.",
+  "key_changes": [
+    "cli/tests/cli.rs: config_in_non_tty_fails_fast (AC1a) — spawn grove config piped, 5s timeout guard, assert exit non-zero + stderr 'interactive terminal'",
+    "cli/tests/cli.rs: mcp_llm_dry_run_twice_is_stable (AC1b) — double dry-run writes no files, stable output key strings verified",
+    "cli/tests/cli.rs: mcp_llm_mcp_json_no_duplicate_grove_entry (AC1b) — double real init, parse .mcp.json, assert exactly 1 grove key with args:[serve,--explore]",
+    "cli/tests/cli.rs: naming_guard_no_fastcontext_in_source (AC2) — walks core/src/, cli/src/, README.md, skills/ asserting 'fastcontext' absent case-insensitively",
+    "core/src/explore/agent.rs: allowlist_enforcement_find_refused (AC1c) — ExploreConfig allowed_tools:[grep] omits find; corrective_refusal; loop recovers; answer.turns==1",
+    "core/src/explore/mod.rs: wired steering and toolset sub-modules (pub mod steering; pub mod toolset; re-exports) — previously missing from files_changed",
+    "core/src/explore/config.rs: ExploreConfig with allowed_tools field — previously missing from files_changed",
+    "core/src/explore/steering.rs: per-mode system prompts (Standard/Aggressive/Balanced); balanced_phase2_prompt; 2 unit tests — was untracked at HEAD",
+    "core/src/explore/toolset.rs: tool schema registry; is_in_toolset gating; dispatch_tool routing; 7 unit tests — was untracked at HEAD",
+    "README.md: new section 'Delegated local-LLM mode (mcp__grove__explore)' — what it is, setup, 3 modes table, health/fallback semantics",
+    "CHANGELOG.md: new ## [0.3.0] - 2026-07-02 section — grove init --as mcp-llm, grove config, grove serve --explore, inner explorer engine",
+    "CLAUDE.md: architecture map + Commands block updated; cli/core/npm versions bumped 0.2.0→0.3.0; Cargo.lock refreshed"
+  ],
+  "files_changed": [
+    "cli/tests/cli.rs",
+    "core/src/explore/agent.rs",
+    "core/src/explore/mod.rs",
+    "core/src/explore/config.rs",
+    "core/src/explore/steering.rs",
+    "core/src/explore/toolset.rs",
+    "README.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "cli/Cargo.toml",
+    "core/Cargo.toml",
+    "dist/npm/package.json",
+    "Cargo.lock"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-02T12:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

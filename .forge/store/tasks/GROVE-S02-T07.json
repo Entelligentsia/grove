@@ -1,0 +1,13 @@
+{
+  "taskId": "GROVE-S02-T07",
+  "sprintId": "GROVE-S02",
+  "title": "Integration tests, naming guard, docs",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S02/GROVE-S02-T07",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S02-T04",
+    "GROVE-S02-T06"
+  ],
+  "description": "End-to-end hardening: tests/cli.rs coverage for grove config non-TTY, init idempotency (re-run duplicates nothing), allowlist enforcement (config omitting find refuses it at dispatch); repo-wide naming-guard test (no fastcontext string in core/, cli/, README.md, skills/); README + CHANGELOG sections for mcp-llm mode, grove config, and health/shutdown semantics; stack-checklist review (MCP schema plainness, stdio hygiene, exit codes)."
+}

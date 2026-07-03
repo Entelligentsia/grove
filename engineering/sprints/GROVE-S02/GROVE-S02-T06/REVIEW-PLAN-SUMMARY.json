@@ -1,0 +1,20 @@
+{
+  "objective": "Assessed the plan to add Target::McpLlm (grove init --as mcp-llm) with explore-mode .mcp.json, idempotent CLAUDE.md/AGENTS.md steering, and first-run TUI launch.",
+  "key_changes": [
+    "Verified against actual cli/src/init.rs — all structural assumptions hold.",
+    "Target derives ValueEnum (init.rs:22): McpLlm auto-produces --as mcp-llm + --help entry (AC1).",
+    "config_tui::run(root, Option<ExploreConfig>) matches plan's config_tui::run(root, None); reachable as crate::config_tui::run (AC2).",
+    "write_harness McpLlm early-return branch is cleanly separable; existing variants untouched (AC4).",
+    "write_mcp_json read/merge/write pattern reusable for explore variant with args [serve,--explore] (AC3).",
+    "claude_section is if writes_mcp() else; McpLlm needs an explicit arm before that check — plan specifies it correctly (AC3).",
+    "Sentinel-block idempotency (grove:start/end) reused for AGENTS.md gives idempotency for free (AC3/AC6).",
+    "IsTerminal guard is the proven T05 pattern (config_tui/mod.rs:37) (AC5).",
+    "7 unit + 3 integration tests trace to all 7 ACs incl. backward-compat and no-fastcontext (AC7).",
+    "Advisory: dry-run harness print must precede the provisioned.is_empty() early-return (init.rs:67).",
+    "Advisory: non-TTY guard message should be init-worded, not verbatim 'grove config' (AC5).",
+    "Advisory: keep McpLlm.writes_mcp()=false so the generic ready block doesn't double-print."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

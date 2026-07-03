@@ -1,0 +1,18 @@
+{
+  "objective": "Validate the core::explore::config ExploreConfig model + .grove/explore.json persistence against all seven task acceptance criteria.",
+  "key_changes": [
+    "AC1 PASS: pub mod explore in lib.rs; config.rs exposes ExploreConfig + Provider{Ollama,LlamaCpp} + Mode{Standard,Balanced,Aggressive} with exact field set.",
+    "AC2 PASS: config_path=<root>/.grove/explore.json; load/save/validate present; save is atomic (temp .tmp.<pid> then fs::rename).",
+    "AC3 PASS: missing file bails to `grove init --as mcp-llm`/`grove config`; bad enum names field + lists legal values via RawExploreConfig manual Deserialize.",
+    "AC4 PASS: Default = Ollama http://localhost:11434/v1, model qwen2.5-coder:7b, Standard, allowed_tools=[grove,rg,grep,find].",
+    "AC5 PASS: 8 inline tests cover round-trip, defaults, lowercase spellings, missing-file steer, bad-enum, empty-field validation, atomic save/load (no temp leak).",
+    "AC6 PASS: cargo tree -p grove-cst shows no clap; no 'fastcontext' string in core/.",
+    "AC7 PASS: build warning-clean, clippy -D warnings clean, full test suite green (8/8 explore).",
+    "Edge cases covered: missing file, malformed enum, whitespace-only required fields, torn-write mitigation via temp+rename.",
+    "Non-blocking nit: AC/PLAN say `cargo tree -p grove-core` but crate package is grove-cst; intent (clap-free core) verified.",
+    "Purely additive change; only lib.rs edited among existing files; no regressions."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-02T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
