@@ -5,12 +5,13 @@
 //! [`parse_session`] folds those events back into a [`Session`] › [`Call`] ›
 //! [`Turn`] tree the browser navigates.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde_json::Value;
 
-use grove_core::explore::trace::traces_dir;
+use grove_core::explore::trace::{format_request, format_response, traces_dir};
 
 /// Token counts (prompt, completion, total).
 #[derive(Debug, Clone, Copy, Default)]
@@ -96,6 +97,10 @@ pub enum Msg {
     Up,
     Down,
     Enter,
+    /// Expand (→) — in the detail tree; descends a level elsewhere.
+    Right,
+    /// Collapse (←) — in the detail tree; goes back a level elsewhere.
+    Left,
     Back,
     PageUp,
     PageDown,
@@ -106,6 +111,141 @@ pub enum Msg {
     Reload(Vec<Session>),
 }
 
+/// A node in the per-call turn tree. `usize` is the turn index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NodeKey {
+    /// A turn header (expands to its request/response nodes).
+    Turn(usize),
+    /// A turn's request body (expands to the pretty-printed prompt).
+    Req(usize),
+    /// A turn's response body (expands to the pretty-printed completion).
+    Resp(usize),
+    /// The call's final answer (expands to the grounded text).
+    Answer,
+}
+
+/// One rendered row of the turn tree. `key` is `Some` for a selectable node,
+/// `None` for an indented content line under an expanded node.
+#[derive(Debug, Clone)]
+pub struct TreeRow {
+    pub key: Option<NodeKey>,
+    pub depth: u16,
+    pub text: String,
+    pub expandable: bool,
+    pub expanded: bool,
+}
+
+/// Flatten a call into the visible tree rows, honouring the `expanded` set.
+/// Turn headers and the answer are always present; their request/response and
+/// content lines appear only when their parent node is expanded.
+pub fn build_tree_rows(c: &Call, expanded: &HashSet<NodeKey>) -> Vec<TreeRow> {
+    let mut rows = Vec::new();
+
+    for t in &c.turn_blocks {
+        let key = NodeKey::Turn(t.turn_index);
+        let open = expanded.contains(&key);
+        rows.push(TreeRow {
+            key: Some(key),
+            depth: 0,
+            expandable: true,
+            expanded: open,
+            text: format!("turn {} — {}  ({}ms)", t.turn_index, turn_summary(&t.response), t.wall_ms),
+        });
+        if !open {
+            continue;
+        }
+        push_body(&mut rows, NodeKey::Req(t.turn_index), "request", &format_request(&t.request), expanded);
+        push_body(
+            &mut rows,
+            NodeKey::Resp(t.turn_index),
+            "response",
+            &format_response(&t.response, Some(t.wall_ms)),
+            expanded,
+        );
+    }
+
+    // Final answer (or a live placeholder).
+    if c.ended {
+        let key = NodeKey::Answer;
+        let open = expanded.contains(&key);
+        rows.push(TreeRow {
+            key: Some(key),
+            depth: 0,
+            expandable: true,
+            expanded: open,
+            text: "final answer".to_string(),
+        });
+        if open {
+            let ans = if c.answer.is_empty() { "(empty)" } else { &c.answer };
+            for line in ans.lines() {
+                rows.push(content_row(line, 1));
+            }
+        }
+    } else {
+        rows.push(TreeRow {
+            key: Some(NodeKey::Answer),
+            depth: 0,
+            expandable: false,
+            expanded: false,
+            text: "● call in progress — no final answer yet".to_string(),
+        });
+    }
+
+    rows
+}
+
+/// Push a collapsible body node (request/response) and, when open, its
+/// pretty-printed content as indented content rows.
+fn push_body(rows: &mut Vec<TreeRow>, key: NodeKey, label: &str, body: &str, expanded: &HashSet<NodeKey>) {
+    let open = expanded.contains(&key);
+    rows.push(TreeRow {
+        key: Some(key),
+        depth: 1,
+        expandable: true,
+        expanded: open,
+        text: label.to_string(),
+    });
+    if open {
+        for line in body.lines() {
+            rows.push(content_row(line, 2));
+        }
+    }
+}
+
+fn content_row(text: &str, depth: u16) -> TreeRow {
+    TreeRow { key: None, depth, text: text.to_string(), expandable: false, expanded: false }
+}
+
+/// A compact one-line summary of what the model produced on a turn: the tool
+/// calls it requested, or a snippet of its text, for the collapsed turn header.
+fn turn_summary(resp: &Value) -> String {
+    let msg = resp
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first())
+        .and_then(|c| c.get("message"));
+    let Some(msg) = msg else {
+        return "(no output)".to_string();
+    };
+
+    if let Some(calls) = msg.get("tool_calls").and_then(Value::as_array) {
+        if !calls.is_empty() {
+            let names: Vec<String> = calls
+                .iter()
+                .map(|c| c.get("function").and_then(|f| f.get("name")).and_then(Value::as_str).unwrap_or("?").to_string())
+                .collect();
+            return format!("calls: {}", names.join(", "));
+        }
+    }
+    match msg.get("content").and_then(Value::as_str) {
+        Some(s) if !s.trim().is_empty() => {
+            let snippet: String = s.trim().chars().take(60).collect();
+            format!("“{snippet}”")
+        }
+        _ => "(no output)".to_string(),
+    }
+}
+
 /// The browser state.
 #[derive(Debug, Clone)]
 pub struct App {
@@ -114,9 +254,10 @@ pub struct App {
     pub view: View,
     pub sel_session: usize,
     pub sel_call: usize,
-    pub detail_scroll: usize,
-    /// Whether the detail view sticks to the newest content (live follow).
-    pub detail_follow: bool,
+    /// Cursor over the selectable nodes of the detail turn tree.
+    pub tree_cursor: usize,
+    /// Which tree nodes are expanded in the detail view.
+    pub expanded: HashSet<NodeKey>,
 }
 
 impl App {
@@ -127,8 +268,8 @@ impl App {
             view: View::Sessions,
             sel_session: 0,
             sel_call: 0,
-            detail_scroll: 0,
-            detail_follow: true,
+            tree_cursor: 0,
+            expanded: HashSet::new(),
         }
     }
 
@@ -140,6 +281,22 @@ impl App {
     /// The call under the cursor, if any.
     pub fn current_call(&self) -> Option<&Call> {
         self.current_session()?.calls.get(self.sel_call)
+    }
+
+    /// The selectable node keys of the current call's turn tree, in row order.
+    pub fn selectable_keys(&self) -> Vec<NodeKey> {
+        match self.current_call() {
+            Some(c) => build_tree_rows(c, &self.expanded)
+                .into_iter()
+                .filter_map(|r| r.key)
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The node key under the tree cursor, if any.
+    pub fn cursor_key(&self) -> Option<NodeKey> {
+        self.selectable_keys().get(self.tree_cursor).copied()
     }
 }
 
@@ -353,5 +510,65 @@ mod tests {
         assert_eq!(hms_utc(0), "00:00:00");
         assert_eq!(hms_utc(3661), "01:01:01");
         assert_eq!(hms_utc(86_400 + 60), "00:01:00");
+    }
+
+    fn call_with_turns(n: usize, ended: bool) -> Call {
+        use serde_json::json;
+        Call {
+            call_id: 1,
+            query: "q".into(),
+            turns: n,
+            tokens: Tokens::default(),
+            wall_ms: 0,
+            answer: "ans".into(),
+            truncated: false,
+            ended,
+            turn_blocks: (1..=n)
+                .map(|i| Turn {
+                    turn_index: i,
+                    request: json!({"messages": []}),
+                    response: json!({"choices":[{"message":{"role":"assistant",
+                        "tool_calls":[{"function":{"name":"Grove"}}]}}]}),
+                    wall_ms: 10,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn tree_collapsed_shows_turn_headers_and_answer() {
+        let c = call_with_turns(3, true);
+        let rows = build_tree_rows(&c, &HashSet::new());
+        let keys: Vec<NodeKey> = rows.iter().filter_map(|r| r.key).collect();
+        assert_eq!(
+            keys,
+            vec![NodeKey::Turn(1), NodeKey::Turn(2), NodeKey::Turn(3), NodeKey::Answer]
+        );
+        // The collapsed turn header summarizes the tool call the model made.
+        assert!(rows[0].text.contains("calls: Grove"), "turn summary: {}", rows[0].text);
+        assert!(rows.iter().all(|r| !r.expanded), "all collapsed");
+    }
+
+    #[test]
+    fn expanding_a_turn_reveals_request_and_response_nodes() {
+        let c = call_with_turns(1, true);
+        let mut exp = HashSet::new();
+        exp.insert(NodeKey::Turn(1));
+        let rows = build_tree_rows(&c, &exp);
+        let keys: Vec<NodeKey> = rows.iter().filter_map(|r| r.key).collect();
+        assert_eq!(keys, vec![NodeKey::Turn(1), NodeKey::Req(1), NodeKey::Resp(1), NodeKey::Answer]);
+        // Expanding the request node reveals indented content lines (no key).
+        exp.insert(NodeKey::Req(1));
+        let rows = build_tree_rows(&c, &exp);
+        assert!(rows.iter().any(|r| r.key.is_none() && r.depth == 2), "request content shown");
+    }
+
+    #[test]
+    fn in_progress_call_shows_live_answer_placeholder() {
+        let c = call_with_turns(1, false);
+        let rows = build_tree_rows(&c, &HashSet::new());
+        let answer = rows.iter().find(|r| r.key == Some(NodeKey::Answer)).unwrap();
+        assert!(!answer.expandable, "no answer to expand yet");
+        assert!(answer.text.contains("in progress"), "live placeholder: {}", answer.text);
     }
 }

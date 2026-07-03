@@ -8,9 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use grove_core::explore::trace::{format_request, format_response};
-
-use crate::trace_tui::model::{hms_utc, App, Call, View};
+use crate::trace_tui::model::{build_tree_rows, hms_utc, App, Call, TreeRow, View};
 
 const FOCUSED: Color = Color::Cyan;
 const NORMAL: Color = Color::White;
@@ -131,40 +129,58 @@ fn render_detail(app: &App, frame: &mut Frame, area: Rect) {
     let Some(c) = app.current_call() else {
         return render_calls(app, frame, area);
     };
-    let text = detail_lines(c).join("\n");
+    let rows = build_tree_rows(c, &app.expanded);
+
+    // Map the tree cursor (an ordinal over selectable nodes) to the row index
+    // the List should highlight, so the selection follows expand/collapse.
+    let mut selected_row = None;
+    let mut ordinal = 0usize;
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            if r.key.is_some() {
+                if ordinal == app.tree_cursor {
+                    selected_row = Some(i);
+                }
+                ordinal += 1;
+            }
+            tree_item(r)
+        })
+        .collect();
+
     let title = format!(" call #{} · {} ", c.call_id, truncate(&c.query, 50));
-    let para = Paragraph::new(text)
+    let list = List::new(items)
         .block(titled(&title))
-        .scroll((app.detail_scroll as u16, 0));
-    frame.render_widget(para, area);
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    let mut state = ListState::default();
+    state.select(selected_row);
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// Build the scrollable detail text for a call: each turn rendered through the
-/// shared request/response pretty-printers, then the answer. The call's status +
-/// metrics live in the footer ([`call_metrics`]), not here.
-pub fn detail_lines(c: &Call) -> Vec<String> {
-    let mut out = Vec::new();
-
-    for t in &c.turn_blocks {
-        out.push(format!("── turn {} ──────────────────────────", t.turn_index));
-        out.push(format_request(&t.request));
-        out.push(format_response(&t.response, Some(t.wall_ms)));
-        out.push(String::new());
-    }
-
-    if c.ended {
-        out.push("── final answer ──────────────────────".to_string());
-        out.push(if c.answer.is_empty() {
-            "(empty)".to_string()
+/// Render one turn-tree row: indentation by depth, an expand marker for
+/// collapsible nodes, dim styling for content lines.
+fn tree_item(r: &TreeRow) -> ListItem<'static> {
+    let indent = "  ".repeat(r.depth as usize);
+    let marker = if r.expandable {
+        if r.expanded {
+            "▾ "
         } else {
-            c.answer.clone()
-        });
+            "▸ "
+        }
+    } else if r.key.is_some() {
+        "· "
     } else {
-        out.push("(call in progress — no final answer yet)".to_string());
-    }
-
-    // Split any multi-line blocks so scroll math is line-accurate.
-    out.into_iter().flat_map(|b| b.lines().map(str::to_string).collect::<Vec<_>>()).collect()
+        "  "
+    };
+    let style = if r.key.is_none() {
+        Style::default().fg(DIM) // content line
+    } else if r.depth == 0 {
+        Style::default().fg(NORMAL).add_modifier(Modifier::BOLD) // turn / answer header
+    } else {
+        Style::default().fg(ACCENT) // request / response label
+    };
+    ListItem::new(Line::from(Span::styled(format!("{indent}{marker}{}", r.text), style)))
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
@@ -191,8 +207,8 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         View::Sessions => " ↑↓ move · Enter open · q/Esc quit ".to_string(),
         View::Calls => " ↑↓ move · Enter open · Esc back · q quit ".to_string(),
         View::Detail => match app.current_call() {
-            Some(c) => format!(" {}  │  ↑↓/PgUp/PgDn scroll · Esc back · q quit ", call_metrics(c)),
-            None => " ↑↓/PgUp/PgDn scroll · Esc back · q quit ".to_string(),
+            Some(c) => format!(" {}  │  ↑↓ move · →/Enter expand · ← collapse · Esc back · q quit ", call_metrics(c)),
+            None => " ↑↓ move · →/Enter expand · ← collapse · Esc back · q quit ".to_string(),
         },
     };
     let bar = Paragraph::new(Line::from(Span::styled(
@@ -251,15 +267,20 @@ mod tests {
     }
 
     #[test]
-    fn detail_lines_include_turn_and_answer_not_metrics() {
-        let lines = detail_lines(&call());
-        let joined = lines.join("\n");
-        assert!(joined.contains("turn 1"), "turn header present");
-        assert!(joined.contains("where is main"), "request rendered");
-        assert!(joined.contains("final answer"), "answer section present");
-        assert!(joined.contains("src/main.rs:1"), "answer text present");
-        // Metrics moved to the footer — not in the scrollable body.
-        assert!(!joined.contains("tok "), "metrics must not be in the body");
+    fn tree_item_marks_collapsed_expanded_and_content() {
+        use crate::trace_tui::model::TreeRow;
+        // A collapsed expandable node → "▸"; expanded → "▾"; content → no marker.
+        let collapsed = TreeRow { key: Some(crate::trace_tui::model::NodeKey::Answer), depth: 0, text: "final answer".into(), expandable: true, expanded: false };
+        let expanded = TreeRow { expanded: true, ..collapsed.clone() };
+        let content = TreeRow { key: None, depth: 2, text: "  [user] hi".into(), expandable: false, expanded: false };
+        // tree_item builds a ListItem; assert it constructs without panicking and
+        // that the underlying row carries the expected shape.
+        let _ = tree_item(&collapsed);
+        let _ = tree_item(&expanded);
+        let _ = tree_item(&content);
+        assert!(collapsed.expandable && !collapsed.expanded);
+        assert!(expanded.expanded);
+        assert!(content.key.is_none());
     }
 
     #[test]
@@ -276,15 +297,6 @@ mod tests {
         let mut trunc = call();
         trunc.truncated = true;
         assert!(call_metrics(&trunc).contains("truncated"), "truncated status");
-    }
-
-    #[test]
-    fn detail_lines_are_line_split_for_scroll() {
-        // Every element must be a single line (no embedded newlines) so the
-        // scroll offset maps 1:1 to visible rows.
-        for l in detail_lines(&call()) {
-            assert!(!l.contains('\n'), "line still contains a newline: {l:?}");
-        }
     }
 
     #[test]

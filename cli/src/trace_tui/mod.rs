@@ -19,7 +19,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use model::{Action, App, Msg, View};
+use model::{Action, App, Msg};
 
 /// Launch the trace browser rooted at `root`. Returns an error only for I/O
 /// failures and non-TTY environments.
@@ -52,24 +52,6 @@ fn event_loop(
     app: &mut App,
 ) -> Result<()> {
     loop {
-        // Keep the detail scroll valid; pin to the bottom while following.
-        if app.view == View::Detail {
-            let body_h = terminal.size()?.height.saturating_sub(3) as usize; // footer + borders
-            let n_lines = app
-                .current_call()
-                .map(|c| view::detail_lines(c).len())
-                .unwrap_or(0);
-            let max_scroll = n_lines.saturating_sub(body_h);
-            if app.detail_follow {
-                app.detail_scroll = max_scroll;
-            } else {
-                app.detail_scroll = app.detail_scroll.min(max_scroll);
-                if app.detail_scroll >= max_scroll {
-                    app.detail_follow = true;
-                }
-            }
-        }
-
         terminal.draw(|f| view::view(app, f))?;
 
         // Poll so the session list refreshes on a tick even without keystrokes.
@@ -100,8 +82,10 @@ fn translate(_app: &App, ev: Event) -> Option<Msg> {
     match code {
         KeyCode::Up | KeyCode::Char('k') => Some(Msg::Up),
         KeyCode::Down | KeyCode::Char('j') => Some(Msg::Down),
-        KeyCode::Enter | KeyCode::Char('l') => Some(Msg::Enter),
-        KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('h') => Some(Msg::Back),
+        KeyCode::Enter => Some(Msg::Enter),
+        KeyCode::Right | KeyCode::Char('l') => Some(Msg::Right),
+        KeyCode::Left | KeyCode::Char('h') => Some(Msg::Left),
+        KeyCode::Esc | KeyCode::Backspace => Some(Msg::Back),
         KeyCode::PageUp => Some(Msg::PageUp),
         KeyCode::PageDown => Some(Msg::PageDown),
         KeyCode::Home | KeyCode::Char('g') => Some(Msg::Top),
