@@ -66,3 +66,5 @@ pub use init::provision_project;
 pub use explore::{ExploreConfig, Provider, Steering};
 /// The grove project config type and integration mode (see [`config`]).
 pub use config::{active_mode, GroveConfig, Mode, ModeChoice};
+/// Lock-file verification types returned by [`registry::verify_lock`].
+pub use registry::{LockVerifyEntry, LockVerifyStatus};

@@ -428,6 +428,84 @@ pub fn write_lock_for(langs: &[String], path: &Path) -> Result<usize> {
     Ok(grammars.len())
 }
 
+/// The outcome of comparing a cached wasm's sha256 against the lock file.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LockVerifyStatus {
+    /// Computed hash matches the pinned hash in the lock.
+    Match,
+    /// Wasm file exists but its hash differs from the pinned value.
+    Mismatch,
+    /// Wasm file was not found at the expected registry path.
+    Missing,
+}
+
+/// A single grammar's verification result from [`verify_lock`].
+#[derive(Debug)]
+pub struct LockVerifyEntry {
+    /// Language name as recorded in the lock file.
+    pub lang: String,
+    /// The sha256 hash pinned in the lock file (`"sha256:…"`).
+    pub expected: String,
+    /// The sha256 hash we recomputed from disk; `None` when the wasm is absent.
+    pub actual: Option<String>,
+    /// Match / Mismatch / Missing.
+    pub status: LockVerifyStatus,
+}
+
+/// Verify every grammar wasm recorded in a grove.lock file against the hashes
+/// it pins. Returns:
+/// * `Ok(None)` — the lock file does not exist (not an error; caller renders as
+///   "not present").
+/// * `Ok(Some(entries))` — lock parsed; one [`LockVerifyEntry`] per grammar.
+/// * `Err(_)` — I/O or JSON parse failure.
+///
+/// The `path` argument is the lock **file** path (parallel to `write_lock_for`
+/// and `locked_langs`), not a project root. T07 must pass the resolved
+/// `grove.lock` path.
+pub fn verify_lock(path: &Path) -> Result<Option<Vec<LockVerifyEntry>>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let doc: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+    let grammars = doc["grammars"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default();
+    let mut entries = Vec::with_capacity(grammars.len());
+    for entry in grammars {
+        let name = match entry["name"].as_str() {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let expected = match entry["wasm"].as_str() {
+            Some(h) => h.to_string(),
+            None => continue,
+        };
+        let wasm_path = registry_root().join(&name).join("grammar.wasm");
+        let (actual, status) = match std::fs::read(&wasm_path) {
+            Ok(bytes) => {
+                let hash = sha256(&bytes);
+                let s = if hash == expected {
+                    LockVerifyStatus::Match
+                } else {
+                    LockVerifyStatus::Mismatch
+                };
+                (Some(hash), s)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (None, LockVerifyStatus::Missing),
+            Err(e) => {
+                return Err(anyhow::Error::new(e)
+                    .context(format!("reading {}", wasm_path.display())));
+            }
+        };
+        entries.push(LockVerifyEntry { lang: name, expected, actual, status });
+    }
+    Ok(Some(entries))
+}
+
 /// Read the grammar names pinned in a lockfile, in file order. The lock is the
 /// canonical list of the grammars a project needs; `grove init` reads it back to
 /// name those languages in the CLAUDE.md steering block after provisioning.
@@ -672,5 +750,56 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.profile.call_kinds, vec!["call", "send"]);
         assert!(m.profile.is_call_kind("send"));
+    }
+
+    #[test]
+    fn verify_lock_returns_none_when_file_absent() {
+        let absent = std::env::temp_dir().join(format!("grove_lock_none_{}.lock", std::process::id()));
+        let result = verify_lock(&absent).unwrap();
+        assert!(result.is_none(), "absent lock file must return Ok(None)");
+    }
+
+    #[test]
+    fn verify_lock_matches_after_write_lock_for() {
+        let out = std::env::temp_dir().join(format!("grove_lock_match_{}.lock", std::process::id()));
+        write_lock_for(&["rust".into()], &out).unwrap();
+        let entries = verify_lock(&out).unwrap().expect("lock file must parse");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].lang, "rust");
+        assert_eq!(entries[0].status, LockVerifyStatus::Match);
+        assert!(entries[0].actual.is_some());
+        std::fs::remove_file(&out).ok();
+    }
+
+    #[test]
+    fn verify_lock_detects_tampered_hash() {
+        let out = std::env::temp_dir().join(format!("grove_lock_mismatch_{}.lock", std::process::id()));
+        write_lock_for(&["rust".into()], &out).unwrap();
+        // Overwrite the wasm hash with a bogus value.
+        let text = std::fs::read_to_string(&out).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        doc["grammars"][0]["wasm"] = serde_json::json!("sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        std::fs::write(&out, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+        let entries = verify_lock(&out).unwrap().expect("lock file must parse");
+        assert_eq!(entries[0].status, LockVerifyStatus::Mismatch);
+        assert!(entries[0].actual.is_some(), "wasm exists so actual hash must be computed");
+        std::fs::remove_file(&out).ok();
+    }
+
+    #[test]
+    fn verify_lock_detects_missing_wasm() {
+        let out = std::env::temp_dir().join(format!("grove_lock_missing_{}.lock", std::process::id()));
+        // Hand-craft a lock for a language whose wasm is definitely not on disk.
+        let doc = serde_json::json!({
+            "version": 1,
+            "grammars": [{"name": "grove_nonexistent_lang_xyz", "version": "0.0.0",
+                          "wasm": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}]
+        });
+        std::fs::write(&out, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+        let entries = verify_lock(&out).unwrap().expect("lock file must parse");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, LockVerifyStatus::Missing);
+        assert!(entries[0].actual.is_none());
+        std::fs::remove_file(&out).ok();
     }
 }

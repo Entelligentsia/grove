@@ -1,0 +1,18 @@
+{
+  "objective": "Add a `verify_lock(path) -> Result<Option<Vec<LockVerifyEntry>>>` function plus `LockVerifyStatus` enum and `LockVerifyEntry` struct to `core/src/registry.rs`, enabling grove doctor (T07) to recompute each cached grammar wasm's sha256 and compare it against the lock file.",
+  "key_changes": [
+    "New `pub enum LockVerifyStatus { Match, Mismatch, Missing }` in registry.rs",
+    "New `pub struct LockVerifyEntry { lang, expected, actual: Option<String>, status }` in registry.rs",
+    "New `pub fn verify_lock(path: &Path) -> Result<Option<Vec<LockVerifyEntry>>>` — Ok(None) when lock absent, Ok(Some(vec)) when parsed",
+    "Wasm resolved via `registry_root()/<name>/grammar.wasm` (same path as `resolve()`; covers dev-stubs, cache_root, GROVE_REGISTRY)",
+    "NotFound error on wasm path → Missing; hash mismatch → Mismatch; equal hashes → Match",
+    "Reuses existing `sha256()` primitive so a lock written by `write_lock_for` verifies clean",
+    "Four unit tests: absent-lock (Ok(None)), Match after write_lock_for, Mismatch on tampered hash, Missing on nonexistent lang wasm",
+    "Add `pub use registry::{LockVerifyEntry, LockVerifyStatus}` to core/src/lib.rs curated surface",
+    "No new files, no Cargo.toml changes, no lock-format changes — purely additive",
+    "Not material: additive read-only primitive, no CLI surface, no version bump required"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

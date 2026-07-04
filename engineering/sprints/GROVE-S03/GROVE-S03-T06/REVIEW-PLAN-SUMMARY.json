@@ -1,0 +1,20 @@
+{
+  "objective": "Assess the plan to add a read-only grove.lock wasm sha256 verify primitive (verify_lock + LockVerifyStatus/LockVerifyEntry) to core/src/registry.rs for grove doctor (T07).",
+  "key_changes": [
+    "Verified against actual code: lock JSON shape {version,grammars:[{name,version,wasm}]} matches write_lock_for@412; plan's parse of doc[grammars]/entry[wasm]/name is correct.",
+    "AC#2 holds: wasm_sha256@106 == sha256(self.wasm) and verify_lock recomputes sha256 over the same file bytes, so a fresh lock verifies all-Match.",
+    "Wasm path registry_root()/<name>/grammar.wasm equals resolve@219's idx.root.join(lang)/grammar.wasm in steady state (index root seeded from registry_root).",
+    "Missing/Mismatch/None signals map correctly to NotFound / hash-diff / absent-file; Ok(None) is a clean non-error signal (AC#3).",
+    "Change is purely additive (new public types+fn, no signature/lock-format change) — matches 'no version bump' operational impact.",
+    "Advisory: index() memoizes root via OnceLock while verify_lock re-evaluates registry_root(); keep the Match test registry-root-agnostic (no mid-process GROVE_REGISTRY mutation) to avoid divergence.",
+    "Advisory: decide malformed-entry handling (entry missing wasm/name) deliberately; avoid silent unwrap.",
+    "Advisory: verify_lock takes the lock file path (like locked_langs), not a project root — T07 must pass the resolved grove.lock path.",
+    "All five acceptance criteria addressed; no changes required before implementation."
+  ],
+  "findings": [
+    "See key_changes — all findings mirrored there for schema compliance."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}
