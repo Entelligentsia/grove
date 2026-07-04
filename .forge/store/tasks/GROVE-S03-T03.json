@@ -1,0 +1,13 @@
+{
+  "taskId": "GROVE-S03-T03",
+  "sprintId": "GROVE-S03",
+  "title": "serve reads declared mode + shared active_mode resolver",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T03",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S03-T01",
+    "GROVE-S03-T02"
+  ],
+  "pipeline": "default"
+}

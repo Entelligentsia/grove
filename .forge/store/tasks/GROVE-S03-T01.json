@@ -1,0 +1,10 @@
+{
+  "taskId": "GROVE-S03-T01",
+  "sprintId": "GROVE-S03",
+  "title": "GroveConfig core type + explore section demotion + mode->steering rename",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T01",
+  "estimate": "M",
+  "dependencies": [],
+  "pipeline": "default"
+}

@@ -1,0 +1,13 @@
+{
+  "taskId": "GROVE-S03-T04",
+  "sprintId": "GROVE-S03",
+  "title": "reconcile_harness single harness writer + transition-matrix test",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T04",
+  "estimate": "L",
+  "dependencies": [
+    "GROVE-S03-T01",
+    "GROVE-S03-T03"
+  ],
+  "pipeline": "default"
+}

@@ -1,0 +1,40 @@
+{
+  "sprintId": "GROVE-S03",
+  "title": ".grove/config.json declared mode + grove doctor health check",
+  "status": "active",
+  "taskIds": [
+    "GROVE-S03-T01",
+    "GROVE-S03-T02",
+    "GROVE-S03-T03",
+    "GROVE-S03-T04",
+    "GROVE-S03-T05",
+    "GROVE-S03-T06",
+    "GROVE-S03-T07"
+  ],
+  "createdAt": "2026-07-04T00:00:00Z",
+  "executionMode": "sequential",
+  "goal": "Make grove's integration mode a single declared fact in .grove/config.json (read identically by serve, agent steering, and init), converge every harness file on a mode switch via one reconcile_harness code path, and add a read-only grove doctor pre-flight health check that catches declared-mode-vs-harness drift and provider-down conditions and gates CI via its exit code.",
+  "description": "Consolidates two coupled design docs (docs/adr/0002-grove-project-config-and-declared-mode.md + docs/doctor-command-proposal.md). ADR 0002 fixes the sticky/emergent-mode bug class (sticky explore surface, orphaned AGENTS.md) by introducing GroveConfig (.grove/config.json, version 1) with ExploreConfig demoted to an explore section, making serve read the declared mode, adding reconcile_harness as the single harness writer, a display-only mode badge in the config TUI, one-time legacy explore.json migration (deprecated immediately), and the explore.mode->steering rename. grove doctor (core::doctor typed Report + CLI verb) then adds harness-drift detection, explore provider probe, grove.lock sha256 verify, and --json/CI exit code, sequenced after the config work. Intake decisions: D1 both docs one sprint (doctor after config); D2 rename included; D3 all four doctor capabilities must-have; D4 legacy migration deprecated immediately (retained one-time auto-migrate + warning, not indefinite). Requirements: engineering/sprints/GROVE-S03/SPRINT_REQUIREMENTS.md.",
+  "dependencies": {
+    "GROVE-S03-T02": [
+      "GROVE-S03-T01"
+    ],
+    "GROVE-S03-T03": [
+      "GROVE-S03-T01",
+      "GROVE-S03-T02"
+    ],
+    "GROVE-S03-T04": [
+      "GROVE-S03-T01",
+      "GROVE-S03-T03"
+    ],
+    "GROVE-S03-T05": [
+      "GROVE-S03-T01"
+    ],
+    "GROVE-S03-T07": [
+      "GROVE-S03-T01",
+      "GROVE-S03-T03",
+      "GROVE-S03-T04",
+      "GROVE-S03-T06"
+    ]
+  }
+}

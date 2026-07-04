@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S03-T02",
+  "sprintId": "GROVE-S03",
+  "title": "Legacy .grove/explore.json migration on load (deprecated immediately)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T02",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S03-T01"
+  ],
+  "pipeline": "default"
+}

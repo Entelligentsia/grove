@@ -1,0 +1,15 @@
+{
+  "taskId": "GROVE-S03-T07",
+  "sprintId": "GROVE-S03",
+  "title": "grove doctor - core::doctor report + CLI verb (checks, --json, exit code)",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T07",
+  "estimate": "L",
+  "dependencies": [
+    "GROVE-S03-T01",
+    "GROVE-S03-T03",
+    "GROVE-S03-T04",
+    "GROVE-S03-T06"
+  ],
+  "pipeline": "default"
+}

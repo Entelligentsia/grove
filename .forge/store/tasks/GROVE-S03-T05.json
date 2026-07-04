@@ -1,0 +1,12 @@
+{
+  "taskId": "GROVE-S03-T05",
+  "sprintId": "GROVE-S03",
+  "title": "config TUI mode badge + inert explore-section rendering",
+  "status": "draft",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T05",
+  "estimate": "S",
+  "dependencies": [
+    "GROVE-S03-T01"
+  ],
+  "pipeline": "default"
+}
