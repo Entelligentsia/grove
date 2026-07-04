@@ -2,9 +2,9 @@
 //! `agent/utils.py::load_system_prompt` + `agent_factory.py`'s `[GROVE_SECTION]`
 //! mechanism, with the arm mapping fixed by the sprint decision:
 //!
-//! - [`Mode::Standard`]  → **merit**: balanced steering, Grove as one option.
-//! - [`Mode::Aggressive`]→ **coerce**: the MANDATORY grove-first steering.
-//! - [`Mode::Balanced`]  → **plan-first**: merit steering; the two-phase recon
+//! - [`Steering::Standard`]  → **merit**: balanced steering, Grove as one option.
+//! - [`Steering::Aggressive`]→ **coerce**: the MANDATORY grove-first steering.
+//! - [`Steering::Balanced`]  → **plan-first**: merit steering; the two-phase recon
 //!   notes are appended by [`crate::explore::agent`] at run time.
 //!
 //! Prompt text is embedded verbatim from `prompts/*.md` (copied byte-for-byte
@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use super::config::Mode;
+use super::config::Steering;
 
 /// The base exploration prompt with a `[GROVE_SECTION]` marker and `${…}`
 /// template vars (vendored `system.md`).
@@ -47,12 +47,12 @@ pub const FORCE_FINAL_ANSWER: &str =
 /// Build the system prompt for `mode`, rendering the template vars against
 /// `root`. Port of `load_system_prompt` (`OS_KIND`/`SHELL_NAME`/`WORK_DIR`/
 /// `WORK_DIR_LS`) followed by the `[GROVE_SECTION]` substitution.
-pub fn system_prompt(mode: Mode, root: &Path) -> String {
-    let grove_block = match mode {
-        Mode::Aggressive => GROVE_STEERING_COERCE,
+pub fn system_prompt(steering: Steering, root: &Path) -> String {
+    let grove_block = match steering {
+        Steering::Aggressive => GROVE_STEERING_COERCE,
         // Standard (merit) and Balanced (plan-first) share the merit base; the
         // plan-first phase notes are layered on by the agent loop.
-        Mode::Standard | Mode::Balanced => GROVE_STEERING_MERIT,
+        Steering::Standard | Steering::Balanced => GROVE_STEERING_MERIT,
     };
     let with_grove = SYSTEM_MD.replace("[GROVE_SECTION]", &format!("\n{}", grove_block.trim_end()));
     render_template_vars(&with_grove, root)
@@ -92,8 +92,8 @@ mod tests {
     #[test]
     fn merit_and_coerce_select_distinct_grove_blocks() {
         let root = std::env::temp_dir();
-        let std_p = system_prompt(Mode::Standard, &root);
-        let agg_p = system_prompt(Mode::Aggressive, &root);
+        let std_p = system_prompt(Steering::Standard, &root);
+        let agg_p = system_prompt(Steering::Aggressive, &root);
         assert!(
             agg_p.contains("MANDATORY TOOL POLICY"),
             "aggressive uses coerce steering"
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn template_vars_are_rendered() {
-        let p = system_prompt(Mode::Standard, &std::env::temp_dir());
+        let p = system_prompt(Steering::Standard, &std::env::temp_dir());
         assert!(!p.contains("${WORK_DIR}"), "WORK_DIR substituted");
         assert!(!p.contains("${OS_KIND}"), "OS_KIND substituted");
     }

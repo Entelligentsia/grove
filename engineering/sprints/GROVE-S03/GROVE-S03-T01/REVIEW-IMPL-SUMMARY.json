@@ -1,0 +1,18 @@
+{
+  "objective": "Reviewed the GroveConfig core type, explore-section demotion, and steering mode→steering rename against the approved plan and 7 acceptance criteria.",
+  "key_changes": [
+    "All 7 ACs met; verified independently by reading source and re-running the toolchain, not trusting PROGRESS.",
+    "config.rs: RawGroveConfig + custom Deserialize preserve field-named enum errors; validate() + TryFrom both reject version != 1.",
+    "Atomic save() uses temp config.json.tmp.<pid> + rename with create_dir_all — save_load_round_trip_atomic asserts no leftover temp file.",
+    "Integration Mode enum kebab-cased (mcp|skill|both|mcp-llm|grammars); variant correctly spelled McpLlm (plan-review advisory heeded).",
+    "Steering rename complete across explore/config.rs, mod.rs, agent.rs, steering.rs, lib.rs, cli config_tui + mcp.rs; grep confirms no stray steering-Mode refs.",
+    "explore: Option<ExploreConfig> with skip_serializing_if=Option::is_none — absent/present tests both pass.",
+    "legacy_mode_key_rejected asserts old explore 'mode' key fails deserialization — correct T01 boundary (T02 owns migration).",
+    "Independent run: cargo clippy --all-targets -- -D warnings clean; cargo test 257 passed / 0 failed. PROGRESS evidence authentic.",
+    "All three touched core files newline-terminated (AC7).",
+    "ADVISORY (non-blocking): model.rs:124 doc comment 'Mode::LEGAL' is stale post-rename, should read 'Steering::LEGAL' — cosmetic, no compile/rustdoc impact."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

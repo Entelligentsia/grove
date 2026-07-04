@@ -370,7 +370,7 @@ mod tests {
             provider: grove_core::Provider::LlamaCpp,
             base_url: "http://localhost:8080/v1".to_string(),
             model: "llama3".to_string(),
-            mode: grove_core::Mode::Aggressive,
+            steering: grove_core::Steering::Aggressive,
             allowed_tools: vec!["grove".to_string()],
             tap: true,
             trace_retain: 25,

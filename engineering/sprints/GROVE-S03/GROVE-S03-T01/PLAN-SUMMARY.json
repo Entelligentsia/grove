@@ -1,0 +1,20 @@
+{
+  "objective": "Introduce GroveConfig (core/src/config.rs) with an integration Mode enum and optional ExploreConfig sub-section; rename steering Mode→Steering and JSON key mode→steering across core and CLI — type/serde/persistence only.",
+  "key_changes": [
+    "CREATE core/src/config.rs: integration Mode enum (mcp|skill|both|mcp-llm|grammars), GroveConfig struct, config_path/load/save/validate methods, unit tests",
+    "core/src/explore/config.rs: rename Mode→Steering; ExploreConfig.mode→.steering; RawExploreConfig.mode→.steering; update tests/fixtures",
+    "core/src/explore/mod.rs: re-export Steering instead of Mode",
+    "core/src/explore/agent.rs: Mode→Steering import and all Mode::/cfg.mode call sites",
+    "core/src/explore/steering.rs: Mode→Steering; update system_prompt signature parameter",
+    "core/src/lib.rs: add pub mod config; re-export GroveConfig + integration Mode; update explore re-export to Steering",
+    "cli/src/config_tui/model.rs: import Steering; cfg.mode→cfg.steering; ExploreConfig literal field mode→steering",
+    "cli/src/config_tui/update.rs: grove_core::Mode::Aggressive→Steering::Aggressive; literal mode→steering",
+    "cli/src/mcp.rs: enum_str(&cfg.mode) → enum_str(&cfg.steering)",
+    "GroveConfig::save is atomic (temp+rename), creates .grove/; load yields actionable error on missing file",
+    "explore section is Option<ExploreConfig> skip_serializing_if is_none — absent from output when not set",
+    "cargo build warning-clean, clippy -D warnings passes, cargo test green"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

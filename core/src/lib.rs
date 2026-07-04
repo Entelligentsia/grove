@@ -39,6 +39,7 @@
 //! # }
 //! ```
 
+pub mod config;
 pub mod engine;
 pub mod explore;
 pub mod init;
@@ -62,4 +63,6 @@ pub use ops::{CallSite, FileMap, MapEntry, SourceResult};
 /// The grammar-provisioning entry point behind `grove init` (see [`init`]).
 pub use init::provision_project;
 /// The explore subsystem configuration model (see [`explore`]).
-pub use explore::{ExploreConfig, Mode, Provider};
+pub use explore::{ExploreConfig, Provider, Steering};
+/// The grove project config type and integration mode (see [`config`]).
+pub use config::{GroveConfig, Mode};

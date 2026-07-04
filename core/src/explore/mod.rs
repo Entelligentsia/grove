@@ -22,5 +22,5 @@ pub use client::{
     health_probe, list_models, ChatClient, ChatRequest, ChatResponse, ClientError, HealthError,
     Message, OpenAiCompatClient, Role, Tool, ToolCall, Usage,
 };
-pub use config::{ExploreConfig, Mode, Provider};
+pub use config::{ExploreConfig, Provider, Steering};
 pub use trace::{SessionMeta, TraceWriter};

@@ -1,6 +1,6 @@
 //! Pure data types for the config TUI (Elm-style Model layer).
 
-use grove_core::{ExploreConfig, Mode, Provider};
+use grove_core::{ExploreConfig, Provider, Steering};
 
 /// Which field currently holds focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,10 +166,10 @@ impl App {
             Provider::Ollama => 0,
             Provider::LlamaCpp => 1,
         };
-        let mode = match cfg.mode {
-            Mode::Standard => 0,
-            Mode::Balanced => 1,
-            Mode::Aggressive => 2,
+        let mode = match cfg.steering {
+            Steering::Standard => 0,
+            Steering::Balanced => 1,
+            Steering::Aggressive => 2,
         };
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
@@ -217,10 +217,10 @@ impl App {
             0 => Provider::Ollama,
             _ => Provider::LlamaCpp,
         };
-        let mode = match self.mode {
-            0 => Mode::Standard,
-            1 => Mode::Balanced,
-            _ => Mode::Aggressive,
+        let steering = match self.mode {
+            0 => Steering::Standard,
+            1 => Steering::Balanced,
+            _ => Steering::Aggressive,
         };
         let allowed_tools = self
             .tools
@@ -232,7 +232,7 @@ impl App {
             provider,
             base_url: self.base_url.clone(),
             model: self.model.clone(),
-            mode,
+            steering,
             allowed_tools,
             tap: self.tap,
             trace_retain: self.trace_retain,

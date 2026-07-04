@@ -1,0 +1,18 @@
+{
+  "objective": "Architect sign-off on GroveConfig core type, integration Mode enum, explore-section demotion, and steering mode→steering rename across core and CLI.",
+  "key_changes": [
+    "All 7 acceptance criteria met and independently verified through the pipeline (review-plan, code-review, validation all approved).",
+    "Persistence follows the existing serde/serde_json convention; RawGroveConfig + custom Deserialize preserves field-named enum errors, consistent with ExploreConfig's raw-wire pattern.",
+    "config_path = <root>/.grove/config.json aligns with the project's .grove/ config layout.",
+    "Atomic save (temp config.json.tmp.<pid> + rename + create_dir_all) is the correct durability posture for a user-editable config file.",
+    "Steering rename is complete and contained — grep/grove confirm no stray steering-Mode refs; integration Mode and TUI Field::Mode focus variant correctly excluded.",
+    "Clean T01/T02 boundary: legacy_mode_key_rejected asserts old explore 'mode' key fails deserialization; migration is deferred to T02.",
+    "No released surface consumes GroveConfig yet; integration Mode enum is additive — no cross-module leakage.",
+    "Operational impact: no version bump, no migration, no regeneration, no security scan, no deployment change.",
+    "Follow-up: T02 owns legacy mode→steering config migration.",
+    "Cosmetic non-blocking: model.rs:124 doc comment 'Mode::LEGAL' is stale, should read 'Steering::LEGAL'."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

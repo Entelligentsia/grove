@@ -141,7 +141,7 @@ fn open_session_trace(cfg: &ExploreConfig, root: &Path, params: &Value) -> Optio
     let version = ci.and_then(|c| c.get("version")).and_then(Value::as_str).unwrap_or("");
     let meta = SessionMeta::new(
         &cfg.model,
-        &enum_str(&cfg.mode),
+        &enum_str(&cfg.steering),
         &enum_str(&cfg.provider),
         &cfg.base_url,
         name,

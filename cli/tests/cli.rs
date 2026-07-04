@@ -436,7 +436,7 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
         "provider": "ollama",
         "base_url": "http://127.0.0.1:1/v1",
         "model": "nomodel",
-        "mode": "standard",
+        "steering": "standard",
         "allowed_tools": []
     });
     std::fs::write(
@@ -612,7 +612,7 @@ fn mcp_llm_steering_block_idempotency() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
@@ -654,7 +654,7 @@ fn mcp_llm_agents_md_created_and_appended() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
@@ -751,7 +751,7 @@ fn tap_enables_tracing_in_config() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": ["grove"],
             "tap": false
         })
@@ -788,7 +788,7 @@ fn tap_no_enable_leaves_config_untouched() {
         "provider": "ollama",
         "base_url": "http://127.0.0.1:11434/v1",
         "model": "llama3",
-        "mode": "standard",
+        "steering": "standard",
         "allowed_tools": ["grove"],
         "tap": false
     })
@@ -854,7 +854,7 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
