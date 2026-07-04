@@ -1,0 +1,18 @@
+{
+  "objective": "Validate all 10 acceptance criteria for grove doctor: core::harness sentinel constants, core::doctor types/diagnose, universal checks, harness drift detection, lock_integrity, explore-mode checks, Cmd::Doctor CLI verb with --json and exit-code semantics.",
+  "key_changes": [
+    "AC1 PASS: core/src/harness.rs is single source of truth; cli/src/init.rs imports via grove_core::harness alias — no local duplicates.",
+    "AC2 PASS: core::doctor exports Status, Check, Report, diagnose — pure read-only verified by source inspection.",
+    "AC3 PASS: Doctor dispatch converts --explore/--standard to ModeChoice; diagnose calls active_mode(root,force) internally.",
+    "AC4 PASS: All 11 universal checks present: grove_version, config_present, legacy_explore_json, 4 harness sub-checks, registry_root, grammar_cache, project_languages, lock_integrity.",
+    "AC5 PASS: Harness checks Fail on drift with 'grove init --as <mode>' hint; 4 drift unit tests validate specific mismatch scenarios.",
+    "AC6 PASS: lock_integrity via verify_lock; absent→Warn (not Fail); Mismatch→Fail; Missing→Warn; unit test confirms boundary.",
+    "AC7 PASS: explore_checks gated on Mode::McpLlm; all 5 explore checks present; HealthError hints surfaced verbatim.",
+    "AC8 PASS: Cmd::Doctor + global --json + exit 1 from std::process::exit(1); 4 integration tests confirm both output formats.",
+    "AC9 PASS: Report::ok() is all(!Fail); warn_only_report_exits_zero unit test directly validates Warn/Info exits 0.",
+    "AC10 PASS: clippy clean; 303 tests (177+92+33+1), 0 failed; doctor_help_documents_verb confirms --help coverage."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

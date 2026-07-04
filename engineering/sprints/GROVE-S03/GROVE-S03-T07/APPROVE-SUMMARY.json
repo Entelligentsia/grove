@@ -1,0 +1,18 @@
+{
+  "objective": "Architectural sign-off on grove doctor: core::harness sentinel constants, pure read-only core::doctor::diagnose, and the additive Cmd::Doctor CLI verb with --json and exit-code semantics.",
+  "key_changes": [
+    "Constant ownership resolved cleanly: core/src/harness.rs is the single source of truth; init.rs imports via grove_core::harness — no core->cli cycle, no duplication.",
+    "core::doctor::diagnose is pure and read-only, composing existing core primitives (active_mode, verify_lock, ExploreConfig::validate, health probes) rather than reimplementing them.",
+    "Reuse over reinvention: lock_integrity delegates to T06 verify_lock; explore checks gate on Mode::McpLlm and surface HealthError hints verbatim — no shadow logic that could drift.",
+    "Exit-code + --json dual-format keyed off Report::ok() (all !Fail) gives a stable CI-consumable contract; warn-only-exits-zero boundary explicitly tested.",
+    "Independent code review isolated true T07 footprint via git diff HEAD (vs committed T04 reconcile_harness); clippy -D warnings clean; 303 tests green, 0 failed.",
+    "Validation independently confirmed all 10 ACs pass.",
+    "Deployment: version bump required at release (new user-facing verb); no regeneration, no migration, no security scan — purely additive and read-only, zero risk to existing deployments.",
+    "Follow-up (non-blocking): echo effective/forced mode in human header when --explore/--standard override declared mode.",
+    "Follow-up (non-blocking): dedicated named steering-legality check for traceability; currently transitive via ExploreConfig::validate().",
+    "Follow-up (cosmetic): remove double blank line left in init.rs after MCP_SERVER_KEY const migration."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

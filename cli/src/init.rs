@@ -13,12 +13,10 @@ use clap::ValueEnum;
 use serde_json::{json, Value};
 
 use grove_core::config::{GroveConfig, Mode};
+use grove_core::harness::{GROVE_START as CLAUDE_START, GROVE_END as CLAUDE_END, MCP_SERVER_KEY};
 use grove_core::init::provision_project;
 use grove_core::registry;
 use grove_core::ExploreConfig;
-
-const CLAUDE_START: &str = "<!-- grove:start -->";
-const CLAUDE_END: &str = "<!-- grove:end -->";
 
 /// Which integration `grove init` wires up. Grammar provisioning (fetch +
 /// `grove.lock`) happens for every target; this only selects the harness glue.
@@ -73,10 +71,6 @@ impl Target {
     }
 }
 
-/// The key grove registers itself under in `.mcp.json`. Claude Code namespaces
-/// an MCP server's tools as `mcp__<key>__<tool>`, so this also determines the
-/// tool prefix the steering directive must use to name the real tools.
-const MCP_SERVER_KEY: &str = "grove";
 
 pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     println!("grove init  scanning {} (as {:?})\n", root.display(), target);

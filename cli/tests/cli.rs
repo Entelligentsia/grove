@@ -1010,6 +1010,125 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
 ///
 /// NOTE: cli/tests/ is intentionally excluded so this test's own literal
 /// does not self-trip.
+// ── grove doctor integration tests ──────────────────────────────────────────
+
+fn doctor_fixture(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir()
+        .join(format!("grove_doctor_cli_{}_{tag}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+    dir
+}
+
+fn write_mcp_json_for_test(dir: &Path, args: &[&str]) {
+    let exe = env!("CARGO_BIN_EXE_grove");
+    let args_json: Vec<String> = args.iter().map(|a| format!("\"{a}\"")).collect();
+    let args_str = args_json.join(",");
+    std::fs::write(
+        dir.join(".mcp.json"),
+        format!("{{\"mcpServers\":{{\"grove\":{{\"command\":\"{exe}\",\"args\":[{args_str}]}}}}}}\n"),
+    )
+    .unwrap();
+}
+
+fn write_claude_md_for_test(dir: &Path, marker: &str) {
+    std::fs::write(
+        dir.join("CLAUDE.md"),
+        format!("<!-- grove:start -->\n## grove\n{marker}\n<!-- grove:end -->\n"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn doctor_help_documents_verb() {
+    let dir = fixture("doctor_help");
+    let out = grove(&dir, &["doctor", "--help"]);
+    assert!(out.status.success(), "doctor --help failed");
+    let text = stdout(&out);
+    assert!(text.contains("doctor"), "--help output must mention doctor: {text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_universal_clean_exits_zero() {
+    let dir = doctor_fixture("clean");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve"]);
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    let out = grove(&dir, &["doctor", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "doctor on clean mcp project should exit 0; human stdout: {}; stderr: {}",
+        stdout(&out),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_json_output_is_valid() {
+    let dir = doctor_fixture("json");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve"]);
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    let out = grove(&dir, &["--json", "doctor", dir.to_str().unwrap()]);
+    let text = stdout(&out);
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("not valid JSON: {e}\n{text}"));
+    assert!(
+        v.get("ok").is_some(),
+        "JSON output must have 'ok' field: {v:#?}"
+    );
+    assert!(
+        v["checks"].is_array(),
+        "JSON output must have 'checks' array: {v:#?}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_fail_exits_nonzero() {
+    // Induce harness drift: config=mcp but .mcp.json has --explore args.
+    let dir = doctor_fixture("fail");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve", "--explore"]); // wrong for mcp mode
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    // Human output: must exit 1
+    let out = grove(&dir, &["doctor", dir.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "doctor with harness drift should exit non-zero (human mode); stdout: {}",
+        stdout(&out)
+    );
+
+    // JSON output: must also exit 1 and ok=false
+    let out_json = grove(&dir, &["--json", "doctor", dir.to_str().unwrap()]);
+    assert!(
+        !out_json.status.success(),
+        "doctor with harness drift should exit non-zero (json mode)"
+    );
+    let text = stdout(&out_json);
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("json output not parseable: {e}\n{text}"));
+    assert_eq!(v["ok"], serde_json::json!(false), "ok must be false: {v:#?}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn naming_guard_no_fastcontext_in_source() {
     // Anchor to the workspace root from cli/tests/cli.rs.

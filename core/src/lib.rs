@@ -40,13 +40,15 @@
 //! ```
 
 pub mod config;
+pub mod doctor;
 pub mod engine;
 pub mod explore;
+pub mod fetch;
+pub mod harness;
+pub mod ingest;
 pub mod init;
 pub mod ops;
 pub mod registry;
-pub mod fetch;
-pub mod ingest;
 
 // ---- Curated public surface ----
 //

@@ -1,0 +1,20 @@
+{
+  "objective": "Independently reviewed the grove doctor implementation (core::harness, core::doctor, Cmd::Doctor) against the approved PLAN and task ACs.",
+  "key_changes": [
+    "Isolated true T07 footprint via git diff HEAD: reconcile_harness in the cumulative diff is committed T04 work, not T07.",
+    "T07 changes: new harness.rs + doctor.rs, lib.rs module wiring, init.rs constant migration (8 lines, aliased GROVE_START/END), main.rs Cmd::Doctor, cli.rs integration tests.",
+    "Verified independently: cargo clippy -D warnings clean; cargo test --release --locked green (177 core + 92 CLI unit + 33 integration + 1 doc, 0 failed).",
+    "Read actual harness matrix/drift/explore tests — assertions discriminate real Ok/Warn/Fail, not tautologies.",
+    "AC1 shapes exact; Report.mode is core declared Mode not Surface; diagnose pure/read-only.",
+    "AC2 mode resolution via shared active_mode(root, force); --explore/--standard precedence correct.",
+    "AC3 universal checks present; harness drift -> Fail naming the file with grove init --as <mode> hint.",
+    "AC4 lock_integrity delegates to T06 verify_lock: Mismatch->Fail, Missing/absent->Warn (never Fail).",
+    "AC5 explore checks gated on McpLlm; HealthError hints surfaced verbatim; allowed_tools warn on unknown.",
+    "AC6 Cmd::Doctor + --json dual-format with exit code from Report::ok(); both formats integration-tested.",
+    "AC8 build/clippy clean, --help documents doctor, both new files newline-terminated.",
+    "Advisory only: Report.mode shows declared (not forced) mode in header; steering legality covered via validate(); cosmetic double blank line in init.rs."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

@@ -1,0 +1,20 @@
+{
+  "objective": "Implement grove doctor with a new core::harness module (sentinel constants + mode→content tables), core::doctor (pure diagnose with universal + explore checks), and Cmd::Doctor CLI verb with --json and exit-code semantics.",
+  "key_changes": [
+    "New core/src/harness.rs: GROVE_START, GROVE_END, MCP_SERVER_KEY, expected_mcp_args(Mode), expected_claude_marker(Mode), agents_md_expected(Mode) — resolves constant-ownership blocker.",
+    "cli/src/init.rs refactored: remove local CLAUDE_START/CLAUDE_END/MCP_SERVER_KEY consts; import from grove_core::harness — sentinel strings live in exactly one place.",
+    "New core/src/doctor.rs: Status{Ok,Warn,Fail,Info}, Check{group,name,status,detail,hint}, Report{mode,checks}, Report::ok(), diagnose(root,force)->Report — pure read-only.",
+    "core/src/lib.rs: add pub mod harness and pub mod doctor.",
+    "Universal checks: grove_version, config_present, legacy_explore_json, four harness sub-checks, registry_root, grammar_cache, project_languages, lock_integrity.",
+    "Harness sub-checks use harness::expected_mcp_args/expected_claude_marker/agents_md_expected; validate on-disk files vs declared mode; Fail on drift.",
+    "Explore-mode checks (McpLlm only): explore_config_valid, provider_reachable, model_served, allowed_tools_known, tap_config.",
+    "cli/src/main.rs: Cmd::Doctor{path,explore,standard}; dispatch arm; grouped ✓/⚠/✗ human output or --json; exit code from Report::ok().",
+    "Unit tests in core/src/doctor.rs build all fixtures by hand (tempdir + std::fs::write) — resolves test-strategy blocker (no cross-crate private helpers).",
+    "Harness drift matrix: per-mode clean fixture → all harness checks Ok; selected drift scenarios → correct Fail/Warn.",
+    "warn_only_report_exits_zero: Report::ok() true when only Warn/Info present — AC 9 warning boundary (per reviewer advisory).",
+    "Integration tests: doctor --help, clean project exits 0, --json parses, induced drift exits 1 under both output modes."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}
