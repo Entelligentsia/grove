@@ -22,7 +22,7 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
 pub fn rel(path: &Path) -> String {
     std::env::current_dir()
         .ok()
-        .and_then(|cwd| path.canonicalize().ok().map(|p| (cwd, p)))
+        .zip(path.canonicalize().ok())
         .and_then(|(cwd, p)| p.strip_prefix(&cwd).ok().map(|r| r.display().to_string()))
         .unwrap_or_else(|| path.display().to_string())
 }
