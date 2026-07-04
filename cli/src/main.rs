@@ -297,9 +297,9 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Config { path } => {
-            // Load existing config if present; start from defaults otherwise.
-            let existing = grove_core::ExploreConfig::load(&path).ok();
-            config_tui::run(&path, existing)?;
+            // Load existing GroveConfig (mode + explore) if present; defaults otherwise.
+            let grove_cfg = grove_core::config::GroveConfig::load(&path).ok();
+            config_tui::run(&path, grove_cfg)?;
         }
         Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,

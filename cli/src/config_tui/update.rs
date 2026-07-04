@@ -22,11 +22,13 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Provider ────────────────────────────────────────────────────────
         Msg::ProviderUp => {
+            if !app.explore_active { return None; }
             app.provider = app.provider.saturating_sub(1);
             apply_provider_default(app);
             None
         }
         Msg::ProviderDown => {
+            if !app.explore_active { return None; }
             app.provider = (app.provider + 1).min(1);
             apply_provider_default(app);
             None
@@ -34,11 +36,13 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── URL text buffer ──────────────────────────────────────────────────
         Msg::UrlChar(c) => {
+            if !app.explore_active { return None; }
             app.base_url.push(c);
             app.dirty_url = true;
             None
         }
         Msg::UrlBackspace => {
+            if !app.explore_active { return None; }
             app.base_url.pop();
             app.dirty_url = true;
             None
@@ -46,16 +50,19 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Model text buffer + dropdown ─────────────────────────────────────
         Msg::ModelChar(c) => {
+            if !app.explore_active { return None; }
             app.model.push(c);
             app.model_cursor = 0; // re-filter from the top
             None
         }
         Msg::ModelBackspace => {
+            if !app.explore_active { return None; }
             app.model.pop();
             app.model_cursor = 0;
             None
         }
         Msg::ModelDropdownOpen => {
+            if !app.explore_active { return None; }
             app.model_dropdown = true;
             app.model_cursor = 0;
             app.model_status = Some("fetching models…".to_string());
@@ -99,10 +106,12 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Mode ─────────────────────────────────────────────────────────────
         Msg::ModeUp => {
+            if !app.explore_active { return None; }
             app.mode = app.mode.saturating_sub(1);
             None
         }
         Msg::ModeDown => {
+            if !app.explore_active { return None; }
             app.mode = (app.mode + 1).min(2);
             None
         }
@@ -119,12 +128,14 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
         Msg::ToolsToggle => {
+            if !app.explore_active { return None; }
             if let Some(entry) = app.tools.get_mut(app.tool_cursor) {
                 entry.1 = !entry.1;
             }
             None
         }
         Msg::ToolsAddChar(c) => {
+            if !app.explore_active { return None; }
             app.add_tool_buf.push(c);
             None
         }
@@ -133,6 +144,7 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
         Msg::ToolsAddConfirm => {
+            if !app.explore_active { return None; }
             let name = app.add_tool_buf.trim().to_string();
             if !name.is_empty() {
                 app.tools.push((name, true));
@@ -144,12 +156,21 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Tap ───────────────────────────────────────────────────────────────
         Msg::TapToggle => {
+            if !app.explore_active { return None; }
             app.tap = !app.tap;
             None
         }
 
         // ── Terminal actions ──────────────────────────────────────────────────
-        Msg::Save => Some(Action::Save),
+        Msg::Save => {
+            if !app.explore_active {
+                app.last_error = Some(
+                    "explore settings inactive — run: grove init --as mcp-llm".to_string(),
+                );
+                return None;
+            }
+            Some(Action::Save)
+        }
         Msg::Quit => Some(Action::Quit),
     }
 }
@@ -174,6 +195,7 @@ fn apply_provider_default(app: &mut App) {
 mod tests {
     use super::*;
     use crate::config_tui::model::Field;
+    use grove_core::config::{GroveConfig, Mode};
     use grove_core::ExploreConfig;
 
     fn fresh() -> App {
@@ -361,6 +383,81 @@ mod tests {
         app.base_url.clear();
         let err = app.to_config().unwrap_err();
         assert!(err.to_string().contains("base_url"), "error should name the field: {err}");
+    }
+
+    // 10. grove_mode badge + explore_active gate (new for GROVE-S03-T05)
+
+    #[test]
+    fn badge_reflects_grove_mode() {
+        let app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Mcp, explore: None });
+        assert_eq!(app.grove_mode, Mode::Mcp);
+        assert!(!app.explore_active, "non-mcp-llm mode must set explore_active=false");
+    }
+
+    #[test]
+    fn explore_inert_blocks_all_edits() {
+        // Build an inert app (non-mcp-llm mode).
+        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Mcp, explore: None });
+        let before = app.clone();
+
+        // All explore-edit messages must return None and leave state unchanged.
+        let msgs = vec![
+            Msg::ProviderUp,
+            Msg::ProviderDown,
+            Msg::UrlChar('x'),
+            Msg::ModelChar('x'),
+            Msg::ModeDown,
+            Msg::TapToggle,
+            Msg::ToolsToggle,
+            Msg::ToolsAddChar('x'),
+        ];
+        for msg in msgs {
+            let result = update(&mut app, msg.clone());
+            assert_eq!(result, None, "expected None for {msg:?} when inactive");
+        }
+        // Provider, base_url, model, mode, tap, tools, add_tool_buf must be unchanged.
+        assert_eq!(app.provider, before.provider);
+        assert_eq!(app.base_url, before.base_url);
+        assert_eq!(app.model, before.model);
+        assert_eq!(app.mode, before.mode);
+        assert_eq!(app.tap, before.tap);
+        assert_eq!(app.tools, before.tools);
+        assert_eq!(app.add_tool_buf, before.add_tool_buf);
+    }
+
+    #[test]
+    fn save_blocked_when_inert() {
+        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Skill, explore: None });
+        let result = update(&mut app, Msg::Save);
+        assert_eq!(result, None, "Save must return None when explore_active=false");
+        assert!(
+            app.last_error.as_deref().unwrap_or("").len() > 0,
+            "last_error must be set on blocked save"
+        );
+    }
+
+    #[test]
+    fn save_allowed_when_mcp_llm() {
+        let mut app = fresh(); // default is McpLlm + explore_active=true
+        let result = update(&mut app, Msg::Save);
+        assert_eq!(result, Some(Action::Save));
+    }
+
+    #[test]
+    fn tab_and_quit_always_work() {
+        // Test with inert app.
+        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Both, explore: None });
+        // TabNext always passes through.
+        let focus_before = app.focus;
+        let result = update(&mut app, Msg::TabNext);
+        assert_eq!(result, None);
+        assert_ne!(app.focus, focus_before, "TabNext must advance focus");
+        // TabPrev always passes through.
+        let result = update(&mut app, Msg::TabPrev);
+        assert_eq!(result, None);
+        // Quit always passes through.
+        let result = update(&mut app, Msg::Quit);
+        assert_eq!(result, Some(Action::Quit));
     }
 
     // 9. App::from_config() pre-populates all fields.

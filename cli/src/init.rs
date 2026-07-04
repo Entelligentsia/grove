@@ -135,9 +135,10 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
 
     // Save the new config.json so active_mode reflects the chosen target.
     let explore = if target == Target::McpLlm {
-        // TUI just saved explore.json; load it if present, else preserve from old cfg.
-        ExploreConfig::load(root)
-            .ok()
+        // Prefer config.json (TUI writes here); fall back to legacy explore.json,
+        // then to the explore section of the pre-run config.
+        GroveConfig::load(root).ok().and_then(|c| c.explore)
+            .or_else(|| ExploreConfig::load(root).ok())
             .or_else(|| old_cfg.as_ref().and_then(|c| c.explore.clone()))
     } else {
         // Preserve existing explore config across mode switches.

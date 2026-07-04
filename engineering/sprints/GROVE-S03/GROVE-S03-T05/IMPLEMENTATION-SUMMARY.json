@@ -1,0 +1,28 @@
+{
+  "objective": "Extend the grove config TUI to read integration mode from GroveConfig, display it as a badge in the outer title, and render explore-section fields as inert/greyed (DIM, no-op edits) when mode != mcp-llm.",
+  "key_changes": [
+    "model.rs: added grove_mode: Mode and explore_active: bool fields to App struct",
+    "model.rs: added App::from_grove_config(cfg: GroveConfig) constructor; Default routes through McpLlm-active config so existing tests remain green",
+    "view.rs: outer block title includes mode badge (e.g. 'grove config   mode: mcp-llm ✓')",
+    "view.rs: layout gains leading Constraint::Length(1) row [0] for explore notice; all row indices shifted by +1",
+    "view.rs: render_explore_notice — blank when active, yellow warning when inactive",
+    "view.rs: all render functions gate focused=true on app.explore_active && app.focus == Field::X",
+    "view.rs: footer hint suppressed for field keys when !explore_active",
+    "update.rs: all explore-edit Msg variants no-op when !explore_active; Msg::Save sets last_error and returns None when inactive",
+    "update.rs: 5 new unit tests: badge_reflects_grove_mode, explore_inert_blocks_all_edits, save_blocked_when_inert, save_allowed_when_mcp_llm, tab_and_quit_always_work",
+    "mod.rs: run() signature changed to Option<GroveConfig>; save action builds GroveConfig and calls cfg.save(root)",
+    "main.rs: Cmd::Config loads GroveConfig::load instead of ExploreConfig::load",
+    "init.rs: after config_tui::run returns, prefer GroveConfig::load for explore section over legacy ExploreConfig::load"
+  ],
+  "files_changed": [
+    "cli/src/config_tui/model.rs",
+    "cli/src/config_tui/view.rs",
+    "cli/src/config_tui/update.rs",
+    "cli/src/config_tui/mod.rs",
+    "cli/src/main.rs",
+    "cli/src/init.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

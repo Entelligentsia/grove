@@ -1,0 +1,16 @@
+{
+  "objective": "Validate that the config TUI correctly reads integration mode from GroveConfig, displays it as a badge, and renders explore-section fields as inert/greyed when mode != mcp-llm.",
+  "key_changes": [
+    "AC1 PASS: view.rs title badge covers all 5 Mode variants; App::from_grove_config sets grove_mode from cfg.mode; main.rs loads GroveConfig::load for Cmd::Config.",
+    "AC2 PASS: App::default() routes through McpLlm-active config; 17 pre-existing update tests remain green; save_allowed_when_mcp_llm confirms Save -> Some(Action::Save).",
+    "AC3 PASS: render_explore_notice shows yellow warning when !explore_active; DIM borders; footer shows dormant hint; all 8 edit Msg variants no-op when inactive.",
+    "AC3 PASS (save blocked): Msg::Save sets last_error and returns None when !explore_active; save_blocked_when_inert test (Mode::Skill) confirmed.",
+    "AC4 PASS: grove_mode set once in from_grove_config and never mutated by any Msg; mod.rs save round-trips unchanged; no mode selector added.",
+    "AC5 PASS: 5 new tests all green — badge_reflects_grove_mode, explore_inert_blocks_all_edits, save_blocked_when_inert, save_allowed_when_mcp_llm, tab_and_quit_always_work.",
+    "AC6 PASS: 283 tests passed 0 failed; clippy -D warnings clean; all 6 modified files end with newline.",
+    "REGRESSION: Full suite (161+92+29+1) all green — no regressions."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}
