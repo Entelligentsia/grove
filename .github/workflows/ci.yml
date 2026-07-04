@@ -21,9 +21,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-test:
-    name: build + test (linux)
+  # Lint gate that locks in the repo's "warning-clean" convention. Linux only —
+  # clippy results are platform-independent, so paying for them once is enough.
+  # (No `cargo fmt --check`: the tree is deliberately hand-formatted in a denser
+  # style than rustfmt's default, so a format gate would fail on existing code.)
+  lint:
+    name: clippy
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets --workspace --locked -- -D warnings
+
+  # Build + test on every platform we ship a binary for, so a regression that
+  # only shows up off-Linux is caught before release.
+  build-test:
+    name: build + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 

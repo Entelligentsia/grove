@@ -178,6 +178,13 @@ fn write_harness(root: &Path, target: Target) -> Result<Vec<String>> {
 
 /// Add (or refresh) the grove MCP server in `.mcp.json`, preserving other servers.
 fn write_mcp_json(root: &Path) -> Result<String> {
+    write_mcp_json_with(root, &["serve"], ".mcp.json (registration — the tools exist)")
+}
+
+/// Register the grove MCP server in `.mcp.json` with the given `serve` args,
+/// preserving any other servers already present. Shared by the standard and
+/// explore-mode entry points, which differ only in the args and status message.
+fn write_mcp_json_with(root: &Path, args: &[&str], message: &str) -> Result<String> {
     let path = root.join(".mcp.json");
     let mut doc: Value = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)
@@ -190,18 +197,36 @@ fn write_mcp_json(root: &Path) -> Result<String> {
     let exe = std::env::current_exe().context("locating the grove binary")?;
     doc["mcpServers"][MCP_SERVER_KEY] = json!({
         "command": exe.to_string_lossy(),
-        "args": ["serve"],
+        "args": args,
     });
     std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
         .with_context(|| format!("writing {}", path.display()))?;
-    Ok(".mcp.json (registration — the tools exist)".to_string())
+    Ok(message.to_string())
 }
 
 /// Write/refresh the grove steering section in `CLAUDE.md`, between markers, so
 /// re-running is idempotent and never disturbs the rest of the file.
 fn write_claude_md(root: &Path, langs: &[String], target: Target) -> Result<String> {
-    let path = root.join("CLAUDE.md");
-    let section = claude_section(langs, target);
+    write_steering_md(
+        root,
+        "CLAUDE.md",
+        &claude_section(langs, target),
+        "CLAUDE.md (steering — the tools get used)",
+    )
+}
+
+/// Splice `section` (bracketed by `CLAUDE_START`/`CLAUDE_END`) into `filename`
+/// between those sentinels — replacing an existing block, appending below other
+/// content, or creating the file. Idempotent, and never disturbs the rest of the
+/// file. Shared by `write_claude_md` and `write_agents_md`, which differ only in
+/// the target file, the section body, and the status message.
+fn write_steering_md(
+    root: &Path,
+    filename: &str,
+    section: &str,
+    message: &str,
+) -> Result<String> {
+    let path = root.join(filename);
     let existing = std::fs::read_to_string(&path).ok();
     let updated = match existing {
         Some(text) if text.contains(CLAUDE_START) && text.contains(CLAUDE_END) => {
@@ -213,51 +238,28 @@ fn write_claude_md(root: &Path, langs: &[String], target: Target) -> Result<Stri
         None => format!("{section}\n"),
     };
     std::fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
-    Ok("CLAUDE.md (steering — the tools get used)".to_string())
+    Ok(message.to_string())
 }
 
 /// Add (or refresh) the grove MCP server in `.mcp.json` in explore-mode,
 /// registering `["serve", "--explore"]`. Preserves other servers.
 fn write_mcp_json_explore(root: &Path) -> Result<String> {
-    let path = root.join(".mcp.json");
-    let mut doc: Value = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .with_context(|| format!("{} is not valid JSON", path.display()))?,
-        Err(_) => json!({}),
-    };
-    if !doc.is_object() {
-        doc = json!({});
-    }
-    let exe = std::env::current_exe().context("locating the grove binary")?;
-    doc["mcpServers"][MCP_SERVER_KEY] = json!({
-        "command": exe.to_string_lossy(),
-        "args": ["serve", "--explore"],
-    });
-    let json_str = serde_json::to_string_pretty(&doc)?;
-    std::fs::write(&path, format!("{json_str}\n"))
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(".mcp.json (explore-mode registration)".to_string())
+    write_mcp_json_with(
+        root,
+        &["serve", "--explore"],
+        ".mcp.json (explore-mode registration)",
+    )
 }
 
-/// Write/refresh the grove steering section in `AGENTS.md`, between sentinel
-/// markers, so re-running is idempotent and never disturbs the rest of the file.
-/// Identical idempotency logic to `write_claude_md`; uses harness-neutral
-/// framing (AGENTS.md is read by non-Claude harnesses too).
+/// Write/refresh the grove steering section in `AGENTS.md` via `write_steering_md`;
+/// uses harness-neutral framing (AGENTS.md is read by non-Claude harnesses too).
 fn write_agents_md(root: &Path, langs: &[String], target: Target) -> Result<String> {
-    let path = root.join("AGENTS.md");
-    let section = agents_section(langs, target);
-    let existing = std::fs::read_to_string(&path).ok();
-    let updated = match existing {
-        Some(text) if text.contains(CLAUDE_START) && text.contains(CLAUDE_END) => {
-            let start = text.find(CLAUDE_START).unwrap();
-            let end = text.find(CLAUDE_END).unwrap() + CLAUDE_END.len();
-            format!("{}{}{}", &text[..start], section, &text[end..])
-        }
-        Some(text) => format!("{}\n\n{}\n", text.trim_end(), section),
-        None => format!("{section}\n"),
-    };
-    std::fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
-    Ok("AGENTS.md (explore-mode steering)".to_string())
+    write_steering_md(
+        root,
+        "AGENTS.md",
+        &agents_section(langs, target),
+        "AGENTS.md (explore-mode steering)",
+    )
 }
 
 /// The AGENTS.md steering block for McpLlm — harness-neutral framing so it is

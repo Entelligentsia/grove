@@ -22,7 +22,7 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
 pub fn rel(path: &Path) -> String {
     std::env::current_dir()
         .ok()
-        .and_then(|cwd| path.canonicalize().ok().map(|p| (cwd, p)))
+        .zip(path.canonicalize().ok())
         .and_then(|(cwd, p)| p.strip_prefix(&cwd).ok().map(|r| r.display().to_string()))
         .unwrap_or_else(|| path.display().to_string())
 }
@@ -260,6 +260,18 @@ pub fn check(file: &Path) -> Result<Vec<Defect>> {
     engine::check(&grammar, &src)
 }
 
+/// How a [`CallSite`] was found. Structural sites are high-precision
+/// (tree-sitter name-resolved); textual sites fill recall gaps (whole-word grep
+/// matches the tags query missed — may include type annotations, imports, or
+/// comments). Serializes to `"structural"` / `"textual"` to keep the JSON
+/// surface agents see stable.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CallSource {
+    Structural,
+    Textual,
+}
+
 /// A site where a symbol is referenced (call site, type use, textual occurrence).
 #[derive(Debug, Serialize)]
 pub struct CallSite {
@@ -272,11 +284,8 @@ pub struct CallSite {
     pub in_function: Option<String>,
     /// The trimmed source text of the call's line.
     pub text: String,
-    /// Provenance: `"structural"` for tree-sitter tag-resolved references,
-    /// `"textual"` for whole-word grep matches that the tags query missed.
-    /// Structural sites are high-precision (name-resolved); textual sites fill
-    /// recall gaps (may include type annotations, imports, or comments).
-    pub source: String,
+    /// Provenance of this reference — structural (tag-resolved) vs textual (grep).
+    pub source: CallSource,
 }
 
 /// `callers` — every reference to `name` across `dir`, with enclosing function.
@@ -334,7 +343,7 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
                 line: s.line,
                 col: s.col,
                 text: s.signature.clone(),
-                source: "structural".to_string(),
+                source: CallSource::Structural,
             });
         }
 
@@ -359,7 +368,7 @@ pub fn callers(dir: &Path, name: &str) -> Result<Vec<CallSite>> {
                 line: row + 1,
                 col: col + 1,
                 text: line_text.trim().to_string(),
-                source: "textual".to_string(),
+                source: CallSource::Textual,
             });
         }
 
@@ -795,7 +804,7 @@ mod tests {
         let sites = callers(&dir, "Clone").unwrap();
         // The `impl Clone for Thing` reference is structural (tag-resolved) with
         // kind "implementation", not "call" — previously filtered out.
-        let structural = sites.iter().filter(|s| s.source == "structural").count();
+        let structural = sites.iter().filter(|s| s.source == CallSource::Structural).count();
         assert!(structural >= 1, "should find impl reference to Clone, got {sites:?}");
         // No definition of `Clone` in this file, so no lines are skipped.
         assert!(sites.iter().any(|s| s.in_function.is_none()), "impl is top-level, got {sites:?}");
@@ -815,7 +824,7 @@ mod tests {
             "fn go(s: Scanner) { let x: Scanner = s; }\n",
         ).unwrap();
         let sites = callers(&dir, "Scanner").unwrap();
-        let textual: Vec<&CallSite> = sites.iter().filter(|s| s.source == "textual").collect();
+        let textual: Vec<&CallSite> = sites.iter().filter(|s| s.source == CallSource::Textual).collect();
         // The type annotations `s: Scanner` and `x: Scanner` should be found as
         // textual matches (not captured by Rust's tags query as references).
         assert!(!textual.is_empty(), "textual fallback should find type-annotation references to Scanner, got {sites:?}");
