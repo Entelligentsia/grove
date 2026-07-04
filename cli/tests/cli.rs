@@ -10,6 +10,23 @@ use std::process::{Command, Output};
 /// The dev-stub registry shipped in the source tree (rust, python, javascript).
 const DEV_REGISTRY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../registry");
 
+/// Seed a throwaway OS grammar cache for `lang` under `cache_home` at **both**
+/// the Linux and macOS layouts, so `init`'s `is_cached` check passes regardless
+/// of platform. `dirs::cache_dir()` reads `$XDG_CACHE_HOME` on Linux but
+/// `$HOME/Library/Caches` on macOS, so a test that only redirects one of them
+/// (and seeds one layout) fails on the other OS. Callers set both `XDG_CACHE_HOME`
+/// and `HOME` to `cache_home` on the child process.
+fn seed_grammar_cache(cache_home: &Path, lang: &str) {
+    for grammars in [
+        cache_home.join("grove").join("grammars"),
+        cache_home.join("Library").join("Caches").join("grove").join("grammars"),
+    ] {
+        let dir = grammars.join(lang);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("grammar.wasm"), b"").unwrap();
+    }
+}
+
 fn fixture(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("grove_cli_test_{}_{tag}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -328,9 +345,7 @@ fn init_provisions_and_wires_harness_per_target() {
     // dev-stub manifests, with no network access.
     let base = std::env::temp_dir().join(format!("grove_cli_test_{}_init", std::process::id()));
     let cache = base.join("cache");
-    let rust_cache = cache.join("grove").join("grammars").join("rust");
-    std::fs::create_dir_all(&rust_cache).unwrap();
-    std::fs::write(rust_cache.join("grammar.wasm"), b"").unwrap();
+    seed_grammar_cache(&cache, "rust");
 
     let run = |proj: &Path, args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_grove"))
@@ -339,6 +354,7 @@ fn init_provisions_and_wires_harness_per_target() {
             .env("GROVE_REGISTRY", DEV_REGISTRY)
             .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
             .env("XDG_CACHE_HOME", &cache)
+            .env("HOME", &cache)
             .output()
             .expect("running grove init")
     };
@@ -541,9 +557,7 @@ fn map_returns_definitions_with_references() {
 fn mcp_llm_setup(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let base = std::env::temp_dir().join(format!("grove_cli_test_{}_mcp_llm_{tag}", std::process::id()));
     let cache = base.join("cache");
-    let rust_cache = cache.join("grove").join("grammars").join("rust");
-    std::fs::create_dir_all(&rust_cache).unwrap();
-    std::fs::write(rust_cache.join("grammar.wasm"), b"").unwrap();
+    seed_grammar_cache(&cache, "rust");
     let proj = base.join("proj");
     std::fs::create_dir_all(&proj).unwrap();
     std::fs::write(proj.join("lib.rs"), "fn helper() {}\n").unwrap();
@@ -557,6 +571,7 @@ fn grove_mcp_llm(proj: &Path, cache: &Path, args: &[&str]) -> std::process::Outp
         .env("GROVE_REGISTRY", DEV_REGISTRY)
         .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
         .env("XDG_CACHE_HOME", cache)
+        .env("HOME", cache)
         .output()
         .expect("running grove init --as mcp-llm")
 }
