@@ -15,7 +15,16 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::explore::ExploreConfig;
+use crate::explore::{ExploreConfig, Provider, Steering};
+
+/// Deprecation warning emitted once when `.grove/explore.json` is migrated to
+/// `.grove/config.json`. Kept as a named constant so tests can assert on its
+/// content without capturing stderr.
+pub(crate) const DEPRECATION_WARNING: &str = "\
+warning: .grove/explore.json is deprecated and will be removed in a future \
+version of grove. Your configuration has been automatically migrated to \
+.grove/config.json. Please commit the new file and remove \
+.grove/explore.json from your repository.";
 
 /// The integration mode — which grove surface is active for a project.
 ///
@@ -114,6 +123,65 @@ impl TryFrom<RawGroveConfig> for GroveConfig {
     }
 }
 
+/// Wire shape of the legacy `.grove/explore.json` file.  The old key for
+/// steering level was `mode` (not `steering`); this struct mirrors that shape
+/// exactly so we can deserialize without touching `ExploreConfig`'s own raw
+/// struct (which correctly rejects `mode`).
+#[derive(Deserialize)]
+struct LegacyExploreRaw {
+    provider: String,
+    base_url: String,
+    model: String,
+    /// The old steering-level key.  Maps to `ExploreConfig::steering` after
+    /// parsing.
+    mode: String,
+    #[serde(default)]
+    allowed_tools: Vec<String>,
+    #[serde(default)]
+    tap: bool,
+    #[serde(default = "default_legacy_trace_retain")]
+    trace_retain: u32,
+}
+
+fn default_legacy_trace_retain() -> u32 {
+    crate::explore::config::DEFAULT_TRACE_RETAIN
+}
+
+/// Read `.grove/explore.json`, map its old wire shape to a full [`GroveConfig`]
+/// (mode = `McpLlm`, `explore.steering` from the legacy `mode` key), persist
+/// `config.json` atomically, and emit a one-time deprecation warning to stderr.
+///
+/// This function is the only code path that reads `explore.json`.  It does not
+/// delete `explore.json` — removal is left to the user; `grove doctor` will
+/// warn about its presence.
+fn migrate_from_legacy_explore(root: &Path) -> Result<GroveConfig> {
+    let path = ExploreConfig::config_path(root);
+    let text = fs::read_to_string(&path)
+        .with_context(|| format!("reading legacy explore config {}", path.display()))?;
+    let raw: LegacyExploreRaw = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a valid legacy explore config", path.display()))?;
+    let steering = Steering::from_name(&raw.mode)?;
+    let provider = Provider::from_name(&raw.provider)?;
+    let explore_cfg = ExploreConfig {
+        provider,
+        base_url: raw.base_url,
+        model: raw.model,
+        steering,
+        allowed_tools: raw.allowed_tools,
+        tap: raw.tap,
+        trace_retain: raw.trace_retain,
+    };
+    let config = GroveConfig {
+        version: 1,
+        mode: Mode::McpLlm,
+        explore: Some(explore_cfg),
+    };
+    config.validate()?;
+    config.save(root)?;
+    eprintln!("{DEPRECATION_WARNING}");
+    Ok(config)
+}
+
 impl<'de> serde::Deserialize<'de> for GroveConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -133,23 +201,30 @@ impl GroveConfig {
 
     /// Read, deserialize, and validate the config under `root`.
     ///
-    /// A missing file yields an actionable error message; a bad `mode` value
-    /// or unknown version fails fast, naming the offending field.
+    /// Three-branch cascade:
+    /// 1. `config.json` present → read, deserialize, validate (normal path).
+    /// 2. `explore.json` present → one-time legacy migration: synthesise a
+    ///    [`GroveConfig`] from the old wire shape, write `config.json`
+    ///    atomically, emit a deprecation warning, and return the config.
+    /// 3. Neither → actionable `grove init` error (unchanged).
     pub fn load(root: &Path) -> Result<Self> {
         let path = Self::config_path(root);
-        if !path.exists() {
+        if path.exists() {
+            let text = fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let cfg: GroveConfig = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not a valid grove config", path.display()))?;
+            cfg.validate()?;
+            Ok(cfg)
+        } else if ExploreConfig::config_path(root).exists() {
+            migrate_from_legacy_explore(root)
+        } else {
             bail!(
                 "no grove config at {} — run `grove init` to create one, \
                  or `grove config` to set it up",
                 path.display()
-            );
+            )
         }
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let cfg: GroveConfig = serde_json::from_str(&text)
-            .with_context(|| format!("{} is not a valid grove config", path.display()))?;
-        cfg.validate()?;
-        Ok(cfg)
     }
 
     /// Validate, then persist to `<root>/.grove/config.json` atomically.
@@ -317,5 +392,163 @@ mod tests {
         let err = serde_json::from_str::<GroveConfig>(json).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("version"), "should name the field: {msg}");
+    }
+
+    // -----------------------------------------------------------------------
+    // T-5a: legacy explore.json (old `mode` key) migrates → config.json.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn migrate_legacy_explore_writes_config_json() {
+        use crate::explore::Steering;
+        let root = temp_root("legacy_migrate");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+
+        // Write the legacy explore.json with old `mode` key ("balanced")
+        let legacy = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "qwen2.5-coder:7b",
+            "mode": "balanced",
+            "allowed_tools": ["grove"],
+            "tap": false,
+            "trace_retain": 50
+        }"#;
+        fs::write(grove_dir.join("explore.json"), legacy).unwrap();
+
+        // Load should trigger migration.
+        let cfg = GroveConfig::load(&root).unwrap();
+
+        // Returned config: mode = McpLlm, steering = Balanced.
+        assert_eq!(cfg.mode, Mode::McpLlm, "mode should be McpLlm after migration");
+        let explore = cfg.explore.as_ref().expect("explore section must be present");
+        assert_eq!(explore.steering, Steering::Balanced, "steering should be Balanced (mapped from legacy mode=balanced)");
+
+        // config.json must exist on disk after migration.
+        let config_path = GroveConfig::config_path(&root);
+        assert!(config_path.exists(), "config.json should exist after migration");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // T-5b: second load reads config.json directly; explore.json unmodified.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn second_load_after_migration_reads_config_not_legacy() {
+        let root = temp_root("legacy_second_load");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+
+        let legacy = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "qwen2.5-coder:7b",
+            "mode": "standard",
+            "allowed_tools": ["grove"]
+        }"#;
+        let legacy_path = grove_dir.join("explore.json");
+        fs::write(&legacy_path, legacy).unwrap();
+
+        // First load triggers migration.
+        let cfg1 = GroveConfig::load(&root).unwrap();
+
+        // Record explore.json mtime before second load.
+        let mtime_before = fs::metadata(&legacy_path).unwrap().modified().unwrap();
+
+        // Second load reads config.json — no migration re-runs.
+        let cfg2 = GroveConfig::load(&root).unwrap();
+        assert_eq!(cfg1, cfg2, "second load must return an equal config");
+
+        // explore.json must not have been touched by the second load.
+        let mtime_after = fs::metadata(&legacy_path).unwrap().modified().unwrap();
+        assert_eq!(mtime_before, mtime_after, "explore.json must not be modified by the second load");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // T-5c: config.json present alongside stale explore.json — stale ignored.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn config_json_present_ignores_stale_explore_json() {
+        let root = temp_root("stale_explore");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+
+        // Write a proper config.json with mode=mcp.
+        let cfg_json = r#"{"version":1,"mode":"mcp"}"#;
+        fs::write(grove_dir.join("config.json"), cfg_json).unwrap();
+
+        // Write a stale (but parseable) explore.json alongside it.
+        let stale = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "old-model",
+            "mode": "aggressive",
+            "allowed_tools": []
+        }"#;
+        fs::write(grove_dir.join("explore.json"), stale).unwrap();
+
+        // Load must use config.json, not explore.json.
+        let cfg = GroveConfig::load(&root).unwrap();
+        assert_eq!(cfg.mode, Mode::Mcp, "should read config.json, not migrate from explore.json");
+        assert!(cfg.explore.is_none(), "explore section should not be populated from stale file");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // T-5d: deprecation warning is structurally correct.
+    // -----------------------------------------------------------------------
+    // We verify via the named DEPRECATION_WARNING const that the warning text
+    // is complete and contains the key information users need. The warning IS
+    // emitted to stderr during migration (tests 5a and 5b run the migration
+    // path and exercise the eprintln! call); here we assert content quality.
+    #[test]
+    fn deprecation_warning_emitted() {
+        // The const must reference both file paths so the message is actionable.
+        assert!(
+            DEPRECATION_WARNING.contains("explore.json"),
+            "warning should mention explore.json: {DEPRECATION_WARNING}"
+        );
+        assert!(
+            DEPRECATION_WARNING.contains("config.json"),
+            "warning should mention config.json: {DEPRECATION_WARNING}"
+        );
+        assert!(
+            DEPRECATION_WARNING.contains("deprecated"),
+            "warning should contain the word 'deprecated': {DEPRECATION_WARNING}"
+        );
+        assert!(
+            DEPRECATION_WARNING.contains("migrated"),
+            "warning should mention migration: {DEPRECATION_WARNING}"
+        );
+
+        // Confirm the migration path is reached when only explore.json is present
+        // (side-effect of eprintln! being called — no stderr capture needed).
+        let root = temp_root("warn_emitted");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        let legacy = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "x",
+            "mode": "standard",
+            "allowed_tools": []
+        }"#;
+        fs::write(grove_dir.join("explore.json"), legacy).unwrap();
+        // migration runs → eprintln!(DEPRECATION_WARNING) is called.
+        GroveConfig::load(&root).unwrap();
+        // config.json written is our proof the warning branch was fully executed.
+        assert!(
+            GroveConfig::config_path(&root).exists(),
+            "config.json must exist after migration (proves warning path ran)"
+        );
+        fs::remove_dir_all(&root).unwrap();
     }
 }

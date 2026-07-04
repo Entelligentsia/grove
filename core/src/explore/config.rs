@@ -35,7 +35,7 @@ impl Provider {
     /// and to enumerate valid values in error messages.
     pub const LEGAL: &'static [&'static str] = &["ollama", "llamacpp"];
 
-    fn from_name(s: &str) -> Result<Self> {
+    pub(crate) fn from_name(s: &str) -> Result<Self> {
         match s {
             "ollama" => Ok(Provider::Ollama),
             "llamacpp" => Ok(Provider::LlamaCpp),
@@ -65,7 +65,7 @@ impl Steering {
     /// The legal on-disk spellings, in declaration order.
     pub const LEGAL: &'static [&'static str] = &["standard", "balanced", "aggressive"];
 
-    fn from_name(s: &str) -> Result<Self> {
+    pub(crate) fn from_name(s: &str) -> Result<Self> {
         match s {
             "standard" => Ok(Steering::Standard),
             "balanced" => Ok(Steering::Balanced),
