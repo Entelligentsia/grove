@@ -253,7 +253,9 @@ fn slug(s: &str) -> String {
     }
 }
 
-/// Format a chat-completions **request** body into a readable block.
+/// Format a chat-completions **request** body into a single readable block
+/// (every message in order). Kept for callers wanting the flat rendering;
+/// the trace browser uses [`request_parts`] for its tiered view.
 pub fn format_request(body: &Value) -> String {
     let mut out = String::from("→ request");
     let Some(msgs) = body.get("messages").and_then(Value::as_array) else {
@@ -271,23 +273,95 @@ pub fn format_request(body: &Value) -> String {
         msgs.len()
     ));
     for m in msgs {
-        let role = m.get("role").and_then(Value::as_str).unwrap_or("?");
-        if let Some(tcs) = m.get("tool_calls").and_then(Value::as_array) {
-            let calls: Vec<String> = tcs
-                .iter()
-                .map(|c| format!("{}({})", call_name(c), truncate(&call_args(c), 300)))
-                .collect();
-            if !calls.is_empty() {
-                out.push_str(&format!("\n  [{role}] tool_calls: {}", calls.join(", ")));
-            }
-        }
-        if let Some(content) = m.get("content").and_then(Value::as_str) {
-            if !content.is_empty() {
-                out.push_str(&format!("\n  [{role}] {}", truncate(content, 4000)));
-            }
-        }
+        push_message(&mut out, m);
     }
     out
+}
+
+/// A request body split into the three tiers the trace browser renders: the
+/// (collapsed) `system` prompt, the (collapsed) `context` — the prior exchange —
+/// and the prominent `prompt`: the newest messages the model is being asked to
+/// act on. The split point is the **last `assistant` message**; everything after
+/// it is the prompt (on turn 1, with no assistant yet, that is the original
+/// question). Each tier is pre-rendered text with role-prefixed lines;
+/// `context_msgs` is the middle message count, for the section label.
+pub struct RequestParts {
+    /// `model=… · N msgs · K tools` — the one-line request header.
+    pub header: String,
+    /// Leading `system` message(s), role-prefixed. Empty if none.
+    pub system: String,
+    /// The messages between the system block and the prompt. Empty on turn 1.
+    pub context: String,
+    /// Number of messages in `context` (for the "context · N msgs" label).
+    pub context_msgs: usize,
+    /// The trailing block after the last `assistant` message — what this turn
+    /// is acting on. Role-prefixed so it reads `[tool] …` / `[user] …` honestly.
+    pub prompt: String,
+}
+
+/// Split a request `body` into [`RequestParts`] for the tiered browser view.
+pub fn request_parts(body: &Value) -> RequestParts {
+    let msgs: Vec<Value> = body
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let model = body.get("model").and_then(Value::as_str).unwrap_or("?");
+    let ntools = body.get("tools").and_then(Value::as_array).map_or(0, Vec::len);
+    let header = format!("model={model} · {} msgs · {ntools} tools", msgs.len());
+
+    // Leading run of system messages | middle context | trailing prompt.
+    let sys_end = msgs.iter().position(|m| role(m) != "system").unwrap_or(msgs.len());
+    let last_assistant = msgs.iter().rposition(|m| role(m) == "assistant");
+    // The prompt starts after the last assistant message, but never inside the
+    // system block. If the request happens to end with an assistant message
+    // (no trailing input), fall back to showing the last message as the prompt.
+    let mut prompt_start = last_assistant.map_or(sys_end, |i| i + 1);
+    if prompt_start >= msgs.len() && !msgs.is_empty() {
+        prompt_start = msgs.len() - 1;
+    }
+    let prompt_start = prompt_start.clamp(sys_end, msgs.len());
+
+    RequestParts {
+        header,
+        system: render_messages(&msgs[..sys_end]),
+        context: render_messages(&msgs[sys_end..prompt_start]),
+        context_msgs: prompt_start - sys_end,
+        prompt: render_messages(&msgs[prompt_start..]),
+    }
+}
+
+fn role(m: &Value) -> &str {
+    m.get("role").and_then(Value::as_str).unwrap_or("?")
+}
+
+/// Render a slice of chat messages to role-prefixed lines (no trailing newline).
+fn render_messages(msgs: &[Value]) -> String {
+    let mut out = String::new();
+    for m in msgs {
+        push_message(&mut out, m);
+    }
+    out.trim_start_matches('\n').to_string()
+}
+
+/// Append one message's tool-calls and content to `out`, each role-prefixed and
+/// on its own line. Shared by the flat and tiered request renderers.
+fn push_message(out: &mut String, m: &Value) {
+    let role = role(m);
+    if let Some(tcs) = m.get("tool_calls").and_then(Value::as_array) {
+        let calls: Vec<String> = tcs
+            .iter()
+            .map(|c| format!("{}({})", call_name(c), truncate(&call_args(c), 300)))
+            .collect();
+        if !calls.is_empty() {
+            out.push_str(&format!("\n  [{role}] tool_calls: {}", calls.join(", ")));
+        }
+    }
+    if let Some(content) = m.get("content").and_then(Value::as_str) {
+        if !content.is_empty() {
+            out.push_str(&format!("\n  [{role}] {}", truncate(content, 4000)));
+        }
+    }
 }
 
 /// Format a chat-completions **response** body, with optional elapsed millis.
@@ -379,6 +453,44 @@ mod tests {
         assert!(s.contains("model=qwen3.5:4b"));
         assert!(s.contains("[user] where is X?"));
         assert!(s.contains("Grove({\"command\":\"symbols .\"})"));
+    }
+
+    #[test]
+    fn request_parts_splits_system_context_and_trailing_prompt() {
+        let body = json!({
+            "model": "qwen3.5:4b",
+            "tools": [{"type":"function"}],
+            "messages": [
+                {"role": "system", "content": "You are a locator."},
+                {"role": "user", "content": "where is diff"},
+                {"role": "assistant", "tool_calls": [{"function": {"name": "Grep", "arguments": "{}"}}]},
+                {"role": "tool", "content": "builtin/diff.c:1"}
+            ]
+        });
+        let p = request_parts(&body);
+        assert!(p.header.contains("4 msgs") && p.header.contains("1 tools"), "header: {}", p.header);
+        assert!(p.system.contains("[system] You are a locator."));
+        // context = the middle (question + prior assistant call); prompt = the
+        // trailing block after the last assistant message (the fresh tool result).
+        assert_eq!(p.context_msgs, 2);
+        assert!(p.context.contains("[user] where is diff"));
+        assert!(p.context.contains("[assistant] tool_calls: Grep"));
+        assert!(p.prompt.contains("[tool] builtin/diff.c:1"), "prompt: {}", p.prompt);
+        assert!(!p.prompt.contains("[system]"), "system not in prompt");
+    }
+
+    #[test]
+    fn request_parts_first_turn_has_no_context_and_prompts_the_question() {
+        // Turn 1: system + question, no assistant yet → prompt is the question,
+        // context is empty.
+        let body = json!({"messages": [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "where is main"}
+        ]});
+        let p = request_parts(&body);
+        assert_eq!(p.context_msgs, 0);
+        assert!(p.context.is_empty());
+        assert!(p.prompt.contains("[user] where is main"), "prompt: {}", p.prompt);
     }
 
     #[test]

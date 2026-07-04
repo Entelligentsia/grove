@@ -11,7 +11,7 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
-use grove_core::explore::trace::{format_request, format_response, traces_dir};
+use grove_core::explore::trace::{format_response, request_parts, traces_dir};
 
 /// Token counts (prompt, completion, total).
 #[derive(Debug, Clone, Copy, Default)]
@@ -116,8 +116,12 @@ pub enum Msg {
 pub enum NodeKey {
     /// A turn header (expands to its request/response nodes).
     Turn(usize),
-    /// A turn's request body (expands to the pretty-printed prompt).
+    /// A turn's request body (expands to the tiered system/context/prompt view).
     Req(usize),
+    /// The (collapsed-by-default) system prompt under a turn's request.
+    ReqSystem(usize),
+    /// The (collapsed-by-default) prior-exchange context under a turn's request.
+    ReqContext(usize),
     /// A turn's response body (expands to the pretty-printed completion).
     Resp(usize),
     /// The call's final answer (expands to the grounded text).
@@ -154,7 +158,7 @@ pub fn build_tree_rows(c: &Call, expanded: &HashSet<NodeKey>) -> Vec<TreeRow> {
         if !open {
             continue;
         }
-        push_body(&mut rows, NodeKey::Req(t.turn_index), "request", &format_request(&t.request), expanded);
+        push_request(&mut rows, t.turn_index, &t.request, expanded);
         push_body(
             &mut rows,
             NodeKey::Resp(t.turn_index),
@@ -192,6 +196,78 @@ pub fn build_tree_rows(c: &Call, expanded: &HashSet<NodeKey>) -> Vec<TreeRow> {
     }
 
     rows
+}
+
+/// Push a turn's `request` as a tiered node: the collapsed system prompt and
+/// collapsed prior-exchange context are tucked into their own sub-nodes, while
+/// the prompt — the newest messages the model is acting on — is shown inline at
+/// the bottom whenever the request node is open. This keeps the big, repeated
+/// system prompt and growing history out of the way and surfaces what actually
+/// changed this turn.
+fn push_request(rows: &mut Vec<TreeRow>, turn: usize, request: &Value, expanded: &HashSet<NodeKey>) {
+    let req_key = NodeKey::Req(turn);
+    let open = expanded.contains(&req_key);
+    let parts = request_parts(request);
+    rows.push(TreeRow {
+        key: Some(req_key),
+        depth: 1,
+        expandable: true,
+        expanded: open,
+        text: format!("request   {}", parts.header),
+    });
+    if !open {
+        return;
+    }
+
+    // System prompt — its own collapsible node, collapsed by default.
+    if !parts.system.is_empty() {
+        push_collapsed_section(
+            rows,
+            NodeKey::ReqSystem(turn),
+            "system prompt".to_string(),
+            &parts.system,
+            expanded,
+        );
+    }
+    // Prior-exchange context — collapsible, collapsed by default. Omitted on the
+    // first turn, where there is no prior exchange.
+    if parts.context_msgs > 0 {
+        let label = format!(
+            "context · {} prior {}",
+            parts.context_msgs,
+            if parts.context_msgs == 1 { "msg" } else { "msgs" }
+        );
+        push_collapsed_section(rows, NodeKey::ReqContext(turn), label, &parts.context, expanded);
+    }
+    // The prompt — shown inline at the bottom whenever the request is open.
+    let prompt = if parts.prompt.is_empty() { "(none)" } else { &parts.prompt };
+    for line in prompt.lines() {
+        rows.push(content_row(line, 2));
+    }
+}
+
+/// Push a collapsible section node (depth 2) that reveals its pre-rendered body
+/// as content rows (depth 3) only when expanded — collapsed by default.
+fn push_collapsed_section(
+    rows: &mut Vec<TreeRow>,
+    key: NodeKey,
+    label: String,
+    body: &str,
+    expanded: &HashSet<NodeKey>,
+) {
+    let open = expanded.contains(&key);
+    rows.push(TreeRow {
+        key: Some(key),
+        depth: 2,
+        expandable: true,
+        expanded: open,
+        text: label,
+    });
+    if open {
+        for line in body.lines() {
+            rows.push(content_row(line, 3));
+        }
+    }
 }
 
 /// Push a collapsible body node (request/response) and, when open, its
@@ -526,7 +602,15 @@ mod tests {
             turn_blocks: (1..=n)
                 .map(|i| Turn {
                     turn_index: i,
-                    request: json!({"messages": []}),
+                    // A realistic request: system prompt, the original question,
+                    // a prior assistant tool-call, and the fresh tool result the
+                    // turn is acting on (the trailing block).
+                    request: json!({"model":"qwen","tools":[{"type":"function"}],"messages":[
+                        {"role":"system","content":"You are a code locator."},
+                        {"role":"user","content":"where is main"},
+                        {"role":"assistant","tool_calls":[{"function":{"name":"Grep","arguments":"{}"}}]},
+                        {"role":"tool","content":"src/main.rs:1: fn main()"}
+                    ]}),
                     response: json!({"choices":[{"message":{"role":"assistant",
                         "tool_calls":[{"function":{"name":"Grove"}}]}}]}),
                     wall_ms: 10,
@@ -561,6 +645,39 @@ mod tests {
         exp.insert(NodeKey::Req(1));
         let rows = build_tree_rows(&c, &exp);
         assert!(rows.iter().any(|r| r.key.is_none() && r.depth == 2), "request content shown");
+    }
+
+    #[test]
+    fn expanded_request_tiers_system_context_and_inline_prompt() {
+        let c = call_with_turns(1, true);
+        let mut exp = HashSet::new();
+        exp.insert(NodeKey::Turn(1));
+        exp.insert(NodeKey::Req(1));
+        let rows = build_tree_rows(&c, &exp);
+
+        // System and context are their own collapsible nodes (collapsed → no
+        // content leaking), sitting above the inline prompt.
+        assert!(
+            rows.iter().any(|r| r.key == Some(NodeKey::ReqSystem(1)) && r.expandable && !r.expanded),
+            "system prompt is a collapsed sub-node"
+        );
+        let ctx = rows.iter().find(|r| r.key == Some(NodeKey::ReqContext(1))).expect("context node");
+        assert!(ctx.text.contains("2 prior msgs"), "context labels its size: {}", ctx.text);
+        assert!(!ctx.expanded, "context collapsed by default");
+
+        // The collapsed sections hide their bodies; the only visible content
+        // rows are the prompt — the trailing tool result — shown inline.
+        let content: Vec<&str> = rows.iter().filter(|r| r.key.is_none()).map(|r| r.text.as_str()).collect();
+        assert!(content.iter().any(|l| l.contains("[tool]") && l.contains("src/main.rs:1")),
+            "prompt (trailing tool result) shown inline: {content:?}");
+        assert!(!content.iter().any(|l| l.contains("You are a code locator")),
+            "system body stays hidden while collapsed: {content:?}");
+
+        // Expanding the system node reveals its body.
+        exp.insert(NodeKey::ReqSystem(1));
+        let rows = build_tree_rows(&c, &exp);
+        assert!(rows.iter().any(|r| r.key.is_none() && r.depth == 3 && r.text.contains("You are a code locator")),
+            "system body shown when expanded");
     }
 
     #[test]
