@@ -653,7 +653,6 @@ dependencies = [
  "clap",
  "crossterm",
  "grove-cst",
- "ignore",
  "ratatui",
  "serde",
  "serde_json",

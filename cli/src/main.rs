@@ -245,7 +245,7 @@ fn main() -> Result<()> {
                     // Lead with `path:line:col` so the location is greppable and,
                     // for a directory-wide query, you can tell which file it's in (#29).
                     // [S]/[T] = structural (tree-sitter) vs textual (grep) provenance (#33).
-                    let tag = if s.source == "structural" { "S" } else { "T" };
+                    let tag = if s.source == ops::CallSource::Structural { "S" } else { "T" };
                     println!("{}:{}:{}   {:<28} [{}] {}", s.file, s.line, s.col, inf, tag, s.text);
                 }
                 eprintln!("\n{} reference(s) of `{}` (S=structural, T=textual)", sites.len(), name);

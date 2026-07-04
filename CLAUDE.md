@@ -11,15 +11,20 @@ for usage. This file is the orientation for *continuing development*.
 
 ## Architecture — one engine, two faces
 
+The engine lives in the `core` crate (published as `grove-cst`); the `cli` crate
+holds the two faces, formatting, TUIs, and harness glue:
+
 ```
+core/src/ops.rs        structural operations — the shared engine BOTH faces call
+core/src/engine.rs     wasm load + Query-based tag extraction + check + position helpers
+core/src/registry.rs   grammar resolver, cache-location precedence, catalog/index, lockfile
+core/src/fetch.rs      `grove fetch` — install grammars from the hosted registry
+core/src/ingest.rs     `grove ingest` — build registry artifacts from upstream releases
+core/src/init.rs       grammar provisioning half of `grove init`
+
 cli/src/main.rs        CLI dispatch (clap) — every verb; thin, delegates to modules
-cli/src/ops.rs         structural operations — the shared engine BOTH faces call
 cli/src/mcp.rs         MCP server — newline-delimited JSON-RPC 2.0 over stdio
-cli/src/engine.rs      wasm load + Query-based tag extraction + check + position helpers
-cli/src/registry.rs    grammar resolver, cache-location precedence, catalog/index, lockfile
-cli/src/fetch.rs       `grove fetch` — install grammars from the hosted registry
-cli/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
-cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — provision grammars + harness glue
+cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — file-writing harness glue
 cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — incl. model-list dropdown
 cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
 cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
@@ -155,10 +160,10 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   (`GROVE_REGISTRY=registry`). Unit tests resolve real grammars via the registry
   precedence (OS cache or dev stub); keep assertions registry-root-agnostic
   unless the test pins `GROVE_REGISTRY` (the integration suite does, so it can
-  assert the 3-language counts). Coverage: `cargo llvm-cov --summary-only`
-  (~83% lines; the gaps are network paths in `fetch`/`ingest`/`init` and the
-  `serve` stdio loop). Network-dependent paths are tested up to the
-  error-before-fetch boundary, not mocked.
+  assert the 3-language counts). Coverage: `cargo llvm-cov --workspace
+  --summary-only` (~81% lines / ~83% functions; the gaps are network paths in
+  `fetch`/`ingest` and the `serve` stdio loop). Network-dependent paths are
+  tested up to the error-before-fetch boundary, not mocked.
 - **Releasing:** see [`RELEASING.md`](RELEASING.md). In short: bump the version in
   `Cargo.toml` + `Cargo.lock` + `dist/npm/package.json` and add a dated
   `CHANGELOG.md` section, PR to `main`, then push a `vX.Y.Z` tag — that triggers

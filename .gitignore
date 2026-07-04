@@ -5,3 +5,6 @@ dist/npm/node_modules/
 
 # Forge — transient agent event logs (one file per phase, do not commit)
 .forge/store/events/
+
+# Runtime artifact from `grove serve` / tap debugging
+server.pid

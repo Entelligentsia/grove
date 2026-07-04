@@ -662,4 +662,95 @@ mod tests {
         let out = read_tool(&json!({"path": "/etc/passwd"}), Path::new("."));
         assert!(out.contains("Permission error") || out.contains("does not exist"), "{out}");
     }
+
+    // --- Tool-body coverage against a real fixture tree ---------------------
+    //
+    // The guards above check input validation and sandboxing; these run the
+    // Read/Glob/Grep bodies end-to-end so the actual file I/O and rg invocation
+    // are exercised, not just the rejection paths (review 2026-07-03).
+
+    /// Create a throwaway fixture directory seeded with `files` (relpath → body).
+    /// The label + pid keep concurrent tests from colliding.
+    fn fixture(label: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("grove_toolset_{label}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (rel, body) in files {
+            let path = dir.join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&path, body).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn read_returns_numbered_lines_and_range_header() {
+        let dir = fixture("read_body", &[("src.rs", "alpha\nbeta\ngamma\n")]);
+        let out = read_tool(&json!({"path": "src.rs"}), &dir);
+        assert!(out.contains(":1-3"), "range header missing: {out}");
+        assert!(out.contains("1|alpha"), "{out}");
+        assert!(out.contains("3|gamma"), "{out}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_honors_offset_and_limit() {
+        let dir = fixture("read_window", &[("src.rs", "alpha\nbeta\ngamma\n")]);
+        let out = read_tool(&json!({"path": "src.rs", "offset": 2, "limit": 1}), &dir);
+        assert!(out.contains(":2-2"), "{out}");
+        assert!(out.contains("2|beta"), "{out}");
+        assert!(!out.contains("alpha"), "window should exclude line 1: {out}");
+        assert!(!out.contains("gamma"), "window should exclude line 3: {out}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_reports_missing_and_empty_files() {
+        let dir = fixture("read_edges", &[("empty.rs", "")]);
+        let missing = read_tool(&json!({"path": "nope.rs"}), &dir);
+        assert!(missing.contains("does not exist"), "{missing}");
+        let empty = read_tool(&json!({"path": "empty.rs"}), &dir);
+        assert!(empty.contains("File is empty"), "{empty}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn glob_lists_matching_files_only() {
+        let dir = fixture("glob_body", &[("keep.rs", "fn a() {}\n"), ("skip.txt", "x\n")]);
+        let out = glob_tool(&json!({"pattern": "*.rs"}), &dir);
+        if which("rg").is_none() {
+            assert!(out.contains("requires ripgrep"), "{out}");
+        } else {
+            assert!(out.contains("keep.rs"), "{out}");
+            assert!(!out.contains("skip.txt"), "{out}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn grep_finds_content_and_reports_no_matches() {
+        let dir = fixture("grep_body", &[("src.rs", "let needle = 1;\nlet hay = 2;\n")]);
+        let hit = grep_tool(
+            &json!({"pattern": "needle", "output_mode": "content"}),
+            &dir,
+        );
+        if which("rg").is_none() {
+            assert!(hit.contains("requires ripgrep"), "{hit}");
+        } else {
+            assert!(hit.contains("needle"), "{hit}");
+            let miss = grep_tool(&json!({"pattern": "zzz_absent_zzz"}), &dir);
+            assert!(miss.contains("No matches found"), "{miss}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dispatch_routes_read_to_the_body() {
+        let dir = fixture("dispatch_body", &[("src.rs", "one\ntwo\n")]);
+        let out = dispatch(READ, &json!({"path": "src.rs"}), &dir);
+        assert!(out.contains("1|one"), "dispatch should reach read_tool: {out}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
