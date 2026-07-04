@@ -417,9 +417,15 @@ fn index_writes_catalog() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// GROVE-S02-T04 (AC-6): when `.grove/explore.json` names an unreachable provider,
-/// `grove serve` falls back to the standard 7-tool structural surface and emits a
-/// diagnostic note to stderr. No real provider is required — port 1 fails immediately.
+/// GROVE-S02-T04 (AC-6) / GROVE-S03-T03: when `.grove/explore.json` names an
+/// unreachable provider, `grove serve` falls back to the standard 7-tool structural
+/// surface and emits a diagnostic note to stderr. No real provider is required —
+/// port 1 fails immediately.
+///
+/// After T03 the explore.json is migrated by [`GroveConfig::load`] on first access
+/// to `.grove/config.json` with `mode: "mcp-llm"`, so `active_mode` returns
+/// `McpLlm`, the health probe fires (port 1 → connection refused), and the
+/// standard-surface fallback path is exercised exactly as before.
 #[test]
 fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     use std::io::Write;
@@ -432,11 +438,14 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     std::fs::create_dir_all(dir.join(".grove")).unwrap();
 
     // Port 1 is IANA reserved — guaranteed connection-refused (fast fail).
+    // NOTE: use the legacy explore.json shape (`mode` key, not `steering`) so
+    // that GroveConfig::load can migrate it to config.json. After migration,
+    // active_mode returns McpLlm and health_probe fires against port 1.
     let config = serde_json::json!({
         "provider": "ollama",
         "base_url": "http://127.0.0.1:1/v1",
         "model": "nomodel",
-        "steering": "standard",
+        "mode": "standard",
         "allowed_tools": []
     });
     std::fs::write(
@@ -497,6 +506,109 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     assert!(
         stderr_str.contains("falling back"),
         "stderr must contain 'falling back' diagnostic; got: {stderr_str}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Bug-1 regression (GROVE-S03-T03): `grove serve` must honour `mode: "mcp"` in
+/// `.grove/config.json` and serve the standard 7-tool surface even when a stale
+/// `.grove/explore.json` file exists alongside it.
+///
+/// Before T03, `determine_surface` sniffed `explore.json` existence directly and
+/// activated explore mode regardless of the declared config mode. This test proves
+/// the fix: config.json is the single source of truth; explore.json is ignored when
+/// config.json is present.
+#[test]
+fn bug1_serve_mcp_mode_ignores_stale_explore_json() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_cli_test_{}_bug1_mcp_stale_explore",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // config.json declares mode=mcp (standard surface).
+    let config_json = serde_json::json!({
+        "version": 1,
+        "mode": "mcp"
+    });
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
+
+    // Stale explore.json sits alongside — the old bug would activate explore mode.
+    let stale_explore = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:1/v1",
+        "model": "stale-model",
+        "steering": "standard",
+        "allowed_tools": []
+    });
+    std::fs::write(
+        dir.join(".grove").join("explore.json"),
+        serde_json::to_string_pretty(&stale_explore).unwrap(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove"))
+        .arg("serve")
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove serve");
+
+    let mut stdin = child.stdin.take().unwrap();
+    // initialize (id=1)
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18" }
+    });
+    writeln!(stdin, "{init_req}").unwrap();
+    // tools/list (id=2)
+    let list_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    writeln!(stdin, "{list_req}").unwrap();
+    drop(stdin); // close stdin → server exits at EOF
+
+    let output = child.wait_with_output().expect("grove serve to finish");
+
+    // Parse stdout lines and find the tools/list response (id=2).
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let tools_response = stdout_str
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|v| v["id"] == serde_json::json!(2))
+        .expect("tools/list response (id=2) must be present");
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("result.tools is an array");
+
+    // Must be exactly 7 tools (standard surface), not the single explore tool.
+    assert_eq!(
+        tools.len(),
+        7,
+        "config.json mode=mcp + stale explore.json must give the 7-tool standard surface, got: {tools:?}"
+    );
+
+    // Prove the explore delegating tool is absent (it would be named "explore").
+    assert!(
+        !tools.iter().any(|t| t["name"] == serde_json::json!("explore")),
+        "the 'explore' delegating tool must not appear when config.json declares mode=mcp"
     );
 
     std::fs::remove_dir_all(&dir).ok();

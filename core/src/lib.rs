@@ -65,4 +65,4 @@ pub use init::provision_project;
 /// The explore subsystem configuration model (see [`explore`]).
 pub use explore::{ExploreConfig, Provider, Steering};
 /// The grove project config type and integration mode (see [`config`]).
-pub use config::{GroveConfig, Mode};
+pub use config::{active_mode, GroveConfig, Mode, ModeChoice};

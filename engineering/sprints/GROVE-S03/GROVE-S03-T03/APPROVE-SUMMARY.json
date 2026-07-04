@@ -1,0 +1,18 @@
+{
+  "objective": "Architect sign-off on the active_mode resolver + determine_surface rewrite fixing bug-1 (sticky explore surface).",
+  "key_changes": [
+    "Surface selection now derives from declared config.mode via shared active_mode(root, ModeChoice)->Mode resolver in core::config, not an incidental explore.json artifact.",
+    "Resolver is shared between serve and doctor, preventing divergence between the two surface-selection paths.",
+    "Precedence preserved and explicit: ForceStandard->Mcp, ForceExplore->McpLlm, None->GroveConfig::load.mode (Mcp on failure); --standard wins over --explore.",
+    "determine_surface branches on active_mode != Mode::McpLlm -> Standard as explicit catch-all; future Mode variants route safely to Standard.",
+    "Health-gated fallback (mcp-llm + unhealthy provider -> standard) preserved unchanged; health_probe path intact.",
+    "Change contained to core/src/config.rs and cli/src/mcp.rs; no cross-cutting concerns; double GroveConfig::load is benign and documented.",
+    "268 tests pass, clippy -D warnings clean, release build clean; bug1 integration test asserts exactly 7 tools and absence of 'explore' tool.",
+    "Deployment: no migrations, no schema changes, no topology impact; material change requiring a version bump at release.",
+    "Follow-up: AM-1 fixture JSON has stray trailing quote (test passes via ForceStandard short-circuit) — cleanup recommended.",
+    "Follow-up: active_mode None path is not side-effect free (load may migrate + write config.json); a doc comment would aid future readers."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

@@ -1,0 +1,18 @@
+{
+  "objective": "Assessed the GROVE-S03-T03 plan to replace serve's explore.json file-sniff with a declared config.mode trigger via a shared active_mode resolver.",
+  "key_changes": [
+    "AC-1: active_mode(root, ModeChoice)->Mode buildable from existing Mode/GroveConfig primitives; precedence matches today's determine_surface (force_standard first).",
+    "AC-2: determine_surface rewrite keys off active_mode==McpLlm and sources explore from grove_cfg.explore (Option<ExploreConfig>) — valid against the struct.",
+    "AC-3: GroveConfig::load checks config.json before legacy explore.json, so mode=mcp + stale explore.json resolves to Mcp->Standard immediately. Verified.",
+    "AC-4 verified: unhealthy-fallback test writes only explore.json; migrate hard-sets Mode::McpLlm, so health_probe still fires and the 'falling back' assertion holds — comment-only update correct.",
+    "AC-5: mapping (force_standard, force_explore)->ModeChoice preserves --standard over --explore precedence.",
+    "Re-export extension in core/src/lib.rs:68 (pub use config::{GroveConfig, Mode}) is consistent with adding active_mode, ModeChoice.",
+    "Advisory: active_mode is not side-effect free on the legacy path (load triggers migration + config.json write); doctor will also migrate. Consistent with load() semantics but worth a doc comment.",
+    "Advisory: double GroveConfig load is benign — second load reads freshly migrated config.json, modes agree, no double-migration.",
+    "Advisory: active_mode may return Skill/Both/Grammars; ensure the !=McpLlm branch is an explicit catch-all so future variants don't misroute.",
+    "Testing: 6 unit tests + bug1 integration test cover the AC matrix; recommend the integration test assert exactly 7 tools AND absence of the explore delegating tool."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

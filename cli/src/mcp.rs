@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde_json::{json, Value};
 
+use grove_core::config::{active_mode, GroveConfig, Mode, ModeChoice};
 use grove_core::explore::{
     health_probe, run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient,
     ProgressReporter, SessionMeta, TraceWriter,
@@ -37,24 +38,47 @@ enum Surface {
 
 /// Probe whether explore mode can be activated for `root`.
 ///
-/// Precedence: `force_standard` wins over everything; then a config file or
-/// `force_explore` trigger explore; then `health_probe` confirms the provider
-/// is up. Any failure at any step falls back to `Surface::Standard` with a
-/// diagnostic on stderr.
+/// Precedence: `force_standard` wins over everything; then `force_explore`
+/// forces explore; otherwise the declared `mode` in `.grove/config.json`
+/// (via [`active_mode`]) decides. When the resolved mode is [`Mode::McpLlm`],
+/// the project config is loaded to retrieve the `explore` section, and
+/// [`health_probe`] confirms the provider is reachable. Any failure at any
+/// step falls back to [`Surface::Standard`] with a diagnostic on stderr.
+///
+/// The legacy `.grove/explore.json` file is **no longer sniffed** here —
+/// [`GroveConfig::load`] handles migration transparently. This fixes bug-1
+/// where a stale `explore.json` caused `serve` to activate explore mode even
+/// when `config.json` declared `mode: "mcp"`. (GROVE-S03-T03)
 fn determine_surface(root: &Path, force_explore: bool, force_standard: bool) -> Surface {
-    if force_standard {
+    // Map CLI flags to a ModeChoice and resolve the effective mode.
+    let force = if force_standard {
+        ModeChoice::ForceStandard
+    } else if force_explore {
+        ModeChoice::ForceExplore
+    } else {
+        ModeChoice::None
+    };
+
+    if active_mode(root, force) != Mode::McpLlm {
         return Surface::Standard;
     }
 
-    let is_explore = force_explore || ExploreConfig::config_path(root).exists();
-    if !is_explore {
-        return Surface::Standard;
-    }
-
-    let cfg = match ExploreConfig::load(root) {
+    // Mode resolved to McpLlm — load config to retrieve the explore section.
+    // (active_mode already called load once; this second call is cheap and
+    // ensures a clean separation of concerns. No double-migration risk: the
+    // first load wrote config.json, so the second reads it directly.)
+    let grove_cfg = match GroveConfig::load(root) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("grove serve: could not load explore config ({e}); falling back to standard structural surface");
+            eprintln!("grove serve: could not load config ({e}); falling back to standard structural surface");
+            return Surface::Standard;
+        }
+    };
+
+    let cfg = match grove_cfg.explore {
+        Some(c) => c,
+        None => {
+            eprintln!("grove serve: mode is mcp-llm but no explore section found in config; falling back to standard structural surface");
             return Surface::Standard;
         }
     };

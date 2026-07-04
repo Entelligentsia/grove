@@ -258,6 +258,53 @@ impl GroveConfig {
     }
 }
 
+/// Caller's preference for the integration mode — lets `active_mode` honour
+/// `--explore` / `--standard` CLI flags without re-threading boolean pairs
+/// through every call site.
+///
+/// Precedence: `ForceStandard` wins over everything, then `ForceExplore`,
+/// then the config file is consulted (`None`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeChoice {
+    /// No CLI override — read the declared `mode` from the project config.
+    None,
+    /// Caller passed `--explore`; return `Mode::McpLlm` without reading config.
+    ForceExplore,
+    /// Caller passed `--standard`; return `Mode::Mcp` without reading config.
+    ForceStandard,
+}
+
+/// Resolve the effective [`Mode`] for a project, honouring any CLI override
+/// expressed as a [`ModeChoice`].
+///
+/// Precedence:
+/// 1. [`ModeChoice::ForceStandard`] → `Mode::Mcp` (config not read).
+/// 2. [`ModeChoice::ForceExplore`]  → `Mode::McpLlm` (config not read).
+/// 3. [`ModeChoice::None`] → load [`GroveConfig`] and return `cfg.mode`.
+///    If loading fails (no `config.json` and no legacy `explore.json`) the
+///    function falls back to `Mode::Mcp` and emits a diagnostic on stderr.
+///
+/// This function performs no network I/O and no health probing — it is a
+/// pure config resolver. The legacy `explore.json` path is reached only via
+/// [`GroveConfig::load`]'s own cascade (migrate + write `config.json`);
+/// callers no longer sniff `explore.json` existence directly.
+pub fn active_mode(root: &Path, force: ModeChoice) -> Mode {
+    match force {
+        ModeChoice::ForceStandard => Mode::Mcp,
+        ModeChoice::ForceExplore => Mode::McpLlm,
+        ModeChoice::None => match GroveConfig::load(root) {
+            Ok(cfg) => cfg.mode,
+            Err(e) => {
+                eprintln!(
+                    "grove: could not load config ({e}); \
+                     defaulting to standard structural surface"
+                );
+                Mode::Mcp
+            }
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
@@ -499,6 +546,95 @@ mod tests {
         assert!(cfg.explore.is_none(), "explore section should not be populated from stale file");
 
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // active_mode tests
+    // -----------------------------------------------------------------------
+
+    // AM-1: ForceStandard always returns Mcp, even when a config is present.
+    #[test]
+    fn active_mode_force_standard_returns_mcp() {
+        let root = temp_root("am_force_std");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        // Write a config that declares mcp-llm, but ForceStandard must win.
+        let cfg_json = r#"{"version":1,"mode":"mcp-llm","explore":{"provider":"ollama","base_url":"http://localhost:11434/v1","model":"x","steering":"standard","allowed_tools":[]}}'"#;
+        let _ = fs::write(grove_dir.join("config.json"), cfg_json);
+        assert_eq!(active_mode(&root, ModeChoice::ForceStandard), Mode::Mcp);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // AM-2: ForceExplore always returns McpLlm, even when a config is present.
+    #[test]
+    fn active_mode_force_explore_returns_mcp_llm() {
+        let root = temp_root("am_force_exp");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        // Write a config that declares plain mcp, but ForceExplore must win.
+        let cfg_json = r#"{"version":1,"mode":"mcp"}"#;
+        fs::write(grove_dir.join("config.json"), cfg_json).unwrap();
+        assert_eq!(active_mode(&root, ModeChoice::ForceExplore), Mode::McpLlm);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // AM-3: None + config.json mode=mcp → Mcp.
+    #[test]
+    fn active_mode_none_reads_declared_mcp_mode() {
+        let root = temp_root("am_mcp");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        let cfg_json = r#"{"version":1,"mode":"mcp"}"#;
+        fs::write(grove_dir.join("config.json"), cfg_json).unwrap();
+        assert_eq!(active_mode(&root, ModeChoice::None), Mode::Mcp);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // AM-4: None + config.json mode=mcp-llm → McpLlm.
+    #[test]
+    fn active_mode_none_reads_declared_mcp_llm_mode() {
+        let root = temp_root("am_mcpllm");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        let cfg_json = r#"{"version":1,"mode":"mcp-llm","explore":{"provider":"ollama","base_url":"http://localhost:11434/v1","model":"x","steering":"standard","allowed_tools":[]}}"#;
+        fs::write(grove_dir.join("config.json"), cfg_json).unwrap();
+        assert_eq!(active_mode(&root, ModeChoice::None), Mode::McpLlm);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // AM-5 (bug-1 regression): config.json mode=mcp + stale explore.json → Mcp.
+    // The old determine_surface sniffed explore.json existence; active_mode must
+    // not — the declared mode in config.json is the single source of truth.
+    #[test]
+    fn active_mode_mcp_config_ignores_stale_explore_json() {
+        let root = temp_root("am_stale");
+        let _ = fs::remove_dir_all(&root);
+        let grove_dir = root.join(".grove");
+        fs::create_dir_all(&grove_dir).unwrap();
+        // config.json declares mcp.
+        fs::write(grove_dir.join("config.json"), r#"{"version":1,"mode":"mcp"}"#).unwrap();
+        // stale explore.json sits alongside it.
+        let stale = r#"{"provider":"ollama","base_url":"http://localhost:11434/v1","model":"old","mode":"aggressive","allowed_tools":[]}"#;
+        fs::write(grove_dir.join("explore.json"), stale).unwrap();
+        // Must return Mcp (config.json wins; explore.json is ignored).
+        assert_eq!(active_mode(&root, ModeChoice::None), Mode::Mcp,
+            "stale explore.json must not override declared mode=mcp in config.json");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // AM-6: no config at all → falls back to Mcp (no panic, no error propagated).
+    #[test]
+    fn active_mode_no_config_falls_back_to_mcp() {
+        let root = temp_root("am_noconfig");
+        let _ = fs::remove_dir_all(&root);
+        // Neither config.json nor explore.json exist.
+        assert_eq!(active_mode(&root, ModeChoice::None), Mode::Mcp,
+            "missing config must fall back gracefully to Mcp");
+        let _ = fs::remove_dir_all(&root);
     }
 
     // -----------------------------------------------------------------------

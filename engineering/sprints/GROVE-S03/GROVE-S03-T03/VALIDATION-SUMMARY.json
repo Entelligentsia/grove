@@ -1,0 +1,16 @@
+{
+  "objective": "Validated all 6 acceptance criteria for the active_mode resolver + determine_surface rewrite that fixes bug-1 (sticky explore surface).",
+  "key_changes": [
+    "AC-1 PASS: pub fn active_mode(root, ModeChoice)->Mode in core/src/config.rs:291; re-exported from core/src/lib.rs:68.",
+    "AC-1 PASS: All 6 unit tests (AM-1..AM-6) pass: ForceStandard->Mcp, ForceExplore->McpLlm, None reads declared mode, no-config fallback.",
+    "AC-2 PASS: determine_surface keys off active_mode!=McpLlm (explicit catch-all); no ExploreConfig::config_path().exists() call anywhere in mcp.rs.",
+    "AC-3 PASS: bug1 integration test asserts exactly 7 tools AND no 'explore' tool with config.json mode=mcp + stale explore.json.",
+    "AC-4 PASS: Health-gated fallback preserved; unhealthy_provider integration test asserts 7 tools + stderr 'falling back'.",
+    "AC-5 PASS: force_standard checked before force_explore; --standard wins; confirmed by AM-1/AM-2 unit tests.",
+    "AC-6 PASS: 268 tests pass (161+77+29+1); clippy --release --tests -D warnings clean; release build clean.",
+    "Advisory (non-blocking, inherited from code review): AM-1 fixture JSON has stray trailing quote; test still passes (ForceStandard short-circuits before config read)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

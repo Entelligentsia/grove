@@ -1,0 +1,17 @@
+{
+  "objective": "Assessed the GROVE-S03-T03 implementation that replaces serve's explore.json file-sniff with a declared config.mode trigger via a shared active_mode resolver.",
+  "key_changes": [
+    "AC-1 verified: active_mode(root, ModeChoice)->Mode in core::config; precedence ForceStandard->Mcp, ForceExplore->McpLlm, None->GroveConfig::load.mode (Mcp on load failure with stderr diagnostic).",
+    "AC-2 verified: determine_surface keys off active_mode != Mode::McpLlm -> Standard; this is the explicit catch-all the plan review requested, so future Mode variants route to Standard safely.",
+    "AC-3 verified: mode=mcp + stale explore.json -> standard immediately, confirmed by unit test AM-5 and the serve-level bug1 integration test.",
+    "AC-4 verified: mcp-llm health-gated fallback preserved unchanged (health_probe path intact); migrated-fixture unhealthy test still exercises port-1 refused -> Standard.",
+    "AC-5 verified: --standard over --explore precedence preserved in flag->ModeChoice mapping (force_standard checked first).",
+    "Ran independently: 6 active_mode unit tests pass; bug1 + unhealthy integration tests pass; grove check clean; clippy --tests -D warnings clean.",
+    "bug1 integration test asserts exactly 7 tools AND absence of the 'explore' delegating tool, matching plan-review testing recommendation.",
+    "Double GroveConfig::load (active_mode + determine_surface) is benign and documented; missing explore section under mcp-llm handled gracefully with diagnostic fallback.",
+    "Advisory (non-blocking): AM-1 fixture JSON has a stray trailing quote so config.json is unparseable; test still passes (ForceStandard skips config read) but fixture no longer shows its stated intent."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}
