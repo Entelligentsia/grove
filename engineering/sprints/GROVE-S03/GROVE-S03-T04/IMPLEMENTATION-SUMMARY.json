@@ -1,0 +1,22 @@
+{
+  "objective": "Replace write_harness with reconcile_harness(root, old_mode, new_mode) as the single harness writer with strip direction, update run to load/persist mode from config.json, prove correctness with 20-pair transition-matrix test.",
+  "key_changes": [
+    "Add strip_steering_block(root, filename): removes grove sentinel block, strips separator, ensures single trailing newline",
+    "Add strip_grove_entry_from_mcp_json(root): removes mcpServers.grove key preserving other servers",
+    "Add Target::to_mode() -> Mode and mode_to_target() bridges between CLI Target and config Mode",
+    "Add reconcile_harness(root, old_mode, new_mode): single harness writer — Mcp/Both→[serve]+CLAUDE.md; Skill→CLAUDE.md only; McpLlm→[serve,--explore]+CLAUDE.md+AGENTS.md; Grammars→all stripped",
+    "Remove write_harness; update run to call reconcile_harness and save GroveConfig after TUI/provision",
+    "Update run non-TTY guard: also treats config.json with mcp-llm mode as already-configured",
+    "Add 4 strip_steering_block unit tests (removes block, empties file, noop-no-block, noop-absent)",
+    "Add 3 strip_grove_entry_from_mcp_json unit tests",
+    "Add reconcile_harness_transition_matrix: 20 ordered (A→B) pairs across 5 modes, all passing",
+    "Add reconcile_harness_preserves_host_content: host content in all 3 files never touched",
+    "Add reconcile_harness_then_save_config_active_mode: config.json round-trip test"
+  ],
+  "files_changed": [
+    "cli/src/init.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

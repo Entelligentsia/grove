@@ -1,0 +1,20 @@
+{
+  "objective": "Extract reconcile_harness(root, old_mode, new_mode) in cli/src/init.rs to own the full mode→harness mapping with a strip direction, update grove init to load/persist mode from config.json, and prove correctness with a 20-pair transition-matrix test.",
+  "key_changes": [
+    "Add strip_steering_block(root, filename) — removes <!-- grove:start -->…<!-- grove:end --> block from CLAUDE.md/AGENTS.md, preserving host content",
+    "Add strip_grove_entry_from_mcp_json(root) — removes mcpServers.grove key from .mcp.json, preserving other servers",
+    "Add Target::to_mode(self) -> Mode method bridging the CLI Target enum and the store Mode enum (1-to-1 mapping)",
+    "Add reconcile_harness(root, old_mode, new_mode) as the single harness writer: writes or strips .mcp.json, CLAUDE.md, AGENTS.md to match new_mode exactly",
+    "Harness table: Mcp/Both → .mcp.json [serve] + CLAUDE.md; Skill → CLAUDE.md only; McpLlm → .mcp.json [serve,--explore] + CLAUDE.md + AGENTS.md; Grammars → all stripped",
+    "Update run to load prior GroveConfig (old_mode), call reconcile_harness, and save new GroveConfig after TUI/provision steps",
+    "Fix bug 2: switching away from McpLlm strips the explore sentinel block from AGENTS.md and reverts .mcp.json args to [serve]",
+    "Remove write_harness (now dead); update all callers in mod tests to reconcile_harness(dir, None, Mode::*)",
+    "Add table-driven reconcile_harness_transition_matrix test covering all 20 ordered (A→B) pairs across 5 modes",
+    "Add reconcile_harness_preserves_host_content test: host content in CLAUDE.md, AGENTS.md, and other .mcp.json servers is never touched",
+    "Add reconcile_harness_then_save_config_active_mode test verifying config.json write + active_mode round-trip",
+    "No changes to core/src/config.rs; cli/tests/cli.rs existing init integration test continues to pass"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

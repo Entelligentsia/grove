@@ -1,0 +1,17 @@
+{
+  "objective": "Validate that reconcile_harness(root, old_mode, new_mode) correctly writes/strips all harness files per declared mode, that run persists mode to config.json, that all 20 A→B transition pairs pass, and host content is never touched.",
+  "key_changes": [
+    "AC#1 PASS: reconcile_harness signature correct at cli/src/init.rs:183; drives .mcp.json/CLAUDE.md/AGENTS.md purely from new_mode; write_harness fully removed.",
+    "AC#2 PASS: run() loads prior GroveConfig→old_mode, calls reconcile_harness, saves GroveConfig{mode:new_mode} — mode recorded verbatim every run.",
+    "AC#3 PASS: Leaving mcp-llm strips AGENTS.md sentinel block and reverts .mcp.json to [serve] or removes entry; all 4 McpLlm→B matrix rows asserted.",
+    "AC#4 PASS: strip_steering_block sentinel-bounded; strip_grove_entry removes only mcpServers.grove; preserves_host_content test covers all 3 files.",
+    "AC#5 PASS (advisory): Matrix covers all 20 A→B pairs for .mcp.json/CLAUDE.md/AGENTS.md; active_mode deferred to round-trip test per approved PLAN.md.",
+    "AC#5 advisory: Fixture helpers private to mod tests — T07 will need re-impl or visibility change; plan review flagged as non-blocking.",
+    "AC#6 PASS: All 29 integration tests pass; init_provisions_and_wires_harness_per_target + config_in_non_tty_fails_fast both green.",
+    "AC#7 PASS: 278 total tests green; cargo clippy --all-targets -D warnings clean; files end with newline; _old_mode underscore-prefixed.",
+    "Regression: 0 failures across full workspace (161 core + 87 CLI unit + 29 integration + 1 doc-test)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

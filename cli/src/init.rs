@@ -12,8 +12,10 @@ use anyhow::{Context, Result};
 use clap::ValueEnum;
 use serde_json::{json, Value};
 
+use grove_core::config::{GroveConfig, Mode};
 use grove_core::init::provision_project;
 use grove_core::registry;
+use grove_core::ExploreConfig;
 
 const CLAUDE_START: &str = "<!-- grove:start -->";
 const CLAUDE_END: &str = "<!-- grove:end -->";
@@ -57,6 +59,18 @@ impl Target {
     fn writes_steering(self) -> bool {
         !matches!(self, Target::Grammars)
     }
+
+    /// Bridge from the CLI `Target` enum (clap-facing) to the store `Mode`
+    /// enum (config-facing). 1-to-1 mapping.
+    pub fn to_mode(self) -> Mode {
+        match self {
+            Target::Mcp => Mode::Mcp,
+            Target::Skill => Mode::Skill,
+            Target::Both => Mode::Both,
+            Target::McpLlm => Mode::McpLlm,
+            Target::Grammars => Mode::Grammars,
+        }
+    }
 }
 
 /// The key grove registers itself under in `.mcp.json`. Claude Code namespaces
@@ -67,13 +81,20 @@ const MCP_SERVER_KEY: &str = "grove";
 pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     println!("grove init  scanning {} (as {:?})\n", root.display(), target);
 
+    // Load prior config (old mode) — used for reconcile_harness and explore-config preservation.
+    let old_cfg = GroveConfig::load(root).ok();
+    let old_mode: Option<Mode> = old_cfg.as_ref().map(|c| c.mode);
+
     // Non-TTY guard for McpLlm first-run: the TUI requires an interactive terminal
-    // to collect the explore backend configuration. Re-runs (when explore.json
-    // already exists) and --dry-run bypass this guard so CI re-runs are never
-    // blocked after the first interactive session.
+    // to collect the explore backend configuration. Re-runs (when config.json
+    // already exists with mcp-llm mode or explore.json exists) and --dry-run
+    // bypass this guard so CI re-runs are never blocked after the first
+    // interactive session.
+    let already_configured = old_mode == Some(Mode::McpLlm)
+        || root.join(".grove").join("explore.json").exists();
     if target == Target::McpLlm
         && !dry_run
-        && !root.join(".grove").join("explore.json").exists()
+        && !already_configured
         && !std::io::stdout().is_terminal()
     {
         anyhow::bail!(
@@ -106,14 +127,24 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
         crate::config_tui::run(root, None)?;
     }
 
-    // Write the harness glue for the chosen target, then report harness writes
-    // first and the provisioning actions after — preserving today's `wrote`
-    // order: `.mcp.json`, `CLAUDE.md`, `grove.lock`. Steering is not optional:
-    // without it a cold agent ignores grove and falls back to grep/whole-file
-    // reads (VISION §6.4.1). The skill artifact itself still comes from the
-    // skills tool, not init.
-    let mut wrote = write_harness(root, target)?;
+    // Reconcile the harness glue to match new_mode, then extend with provisioning
+    // actions — preserving report order: `.mcp.json`, `CLAUDE.md`, `grove.lock`.
+    let new_mode = target.to_mode();
+    let mut wrote = reconcile_harness(root, old_mode, new_mode)?;
     wrote.extend(provisioned);
+
+    // Save the new config.json so active_mode reflects the chosen target.
+    let explore = if target == Target::McpLlm {
+        // TUI just saved explore.json; load it if present, else preserve from old cfg.
+        ExploreConfig::load(root)
+            .ok()
+            .or_else(|| old_cfg.as_ref().and_then(|c| c.explore.clone()))
+    } else {
+        // Preserve existing explore config across mode switches.
+        old_cfg.as_ref().and_then(|c| c.explore.clone())
+    };
+    let new_cfg = GroveConfig { version: 1, mode: new_mode, explore };
+    new_cfg.save(root)?;
 
     println!("\n  wrote");
     for w in &wrote {
@@ -144,36 +175,148 @@ pub fn run(root: &Path, target: Target, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// Write the harness glue for `target`: `.mcp.json` (MCP targets) and a
-/// `CLAUDE.md` steering block (every target but `Grammars`). Grammar
-/// provisioning + the `grove.lock` write live in `grove_core::init`. The
-/// `langs` for steering come from the lock that core just wrote. Returns a
-/// human list of what was written, in order.
-fn write_harness(root: &Path, target: Target) -> Result<Vec<String>> {
+/// Reconcile all three harness artifacts (`.mcp.json`, `CLAUDE.md`, `AGENTS.md`)
+/// toward `new_mode`. The `old_mode` parameter is accepted for forward-compatibility
+/// (future skip-if-already-correct optimisations) but the reconciliation always
+/// drives from on-disk state to `new_mode`. Stripped artifacts are silently
+/// reconciled (no entry in the returned list); only written artifacts are listed.
+fn reconcile_harness(
+    root: &Path,
+    _old_mode: Option<Mode>,
+    new_mode: Mode,
+) -> Result<Vec<String>> {
     let mut wrote = Vec::new();
 
-    // McpLlm uses a dedicated explore-mode harness: .mcp.json (serve --explore),
-    // CLAUDE.md (explore sentinel), and AGENTS.md (harness-neutral steering).
-    // Early-return so the existing Mcp/Skill/Both/Grammars branches are untouched.
-    if target == Target::McpLlm {
-        let langs = registry::locked_langs(&root.join("grove.lock"))?;
-        wrote.push(write_mcp_json_explore(root)?);
-        wrote.push(write_claude_md(root, &langs, target)?);
-        wrote.push(write_agents_md(root, &langs, target)?);
-        return Ok(wrote);
+    // Load langs for steering content (from grove.lock written by provision_project).
+    let langs = registry::locked_langs(&root.join("grove.lock"))?;
+
+    // ── .mcp.json ──────────────────────────────────────────────────────────────
+    match new_mode {
+        Mode::Mcp | Mode::Both => {
+            wrote.push(write_mcp_json(root)?);
+        }
+        Mode::McpLlm => {
+            wrote.push(write_mcp_json_explore(root)?);
+        }
+        Mode::Skill | Mode::Grammars => {
+            strip_grove_entry_from_mcp_json(root)?;
+        }
     }
 
-    if target.writes_mcp() {
-        wrote.push(write_mcp_json(root)?);
+    // ── CLAUDE.md ──────────────────────────────────────────────────────────────
+    match new_mode {
+        Mode::Grammars => {
+            strip_steering_block(root, "CLAUDE.md")?;
+        }
+        _ => {
+            // Map Mode back to a Target for write_claude_md content selection.
+            let target = mode_to_target(new_mode);
+            wrote.push(write_claude_md(root, &langs, target)?);
+        }
     }
-    // Steering for every target except `Grammars` — availability isn't adoption
-    // (VISION §6.4.1), but embedding hosts supply their own steering and want
-    // project files left untouched.
-    if target.writes_steering() {
-        let langs = registry::locked_langs(&root.join("grove.lock"))?;
-        wrote.push(write_claude_md(root, &langs, target)?);
+
+    // ── AGENTS.md ──────────────────────────────────────────────────────────────
+    match new_mode {
+        Mode::McpLlm => {
+            wrote.push(write_agents_md(root, &langs, Target::McpLlm)?);
+        }
+        _ => {
+            strip_steering_block(root, "AGENTS.md")?;
+        }
     }
+
     Ok(wrote)
+}
+
+/// Map a `Mode` back to the corresponding `Target` variant for content generation.
+/// This is the inverse of `Target::to_mode`.
+fn mode_to_target(mode: Mode) -> Target {
+    match mode {
+        Mode::Mcp => Target::Mcp,
+        Mode::Skill => Target::Skill,
+        Mode::Both => Target::Both,
+        Mode::McpLlm => Target::McpLlm,
+        Mode::Grammars => Target::Grammars,
+    }
+}
+
+/// Remove the `<!-- grove:start -->…<!-- grove:end -->` sentinel block from
+/// `filename` (under `root`), preserving all host-authored content outside the
+/// block. The blank-line separator that `write_steering_md` inserts before the
+/// block is also removed, so repeated A→B→A cycles never accrete blank lines.
+/// If the file is absent or has no grove block, returns `Ok(())` (no-op).
+/// If the block is the entire file, the file is written empty (not deleted).
+/// Ensures a single trailing newline when non-empty content remains.
+fn strip_steering_block(root: &Path, filename: &str) -> Result<()> {
+    let path = root.join(filename);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return Ok(()), // file absent — no-op
+    };
+
+    // No grove block present — no-op.
+    if !text.contains(CLAUDE_START) || !text.contains(CLAUDE_END) {
+        return Ok(());
+    }
+
+    let start = text.find(CLAUDE_START).unwrap();
+    let end = text.find(CLAUDE_END).unwrap() + CLAUDE_END.len();
+
+    // Compute the content before the block, trimming the \n\n separator that
+    // write_steering_md inserts when appending below existing content.
+    let before = text[..start].trim_end_matches('\n');
+    let after = &text[end..];
+
+    let result = if before.is_empty() && after.trim().is_empty() {
+        // Block was the entire file — leave it empty.
+        String::new()
+    } else if before.is_empty() {
+        // Block was at the top; preserve everything after.
+        let s = after.trim_start_matches('\n');
+        if s.is_empty() {
+            String::new()
+        } else {
+            format!("{s}\n")
+        }
+    } else {
+        // Host content precedes the block; re-join with single trailing newline.
+        let after_trimmed = after.trim();
+        if after_trimmed.is_empty() {
+            format!("{before}\n")
+        } else {
+            format!("{before}\n\n{after_trimmed}\n")
+        }
+    };
+
+    std::fs::write(&path, result).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Remove the `"grove"` key from `.mcp.json`'s `mcpServers` object, preserving
+/// all other servers. If the file is absent, has no `mcpServers` object, or has
+/// no `"grove"` entry, returns `Ok(())` (no-op). Errors on malformed JSON.
+fn strip_grove_entry_from_mcp_json(root: &Path) -> Result<()> {
+    let path = root.join(".mcp.json");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return Ok(()), // file absent — no-op
+    };
+
+    let mut doc: Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+
+    // Check if grove entry exists before modifying.
+    if doc.get("mcpServers").and_then(|s| s.get(MCP_SERVER_KEY)).is_none() {
+        return Ok(()); // no grove entry — no-op
+    }
+
+    if let Some(servers) = doc.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+        servers.remove(MCP_SERVER_KEY);
+    }
+
+    std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
 }
 
 /// Add (or refresh) the grove MCP server in `.mcp.json`, preserving other servers.
@@ -409,6 +552,7 @@ don't rely on remembered flags.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use grove_core::config::{GroveConfig, Mode, ModeChoice};
 
     fn tmp(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("grove_init_test_{}_{tag}", std::process::id()));
@@ -530,11 +674,11 @@ mod tests {
         assert!(Target::Mcp.writes_steering() && Target::Skill.writes_steering());
     }
 
-    /// `write_harness` is harness-only now: grammar provisioning + the
+    /// `reconcile_harness` is harness-only: grammar provisioning + the
     /// `grove.lock` write moved to `grove_core::init::provision_project`, so
     /// these tests seed a lock first (the source of steering's language list)
-    /// and assert only the harness files (`.mcp.json` / `CLAUDE.md`).
-    fn seed_lock(dir: &Path) {
+    /// and assert only the harness files (`.mcp.json` / `CLAUDE.md` / `AGENTS.md`).
+    fn seed_lock(dir: &std::path::Path) {
         std::fs::write(
             dir.join("grove.lock"),
             r#"{"version":1,"grammars":[{"name":"rust","version":"1","wasm":"x"}]}"#,
@@ -542,61 +686,360 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn grammars_target_writes_no_harness_files() {
-        let dir = tmp("harness_grammars");
-        seed_lock(&dir);
-        let wrote = write_harness(&dir, Target::Grammars).unwrap();
+    // ─── strip_steering_block tests ───────────────────────────────────────────
 
-        assert!(!dir.join("CLAUDE.md").exists(), "grammars mode writes no steering");
-        assert!(!dir.join(".mcp.json").exists(), "grammars mode writes no .mcp.json");
-        assert!(wrote.is_empty(), "no harness writes reported: {wrote:?}");
+    #[test]
+    fn strip_steering_block_removes_block_leaves_host_content() {
+        let dir = tmp("strip_leaves_host");
+        let path = dir.join("CLAUDE.md");
+        // Host content before the block (write_steering_md appends \n\n before the block)
+        std::fs::write(
+            &path,
+            format!("# My project\n\nHand-written notes.\n\n{CLAUDE_START}\ngrove block\n{CLAUDE_END}\n"),
+        )
+        .unwrap();
+
+        strip_steering_block(&dir, "CLAUDE.md").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("Hand-written notes."), "host content preserved");
+        assert!(!text.contains(CLAUDE_START), "grove block removed");
+        assert!(!text.contains(CLAUDE_END), "grove block removed");
+        // Should end with a single newline
+        assert!(text.ends_with('\n'), "single trailing newline");
+        // No double blank lines accreted
+        assert!(!text.contains("\n\n\n"), "no triple newlines: {text:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn skill_target_writes_steering_but_no_mcp_json() {
-        let dir = tmp("harness_skill");
-        seed_lock(&dir);
-        let wrote = write_harness(&dir, Target::Skill).unwrap();
+    fn strip_steering_block_empties_file_when_block_only() {
+        let dir = tmp("strip_block_only");
+        let path = dir.join("CLAUDE.md");
+        std::fs::write(
+            &path,
+            format!("{CLAUDE_START}\ngrove block\n{CLAUDE_END}\n"),
+        )
+        .unwrap();
 
-        assert!(dir.join("CLAUDE.md").exists(), "skill mode writes steering");
-        assert!(!dir.join(".mcp.json").exists(), "skill mode writes no .mcp.json");
-        assert_eq!(wrote.len(), 1, "only steering reported: {wrote:?}");
-
-        // steering must point at the skill/CLI, not MCP tools that don't exist here
-        let steer = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
-        assert!(steer.contains("rust"), "steering names the locked language");
-        assert!(!steer.contains("mcp__grove__"), "skill steering names no MCP tools");
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn mcp_target_writes_mcp_json_and_steering() {
-        let dir = tmp("harness_mcp");
-        seed_lock(&dir);
-        let wrote = write_harness(&dir, Target::Mcp).unwrap();
-
-        assert!(dir.join(".mcp.json").exists());
-        assert!(dir.join("CLAUDE.md").exists());
-        assert_eq!(wrote.len(), 2, ".mcp.json + steering reported: {wrote:?}");
+        strip_steering_block(&dir, "CLAUDE.md").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.is_empty(), "file written empty when block-only: {text:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn both_target_writes_mcp_json_and_steering() {
-        let dir = tmp("harness_both");
-        seed_lock(&dir);
-        write_harness(&dir, Target::Both).unwrap();
-        assert!(dir.join(".mcp.json").exists());
-        assert!(dir.join("CLAUDE.md").exists());
+    fn strip_steering_block_noop_when_no_block() {
+        let dir = tmp("strip_noop_no_block");
+        let path = dir.join("CLAUDE.md");
+        let original = "# My project\n\nNo grove block here.\n";
+        std::fs::write(&path, original).unwrap();
+
+        strip_steering_block(&dir, "CLAUDE.md").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text, original, "file unchanged when no grove block");
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    // ─── McpLlm unit tests ────────────────────────────────────────────────────
+    #[test]
+    fn strip_steering_block_noop_when_absent() {
+        let dir = tmp("strip_noop_absent");
+        // File doesn't exist — should not error
+        strip_steering_block(&dir, "CLAUDE.md").unwrap();
+        assert!(!dir.join("CLAUDE.md").exists(), "file not created");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── strip_grove_entry_from_mcp_json tests ────────────────────────────────
+
+    #[test]
+    fn strip_grove_entry_from_mcp_json_removes_grove_key() {
+        let dir = tmp("strip_mcp_removes_grove");
+        let path = dir.join(".mcp.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"grove":{"command":"grove","args":["serve"]},"other":{"command":"x"}}}"#,
+        )
+        .unwrap();
+
+        strip_grove_entry_from_mcp_json(&dir).unwrap();
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(doc["mcpServers"]["grove"].is_null(), "grove entry removed");
+        assert_eq!(doc["mcpServers"]["other"]["command"], json!("x"), "other server kept");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn strip_grove_entry_from_mcp_json_noop_when_absent() {
+        let dir = tmp("strip_mcp_noop_absent");
+        strip_grove_entry_from_mcp_json(&dir).unwrap();
+        assert!(!dir.join(".mcp.json").exists(), "file not created");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn strip_grove_entry_from_mcp_json_noop_when_no_grove_key() {
+        let dir = tmp("strip_mcp_noop_no_grove");
+        let path = dir.join(".mcp.json");
+        let original = r#"{"mcpServers":{"other":{"command":"x"}}}"#;
+        std::fs::write(&path, original).unwrap();
+
+        strip_grove_entry_from_mcp_json(&dir).unwrap();
+        // File should not be modified (same content, but formatting may differ after parse+write).
+        // The important thing is that "other" is still there and grove is not.
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(doc["mcpServers"]["other"]["command"], json!("x"), "other server intact");
+        assert!(doc["mcpServers"]["grove"].is_null(), "grove not added");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── reconcile_harness helper assertions ──────────────────────────────────
+
+    fn assert_mcp_json_consistent(dir: &std::path::Path, mode: Mode) {
+        let path = dir.join(".mcp.json");
+        match mode {
+            Mode::Mcp | Mode::Both => {
+                let doc: Value = serde_json::from_str(
+                    &std::fs::read_to_string(&path)
+                        .unwrap_or_else(|_| panic!("missing .mcp.json for mode {mode:?}")),
+                )
+                .unwrap();
+                assert_eq!(
+                    doc["mcpServers"]["grove"]["args"],
+                    json!(["serve"]),
+                    "mode {mode:?}: .mcp.json args should be [serve]"
+                );
+            }
+            Mode::McpLlm => {
+                let doc: Value = serde_json::from_str(
+                    &std::fs::read_to_string(&path)
+                        .unwrap_or_else(|_| panic!("missing .mcp.json for mode {mode:?}")),
+                )
+                .unwrap();
+                assert_eq!(
+                    doc["mcpServers"]["grove"]["args"],
+                    json!(["serve", "--explore"]),
+                    "mode {mode:?}: .mcp.json args should be [serve, --explore]"
+                );
+            }
+            Mode::Skill | Mode::Grammars => {
+                // File may not exist, or if it does, grove entry must be absent.
+                if path.exists() {
+                    let doc: Value = serde_json::from_str(
+                        &std::fs::read_to_string(&path).unwrap(),
+                    )
+                    .unwrap();
+                    assert!(
+                        doc.get("mcpServers")
+                            .and_then(|s| s.get("grove"))
+                            .is_none(),
+                        "mode {mode:?}: grove entry should be absent in .mcp.json"
+                    );
+                }
+            }
+        }
+    }
+
+    fn assert_claude_md_consistent(dir: &std::path::Path, mode: Mode) {
+        let path = dir.join("CLAUDE.md");
+        match mode {
+            Mode::Grammars => {
+                // File either absent or has no grove block.
+                if path.exists() {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    assert!(
+                        !text.contains(CLAUDE_START),
+                        "mode Grammars: CLAUDE.md must not contain grove block, got: {text:?}"
+                    );
+                }
+            }
+            Mode::McpLlm => {
+                let text = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|_| panic!("missing CLAUDE.md for mode {mode:?}"));
+                assert!(
+                    text.contains(CLAUDE_START),
+                    "mode McpLlm: CLAUDE.md must have grove block"
+                );
+                assert!(
+                    text.contains("mcp__grove__explore"),
+                    "mode McpLlm: CLAUDE.md must reference explore tool"
+                );
+            }
+            Mode::Mcp | Mode::Both => {
+                let text = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|_| panic!("missing CLAUDE.md for mode {mode:?}"));
+                assert!(
+                    text.contains(CLAUDE_START),
+                    "mode {mode:?}: CLAUDE.md must have grove block"
+                );
+                assert!(
+                    text.contains("mcp__grove__outline"),
+                    "mode {mode:?}: CLAUDE.md must reference outline tool"
+                );
+            }
+            Mode::Skill => {
+                let text = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|_| panic!("missing CLAUDE.md for mode {mode:?}"));
+                assert!(
+                    text.contains(CLAUDE_START),
+                    "mode Skill: CLAUDE.md must have grove block"
+                );
+                assert!(
+                    text.contains("grove skill"),
+                    "mode Skill: CLAUDE.md must reference grove skill"
+                );
+            }
+        }
+    }
+
+    fn assert_agents_md_consistent(dir: &std::path::Path, mode: Mode) {
+        let path = dir.join("AGENTS.md");
+        match mode {
+            Mode::McpLlm => {
+                let text = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|_| panic!("missing AGENTS.md for mode McpLlm"));
+                assert!(
+                    text.contains(CLAUDE_START),
+                    "mode McpLlm: AGENTS.md must have grove block"
+                );
+            }
+            _ => {
+                // File absent or grove block absent.
+                if path.exists() {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    assert!(
+                        !text.contains(CLAUDE_START),
+                        "mode {mode:?}: AGENTS.md must not have grove block, got: {text:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // ─── reconcile_harness transition-matrix test (20 ordered A→B pairs) ─────
+
+    #[test]
+    fn reconcile_harness_transition_matrix() {
+        let modes = [Mode::Mcp, Mode::Skill, Mode::Both, Mode::McpLlm, Mode::Grammars];
+
+        for &old in &modes {
+            for &new in &modes {
+                if old == new {
+                    continue;
+                }
+                let dir = tmp(&format!("matrix_{old:?}_{new:?}"));
+                seed_lock(&dir);
+
+                // Seed the initial harness for mode A
+                reconcile_harness(&dir, None, old)
+                    .unwrap_or_else(|e| panic!("seed {old:?}: {e}"));
+
+                // Transition to mode B
+                reconcile_harness(&dir, Some(old), new)
+                    .unwrap_or_else(|e| panic!("transition {old:?}→{new:?}: {e}"));
+
+                // Assert harness is consistent with B
+                assert_mcp_json_consistent(&dir, new);
+                assert_claude_md_consistent(&dir, new);
+                assert_agents_md_consistent(&dir, new);
+
+                std::fs::remove_dir_all(&dir).ok();
+            }
+        }
+    }
+
+    // ─── host-content-preservation test ──────────────────────────────────────
+
+    #[test]
+    fn reconcile_harness_preserves_host_content() {
+        let dir = tmp("preserves_host");
+        seed_lock(&dir);
+
+        // 1. Seed CLAUDE.md with host content + Mcp block.
+        write_claude_md(&dir, &["rust".into()], Target::Mcp).unwrap();
+        // Prepend host content (simulate a file that had content before grove ran)
+        let existing = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        std::fs::write(
+            dir.join("CLAUDE.md"),
+            format!("# My project\n\nHost notes.\n\n{existing}"),
+        )
+        .unwrap();
+
+        // Transition Mcp → Grammars: CLAUDE.md block stripped, host content intact.
+        reconcile_harness(&dir, Some(Mode::Mcp), Mode::Grammars).unwrap();
+        let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        assert!(claude.contains("Host notes."), "host content in CLAUDE.md preserved");
+        assert!(!claude.contains(CLAUDE_START), "grove block removed from CLAUDE.md");
+
+        // 2. Seed .mcp.json with grove + other server; transition to Skill → grove removed.
+        let mcp_path = dir.join(".mcp.json");
+        std::fs::write(
+            &mcp_path,
+            r#"{"mcpServers":{"grove":{"command":"g","args":["serve"]},"other":{"command":"x"}}}"#,
+        )
+        .unwrap();
+        reconcile_harness(&dir, Some(Mode::Grammars), Mode::Skill).unwrap();
+        let doc: Value =
+            serde_json::from_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
+        assert!(doc["mcpServers"]["grove"].is_null(), "grove removed from .mcp.json");
+        assert_eq!(doc["mcpServers"]["other"]["command"], json!("x"), "other server preserved");
+
+        // 3. Seed AGENTS.md with host content + McpLlm block; transition to Mcp → block stripped.
+        // First get to McpLlm to seed AGENTS.md
+        reconcile_harness(&dir, Some(Mode::Skill), Mode::McpLlm).unwrap();
+        let existing_agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            format!("# AGENTS\n\nHost agent notes.\n\n{existing_agents}"),
+        )
+        .unwrap();
+        // Transition McpLlm → Mcp: AGENTS.md block stripped, host content intact.
+        reconcile_harness(&dir, Some(Mode::McpLlm), Mode::Mcp).unwrap();
+        let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("Host agent notes."), "host content in AGENTS.md preserved");
+        assert!(!agents.contains(CLAUDE_START), "grove block removed from AGENTS.md");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── config round-trip test ───────────────────────────────────────────────
+
+    #[test]
+    fn reconcile_harness_then_save_config_active_mode() {
+        let dir = tmp("config_round_trip");
+        seed_lock(&dir);
+
+        // Reconcile to Mcp mode, then save config.
+        reconcile_harness(&dir, None, Mode::Mcp).unwrap();
+        let cfg = GroveConfig { version: 1, mode: Mode::Mcp, explore: None };
+        cfg.save(&dir).unwrap();
+
+        // active_mode should report Mcp.
+        let loaded = GroveConfig::load(&dir).unwrap();
+        assert_eq!(loaded.mode, Mode::Mcp, "config.json round-trips Mcp mode");
+        let am = grove_core::config::active_mode(&dir, ModeChoice::None);
+        assert_eq!(am, Mode::Mcp, "active_mode returns Mcp");
+
+        // Transition to McpLlm mode, save config.
+        reconcile_harness(&dir, Some(Mode::Mcp), Mode::McpLlm).unwrap();
+        let cfg2 = GroveConfig { version: 1, mode: Mode::McpLlm, explore: None };
+        cfg2.save(&dir).unwrap();
+
+        let loaded2 = GroveConfig::load(&dir).unwrap();
+        assert_eq!(loaded2.mode, Mode::McpLlm, "config.json round-trips McpLlm mode");
+        let am2 = grove_core::config::active_mode(&dir, ModeChoice::None);
+        assert_eq!(am2, Mode::McpLlm, "active_mode returns McpLlm");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── existing McpLlm unit tests ───────────────────────────────────────────
 
     #[test]
     fn claude_section_mcp_llm_routes_explore_not_individual_tools() {
@@ -619,10 +1062,10 @@ mod tests {
     }
 
     #[test]
-    fn write_harness_mcp_llm_writes_mcp_json_explore_and_steering() {
+    fn reconcile_harness_mcp_llm_writes_mcp_json_explore_and_steering() {
         let dir = tmp("harness_mcp_llm");
         seed_lock(&dir);
-        let wrote = write_harness(&dir, Target::McpLlm).unwrap();
+        let wrote = reconcile_harness(&dir, None, Mode::McpLlm).unwrap();
 
         // .mcp.json must be present and contain --explore
         let mcp_json = std::fs::read_to_string(dir.join(".mcp.json")).unwrap();
@@ -703,6 +1146,75 @@ mod tests {
             serde_json::json!(["serve", "--explore"]),
             "grove explore registered"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── pre-existing harness tests updated to use reconcile_harness ──────────
+
+    #[test]
+    fn grammars_target_writes_no_harness_files() {
+        let dir = tmp("harness_grammars");
+        seed_lock(&dir);
+        let wrote = reconcile_harness(&dir, None, Mode::Grammars).unwrap();
+
+        assert!(!dir.join("CLAUDE.md").exists() || {
+            let t = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+            !t.contains(CLAUDE_START)
+        }, "grammars mode writes no steering block");
+        assert!(!dir.join(".mcp.json").exists() || {
+            let doc: Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join(".mcp.json")).unwrap()
+            ).unwrap();
+            doc.get("mcpServers").and_then(|s| s.get("grove")).is_none()
+        }, "grammars mode writes no .mcp.json grove entry");
+        // AGENTS.md must not have a grove block
+        assert!(!dir.join("AGENTS.md").exists() || {
+            let t = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+            !t.contains(CLAUDE_START)
+        }, "grammars mode writes no AGENTS.md block");
+        assert!(wrote.is_empty(), "no harness writes reported: {wrote:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn skill_target_writes_steering_but_no_mcp_json() {
+        let dir = tmp("harness_skill");
+        seed_lock(&dir);
+        let wrote = reconcile_harness(&dir, None, Mode::Skill).unwrap();
+
+        assert!(dir.join("CLAUDE.md").exists(), "skill mode writes steering");
+        assert!(!dir.join(".mcp.json").exists(), "skill mode writes no .mcp.json");
+        assert_eq!(wrote.len(), 1, "only steering reported: {wrote:?}");
+
+        // steering must point at the skill/CLI, not MCP tools that don't exist here
+        let steer = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        assert!(steer.contains("rust"), "steering names the locked language");
+        assert!(!steer.contains("mcp__grove__"), "skill steering names no MCP tools");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mcp_target_writes_mcp_json_and_steering() {
+        let dir = tmp("harness_mcp");
+        seed_lock(&dir);
+        let wrote = reconcile_harness(&dir, None, Mode::Mcp).unwrap();
+
+        assert!(dir.join(".mcp.json").exists());
+        assert!(dir.join("CLAUDE.md").exists());
+        assert_eq!(wrote.len(), 2, ".mcp.json + steering reported: {wrote:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn both_target_writes_mcp_json_and_steering() {
+        let dir = tmp("harness_both");
+        seed_lock(&dir);
+        reconcile_harness(&dir, None, Mode::Both).unwrap();
+        assert!(dir.join(".mcp.json").exists());
+        assert!(dir.join("CLAUDE.md").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
