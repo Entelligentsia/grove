@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn badge_reflects_grove_mode() {
-        let app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Mcp, explore: None });
+        let app = App::from_grove_config(GroveConfig { mode: Mode::Mcp, ..Default::default() });
         assert_eq!(app.grove_mode, Mode::Mcp);
         assert!(!app.explore_active, "non-mcp-llm mode must set explore_active=false");
     }
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn explore_inert_blocks_all_edits() {
         // Build an inert app (non-mcp-llm mode).
-        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Mcp, explore: None });
+        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Mcp, ..Default::default() });
         let before = app.clone();
 
         // All explore-edit messages must return None and leave state unchanged.
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn save_blocked_when_inert() {
-        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Skill, explore: None });
+        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Skill, ..Default::default() });
         let result = update(&mut app, Msg::Save);
         assert_eq!(result, None, "Save must return None when explore_active=false");
         assert!(
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn tab_and_quit_always_work() {
         // Test with inert app.
-        let mut app = App::from_grove_config(GroveConfig { version: 1, mode: Mode::Both, explore: None });
+        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Both, ..Default::default() });
         // TabNext always passes through.
         let focus_before = app.focus;
         let result = update(&mut app, Msg::TabNext);

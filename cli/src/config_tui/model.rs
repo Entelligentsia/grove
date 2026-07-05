@@ -158,9 +158,8 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         App::from_grove_config(GroveConfig {
-            version: 1,
             mode: Mode::McpLlm,
-            explore: None,
+            ..Default::default()
         })
         .reset_dirty()
     }

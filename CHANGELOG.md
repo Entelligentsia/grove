@@ -4,6 +4,35 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-05
+
+### Added — Multi-harness `grove init` (Cursor, Codex, Gemini, Windsurf, VS Code)
+
+`grove init` now wires grove into coding agents beyond Claude Code. A new
+**harness** axis (orthogonal to the surface `--as` mode) records which agents a
+project targets, persisted as a `harnesses` array in `.grove/config.json`
+(defaults to `["claude-code"]`, so existing configs are unchanged).
+
+- **`--agents <list>`** — select which agents to wire: `auto` (the default —
+  detect agents in use via `PATH` + project markers like `.cursor/`), `all`, or a
+  comma list of `claude-code,cursor,codex,gemini,windsurf,vscode`. Omitting the
+  flag preserves a prior run's set (idempotent re-runs), else auto-detects.
+- Each harness gets its **own registration file, format, and scope**: Claude Code
+  `.mcp.json`, Cursor `.cursor/mcp.json`, Gemini `.gemini/settings.json`, Windsurf
+  `.windsurf/mcp.json`, VS Code `.vscode/mcp.json` (note: root key `servers` +
+  `"type":"stdio"`), and Codex `~/.codex/config.toml` (**TOML**, and **user-global**
+  — merged with `toml_edit`, preserving other servers).
+- **Steering:** Claude Code keeps its native `mcp__grove__`-prefixed `CLAUDE.md`
+  block; every other agent reads a shared, harness-neutral (bare tool names)
+  `AGENTS.md` block — now written for the standard `mcp`/`both` surfaces too, not
+  just `mcp-llm`. (`@`-imports are unreliable across agents — notably Codex can't
+  resolve them — so the block is written inline into each file.)
+- De-selecting an agent strips its stale grove entry on the next `init`.
+- **`grove doctor`** verifies each configured harness's registration at its own
+  path/format (`harness_mcp_<agent>` checks), not just Claude Code's `.mcp.json`.
+- `--dry-run` previews every target file per selected agent, flagging user-global
+  ones (Codex).
+
 ## [0.3.0] - 2026-07-05
 
 ### Added — Delegated local-LLM mode (`grove serve --explore` / `--as mcp-llm`)

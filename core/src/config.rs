@@ -16,6 +16,14 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::explore::{ExploreConfig, Provider, Steering};
+use crate::harness::HarnessId;
+
+/// The default harness set for a project with no explicit `harnesses` array:
+/// Claude Code only. Keeps pre-multi-harness `config.json` files (which lack
+/// the field) behaving exactly as before.
+pub fn default_harnesses() -> Vec<HarnessId> {
+    vec![HarnessId::ClaudeCode]
+}
 
 /// Deprecation warning emitted once when `.grove/explore.json` is migrated to
 /// `.grove/config.json`. Kept as a named constant so tests can assert on its
@@ -82,6 +90,10 @@ pub struct GroveConfig {
     /// form when `None` (see `skip_serializing_if`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explore: Option<ExploreConfig>,
+    /// The coding agents `grove init` has wired into this project. Defaults to
+    /// `[claude-code]` when absent, so pre-multi-harness configs are unchanged.
+    #[serde(default = "default_harnesses")]
+    pub harnesses: Vec<HarnessId>,
 }
 
 impl Default for GroveConfig {
@@ -90,6 +102,7 @@ impl Default for GroveConfig {
             version: 1,
             mode: Mode::Mcp,
             explore: None,
+            harnesses: default_harnesses(),
         }
     }
 }
@@ -103,6 +116,8 @@ struct RawGroveConfig {
     mode: String,
     #[serde(default)]
     explore: Option<ExploreConfig>,
+    #[serde(default = "default_harnesses")]
+    harnesses: Vec<HarnessId>,
 }
 
 impl TryFrom<RawGroveConfig> for GroveConfig {
@@ -119,6 +134,7 @@ impl TryFrom<RawGroveConfig> for GroveConfig {
             version: raw.version,
             mode: Mode::from_name(&raw.mode)?,
             explore: raw.explore,
+            harnesses: raw.harnesses,
         })
     }
 }
@@ -175,6 +191,7 @@ fn migrate_from_legacy_explore(root: &Path) -> Result<GroveConfig> {
         version: 1,
         mode: Mode::McpLlm,
         explore: Some(explore_cfg),
+        harnesses: default_harnesses(),
     };
     config.validate()?;
     config.save(root)?;
@@ -323,7 +340,7 @@ mod tests {
     fn serde_round_trip_each_mode() {
         for &name in Mode::LEGAL {
             let mode = Mode::from_name(name).unwrap();
-            let cfg = GroveConfig { version: 1, mode, explore: None };
+            let cfg = GroveConfig { version: 1, mode, explore: None, harnesses: default_harnesses() };
             let json = serde_json::to_string(&cfg).unwrap();
             let back: GroveConfig = serde_json::from_str(&json).unwrap();
             assert_eq!(cfg, back, "round-trip failed for mode={name}");
@@ -354,7 +371,7 @@ mod tests {
             tap: false,
             trace_retain: 50,
         };
-        let cfg = GroveConfig { version: 1, mode: Mode::McpLlm, explore: Some(explore.clone()) };
+        let cfg = GroveConfig { version: 1, mode: Mode::McpLlm, explore: Some(explore.clone()), harnesses: default_harnesses() };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: GroveConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, back);
@@ -371,6 +388,40 @@ mod tests {
         for legal in Mode::LEGAL {
             assert!(msg.contains(legal), "should list legal value {legal}: {msg}");
         }
+    }
+
+    // T4b — a config.json without the `harnesses` field defaults to [claude-code]
+    // (backward compatibility with pre-multi-harness configs).
+    #[test]
+    fn missing_harnesses_defaults_to_claude_code() {
+        let json = r#"{"version":1,"mode":"mcp"}"#;
+        let cfg: GroveConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.harnesses, vec![HarnessId::ClaudeCode]);
+    }
+
+    // T4c — an explicit harnesses array round-trips through serde by slug, and
+    // preserves order + membership.
+    #[test]
+    fn explicit_harnesses_round_trip_by_slug() {
+        let json = r#"{"version":1,"mode":"mcp","harnesses":["claude-code","cursor","codex","vscode"]}"#;
+        let cfg: GroveConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            cfg.harnesses,
+            vec![HarnessId::ClaudeCode, HarnessId::Cursor, HarnessId::Codex, HarnessId::VsCode]
+        );
+        // Re-serialize: the slugs (not derived kebab) must appear — `vscode`, not `vs-code`.
+        let out = serde_json::to_string(&cfg).unwrap();
+        assert!(out.contains(r#""vscode""#), "serializes VsCode as `vscode`: {out}");
+        assert!(!out.contains("vs-code"), "must not use derived kebab spelling: {out}");
+    }
+
+    // T4d — an unknown harness slug is a descriptive error listing legal values.
+    #[test]
+    fn unknown_harness_slug_is_actionable_error() {
+        let json = r#"{"version":1,"mode":"mcp","harnesses":["emacs"]}"#;
+        let err = serde_json::from_str::<GroveConfig>(json).unwrap_err().to_string();
+        assert!(err.contains("emacs"), "names the bad value: {err}");
+        assert!(err.contains("cursor"), "lists legal values: {err}");
     }
 
     // T5 — steering key in explore section deserializes correctly.

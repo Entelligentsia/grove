@@ -1,6 +1,6 @@
 [package]
 name = "grove-cst"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Core AST engine, grammar registry, fetch, and ingest for grove — the structural code-intelligence library behind the grove CLI and MCP server."
 license = "MIT"
@@ -25,6 +25,8 @@ streaming-iterator = "0.1"
 # Serialization for registry manifests and operation output structs.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Read the Codex harness's TOML registration when `grove doctor` verifies it.
+toml_edit = "0.22"
 
 # Gitignore-aware file walking (same crate ripgrep uses)
 ignore = "0.4"

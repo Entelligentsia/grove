@@ -81,10 +81,16 @@ fn event_loop(
         match update::update(app, msg) {
             Some(Action::Save) => match app.to_config() {
                 Ok(explore_cfg) => {
+                    // Preserve the project's configured harness set — the config
+                    // TUI only edits the explore surface, not which agents are wired.
+                    let harnesses = GroveConfig::load(root)
+                        .map(|c| c.harnesses)
+                        .unwrap_or_else(|_| grove_core::config::default_harnesses());
                     let cfg = GroveConfig {
                         version: 1,
                         mode: app.grove_mode,
                         explore: Some(explore_cfg),
+                        harnesses,
                     };
                     cfg.save(root)?;
                     return Ok(());
