@@ -98,7 +98,7 @@ The explore config lives in the `explore` section of `.grove/config.json`
 | Check | Reuses | Fail vs warn |
 | --- | --- | --- |
 | Explore section present + validates (provider/steering/base_url/model) | the `explore` section of `GroveConfig` — same fail-fast, field-named errors as `ExploreConfig::load` today | fail |
-| `steering` is legal (standard / balanced / aggressive) | `Mode::LEGAL` (`config.rs:66`) — the steering level, renamed from `mode` per ADR 0002 | fail (load already enforces) |
+| `steering` is legal (standard / balanced / strict) | `Steering::LEGAL` (`core/src/explore/config.rs`) — the steering level, renamed from `mode` per ADR 0002 | fail (load already enforces) |
 | Provider **reachable** | `health_probe` → `HealthError::Unreachable{url,detail}` (variant `client.rs:480`, fn `client.rs:627`) | fail, with the built-in hint |
 | Configured **model served** | `health_probe` → `HealthError::ModelMissing{model,url,available}` (`client.rs:487`); enrich with `list_models` (`client.rs:672`) to show what *is* available | fail, with the built-in hint |
 | `allowed_tools` are recognized tool names | `toolset` tool-name constants | warn on unknown entries |

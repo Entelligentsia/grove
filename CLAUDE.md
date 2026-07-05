@@ -37,7 +37,7 @@ core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
   agent.rs             bounded loop (≤ 6 turns, forced-final-answer, no byte budget); plan-first state machine + progress + trace
   trace.rs             TraceWriter (per-session JSONL under .grove/traces/) + request/response pretty-printers
   toolset.rs           the 4 inner tools (Grove/Read/Glob/Grep) + submit_plan — schemas + dispatch
-  steering.rs          per-arm system prompts (standard=merit / balanced=plan-first / aggressive=coerce)
+  steering.rs          per-arm system prompts (standard=merit / balanced=plan-first / strict=grove-first)
   grounding.rs         <final_answer> citation parse + filesystem validation
   prompts/             system/tool/steering prompt assets, embedded verbatim (include_str!)
 ```

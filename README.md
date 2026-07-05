@@ -157,7 +157,7 @@ inner tool calls — and never spends its own context on them.
  │      (Ollama / llama.cpp,     Grove → grove binary,  Grep/Glob → ripgrep,    │
  │       OpenAI-compatible)      Read in-process                                │
  │                                                                              │
- │     arms:  standard (merit) · balanced (plan-first) · aggressive (coerce)    │
+ │     arms:  standard (merit) · balanced (plan-first) · strict (grove-first)   │
  │     result: <final_answer> citations, each validated against the filesystem  │
  └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -174,7 +174,7 @@ grove config              # revisit / change settings at any time
 |---|---|
 | `standard` | inner model picks tools naturally — lowest overhead, works well with capable models |
 | `balanced` | two-phase plan → execute — best grounding and lowest hallucination rate, highest wall-clock |
-| `aggressive` | grove-first steering prompts — cost/quality sweet spot for smaller models |
+| `strict` | grove-first steering prompts — cost/quality sweet spot for smaller models |
 
 Change the active mode at any time with `grove config`.
 

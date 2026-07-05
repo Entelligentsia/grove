@@ -135,7 +135,7 @@ pub fn submit_plan_schema() -> Tool {
     )
 }
 
-/// Full execution toolset (merit/coerce, and plan-first phase 2).
+/// Full execution toolset (merit/strict, and plan-first phase 2).
 pub fn execute_toolset() -> Vec<Tool> {
     vec![read_schema(), glob_schema(), grep_schema(), grove_schema()]
 }

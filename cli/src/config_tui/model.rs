@@ -193,7 +193,7 @@ impl App {
         let mode = match cfg.steering {
             Steering::Standard => 0,
             Steering::Balanced => 1,
-            Steering::Aggressive => 2,
+            Steering::Strict => 2,
         };
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
@@ -246,7 +246,7 @@ impl App {
         let steering = match self.mode {
             0 => Steering::Standard,
             1 => Steering::Balanced,
-            _ => Steering::Aggressive,
+            _ => Steering::Strict,
         };
         let allowed_tools = self
             .tools

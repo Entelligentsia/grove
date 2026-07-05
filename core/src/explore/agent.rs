@@ -10,7 +10,7 @@
 //!
 //! Arm selection ([`Steering`]):
 //! - [`Steering::Standard`] → merit (all four tools, model chooses),
-//! - [`Steering::Aggressive`] → coerce (grove-first steering),
+//! - [`Steering::Strict`] → the mandatory grove-first steering,
 //! - [`Steering::Balanced`] → plan-first (recon → `submit_plan` → execute, with the
 //!   recon plan cached once per repo per process).
 

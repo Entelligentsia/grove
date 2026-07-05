@@ -20,9 +20,9 @@ const DIM: Color = Color::DarkGray;
 
 /// Mode descriptions shown alongside each mode entry.
 const MODE_DESCS: &[&str] = &[
-    "Standard   — merit-based, least intrusive",
-    "Balanced   — plan-first steering",
-    "Aggressive — coercive steering",
+    "Standard — merit-based, least intrusive",
+    "Balanced — plan-first steering",
+    "Strict   — mandatory grove-first steering",
 ];
 
 /// Render the full TUI frame.
