@@ -177,6 +177,10 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   messages. Match the surrounding style; keep `main`/`mcp` thin.
 - "Boring and obvious" over clever. Single responsibility per function.
 - Files end with a newline. `cargo build` must be warning-clean.
+- **Lint gate:** CI runs `cargo clippy --all-targets --workspace --locked -- -D warnings`
+  (`.github/workflows/ci.yml`). Run the **same** command locally — plain
+  `cargo clippy` does NOT lint test code (`--all-targets` adds tests/examples/
+  benches), so test-only lints slip past the default and fail CI.
 - **Commits:** do NOT add `Co-Authored-By` lines. Branch before committing to a
   default branch. Conventional-commit style (`feat(registry): …`).
 - This repo dogfoods itself: `.mcp.json` registers `grove serve`. A session here

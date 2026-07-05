@@ -36,7 +36,7 @@ the same outputs following the collation algorithm in
 ## Commands
 
 - **Syntax check**: `cargo test --release --locked`
-- **Lint**: `cargo clippy -- -D warnings`
+- **Lint**: `cargo clippy --all-targets --workspace -- -D warnings` (matches CI; the default `cargo clippy` does NOT lint test code)
 
 ## Installed Skill Wiring
 

@@ -1004,12 +1004,6 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
     std::fs::remove_dir_all(&base).ok();
 }
 
-/// GROVE-S02-T07 (AC2): none of the source files in core/src/, cli/src/,
-/// README.md, or skills/ contain the string "fastcontext" (case-insensitive).
-/// This guards against accidental reintroduction of the old branding.
-///
-/// NOTE: cli/tests/ is intentionally excluded so this test's own literal
-/// does not self-trip.
 // ── grove doctor integration tests ──────────────────────────────────────────
 
 fn doctor_fixture(tag: &str) -> std::path::PathBuf {
@@ -1129,6 +1123,12 @@ fn doctor_fail_exits_nonzero() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// GROVE-S02-T07 (AC2): none of the source files in core/src/, cli/src/,
+/// README.md, or skills/ contain the string "fastcontext" (case-insensitive).
+/// This guards against accidental reintroduction of the old branding.
+///
+/// NOTE: cli/tests/ is intentionally excluded so this test's own literal
+/// does not self-trip.
 #[test]
 fn naming_guard_no_fastcontext_in_source() {
     // Anchor to the workspace root from cli/tests/cli.rs.

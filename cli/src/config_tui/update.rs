@@ -431,7 +431,7 @@ mod tests {
         let result = update(&mut app, Msg::Save);
         assert_eq!(result, None, "Save must return None when explore_active=false");
         assert!(
-            app.last_error.as_deref().unwrap_or("").len() > 0,
+            !app.last_error.as_deref().unwrap_or("").is_empty(),
             "last_error must be set on blocked save"
         );
     }
