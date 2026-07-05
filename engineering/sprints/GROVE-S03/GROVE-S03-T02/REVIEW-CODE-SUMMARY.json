@@ -1,0 +1,18 @@
+{
+  "objective": "Reviewed the legacy .grove/explore.json → config.json migration branch added to GroveConfig::load.",
+  "key_changes": [
+    "Three-branch load cascade correct: config.json → normal; else explore.json → migrate; else grove init bail (AC1, AC4).",
+    "Legacy `mode` key correctly remapped to `steering` via validating Steering::from_name; all other explore fields preserved, no data loss (AC2).",
+    "One-time deprecation warning structurally guaranteed — post-migration config.json shadows the migration branch on subsequent loads; test 5b confirms idempotency (AC3).",
+    "Prior plan-review advisory resolved: DEFAULT_TRACE_RETAIN is pub const in pub mod config, so default_legacy_trace_retain compiles; from_name fns correctly pub(crate).",
+    "ExploreConfig::config_path returns .grove/explore.json and is reused read-only — migration never mutates the legacy file (verified via mtime assert in 5b).",
+    "Independently ran cargo test -p grove-cst config → 22 passed 0 failed; all four new tests 5a-5d green.",
+    "cargo clippy -p grove-cst --all-targets -- -D warnings clean; both files end with trailing newline (AC6).",
+    "Follows established T01 conventions: private LegacyExploreRaw wire struct + from_name validation + atomic save reuse.",
+    "Advisory (non-blocking): test 5d asserts on const content rather than capturing stderr — agreed tradeoff.",
+    "Advisory (non-blocking): malformed explore.json yields Err rather than grove init steer — intentional and documented."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

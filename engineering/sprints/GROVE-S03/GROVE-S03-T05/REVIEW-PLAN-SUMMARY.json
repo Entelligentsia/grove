@@ -1,0 +1,18 @@
+{
+  "objective": "Assessed the plan to add a read-only integration-mode badge and inert explore-section rendering to the grove config TUI.",
+  "key_changes": [
+    "Verified grove_core::Mode variants (Mcp/Skill/Both/McpLlm/Grammars) match the badge match arms and that Mode derives Copy — supports match + move into GroveConfig without clone.",
+    "GroveConfig shape (version/mode/explore) and load/save signatures confirmed against core/src/config.rs; constructor and save snippets are correct.",
+    "No namespace collision: existing App.mode:usize (steering) and Field::Mode vs newly-imported grove_core::Mode type; grove_mode naming is correct.",
+    "Both run() callers covered (main.rs:302 switches to GroveConfig::load; init.rs:127 keeps None, valid under Option<GroveConfig>).",
+    "All Msg variants referenced by gating/tests exist; gating strategy (edits no-op when !explore_active, Tab/Quit pass through) is feasible on the current single-match update fn.",
+    "Regression safety holds: new default() routes through from_grove_config(McpLlm) => explore_active=true, so existing fresh()-based tests stay green unmodified.",
+    "All 6 ACs map to concrete changes; 'TUI never mutates mode' invariant honoured (no Mode selector added).",
+    "Advisory 1: mod.rs text says remove ExploreConfig import but it is still used at mod.rs:105 (fetch_models) — keep it (snippet is correct).",
+    "Advisory 2: mod.rs import snippet includes Mode which is unused in mod.rs body — will fail clippy -D warnings (AC6); import only {ExploreConfig, GroveConfig}.",
+    "Advisory 3: view.rs badge match names Mode::* but view.rs lacks the import — needs use grove_core::Mode; (plan only mentions it under model.rs)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

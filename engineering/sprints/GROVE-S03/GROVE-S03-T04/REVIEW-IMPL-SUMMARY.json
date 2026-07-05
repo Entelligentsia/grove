@@ -1,0 +1,20 @@
+{
+  "objective": "Assess the reconcile_harness refactor (single mode-exact harness writer + strip direction + config.json persistence + 20-pair transition-matrix test) against PLAN.md and the 7 acceptance criteria.",
+  "key_changes": [
+    "AC#1 met: reconcile_harness(root, Option<Mode>, Mode) drives each of .mcp.json/CLAUDE.md/AGENTS.md purely from new_mode, so old_mode residue is always stripped.",
+    "AC#2 met: run loads prior GroveConfig (old_mode), reconciles, then saves new GroveConfig with mode=new_mode verbatim.",
+    "AC#3 met: leaving mcp-llm strips AGENTS.md block and reverts .mcp.json args to [serve]/removes entry — asserted by matrix helpers for every McpLlm->B row.",
+    "AC#4 met: strip_steering_block is sentinel-bounded; strip_grove_entry_from_mcp_json removes only the grove key; reconcile_harness_preserves_host_content asserts host text + sibling servers survive.",
+    "AC#5 met: reconcile_harness_transition_matrix enumerates all 20 ordered A->B pairs; active_mode/config round-trip covered separately.",
+    "AC#6 met: cargo test -p grove-cst-cli green (87 unit + 29 integration), incl init_provisions_and_wires_harness_per_target and config_in_non_tty_fails_fast; report order .mcp.json->CLAUDE.md preserved.",
+    "AC#7 met: cargo clippy --all-targets warning-free; unused _old_mode underscore-prefixed; strip paths ensure single trailing newline, block-only files emptied not deleted.",
+    "Verified independently: read the init.rs diff, ran cargo build/clippy/test myself — not relying on PROGRESS.md claims.",
+    "Dry-run safety confirmed: provisioned.is_empty() guard short-circuits run before reconcile_harness/save, so dry-run never mutates harness or config.json.",
+    "Non-TTY guard correctly widened to treat config.json-declared mcp-llm as already-configured.",
+    "Advisory (non-blocking): reconcile_harness doc says 'drives from on-disk state' but drives purely from new_mode (wording only; behaviour correct/stronger).",
+    "Advisory (non-blocking): strip_steering_block host-precedes branch uses after.trim() collapsing trailing host whitespace to a single separator — fine for single-hop matrix."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

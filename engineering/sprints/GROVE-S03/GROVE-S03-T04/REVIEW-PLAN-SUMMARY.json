@@ -1,0 +1,16 @@
+{
+  "objective": "Assess the reconcile_harness refactor plan (single harness writer + strip direction + 20-pair transition-matrix test) for feasibility, AC coverage, and host-content safety.",
+  "key_changes": [
+    "Verified all assumed APIs exist: Mode derives Copy/PartialEq/Eq; GroveConfig::load/save, active_mode, ModeChoice, ExploreConfig::load/config_path are pub and reachable from the CLI crate.",
+    "Confirmed current cli/src/init.rs matches the plan's analysis (write_harness, write_steering_md, write_mcp_json_with, sentinel constants, per-mode content builders).",
+    "Confirmed harness table is mode-exact and encodes the bug-2 fix (AC#3): leaving McpLlm strips AGENTS.md block and reverts .mcp.json args to [serve].",
+    "Confirmed integration test init_provisions_and_wires_harness_per_target is non-breaking under the new config.json write; implementer must preserve .mcp.json-before-CLAUDE.md report order.",
+    "Advisory: AC#5 active_mode-consistency + T07 fixture reuse deferred to a single-pass round-trip test rather than the 20-pair loop — recommend widening or documenting.",
+    "Advisory: strip_steering_block must also remove the \\n\\n separator write_steering_md inserts, so repeated A->B->A cycles don't accrete blank lines (matrix is single-hop).",
+    "Advisory: ensure single trailing newline at EOF after stripping (AC#7); block-only case correctly empties (not deletes) the file.",
+    "Advisory: unused old_mode param is mandated by AC#1 and is fine on a private fn (no clippy warning)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

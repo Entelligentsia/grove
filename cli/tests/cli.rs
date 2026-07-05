@@ -417,9 +417,15 @@ fn index_writes_catalog() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// GROVE-S02-T04 (AC-6): when `.grove/explore.json` names an unreachable provider,
-/// `grove serve` falls back to the standard 7-tool structural surface and emits a
-/// diagnostic note to stderr. No real provider is required — port 1 fails immediately.
+/// GROVE-S02-T04 (AC-6) / GROVE-S03-T03: when `.grove/explore.json` names an
+/// unreachable provider, `grove serve` falls back to the standard 7-tool structural
+/// surface and emits a diagnostic note to stderr. No real provider is required —
+/// port 1 fails immediately.
+///
+/// After T03 the explore.json is migrated by [`GroveConfig::load`] on first access
+/// to `.grove/config.json` with `mode: "mcp-llm"`, so `active_mode` returns
+/// `McpLlm`, the health probe fires (port 1 → connection refused), and the
+/// standard-surface fallback path is exercised exactly as before.
 #[test]
 fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     use std::io::Write;
@@ -432,6 +438,9 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     std::fs::create_dir_all(dir.join(".grove")).unwrap();
 
     // Port 1 is IANA reserved — guaranteed connection-refused (fast fail).
+    // NOTE: use the legacy explore.json shape (`mode` key, not `steering`) so
+    // that GroveConfig::load can migrate it to config.json. After migration,
+    // active_mode returns McpLlm and health_probe fires against port 1.
     let config = serde_json::json!({
         "provider": "ollama",
         "base_url": "http://127.0.0.1:1/v1",
@@ -497,6 +506,109 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     assert!(
         stderr_str.contains("falling back"),
         "stderr must contain 'falling back' diagnostic; got: {stderr_str}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Bug-1 regression (GROVE-S03-T03): `grove serve` must honour `mode: "mcp"` in
+/// `.grove/config.json` and serve the standard 7-tool surface even when a stale
+/// `.grove/explore.json` file exists alongside it.
+///
+/// Before T03, `determine_surface` sniffed `explore.json` existence directly and
+/// activated explore mode regardless of the declared config mode. This test proves
+/// the fix: config.json is the single source of truth; explore.json is ignored when
+/// config.json is present.
+#[test]
+fn bug1_serve_mcp_mode_ignores_stale_explore_json() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_cli_test_{}_bug1_mcp_stale_explore",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // config.json declares mode=mcp (standard surface).
+    let config_json = serde_json::json!({
+        "version": 1,
+        "mode": "mcp"
+    });
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
+
+    // Stale explore.json sits alongside — the old bug would activate explore mode.
+    let stale_explore = serde_json::json!({
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:1/v1",
+        "model": "stale-model",
+        "steering": "standard",
+        "allowed_tools": []
+    });
+    std::fs::write(
+        dir.join(".grove").join("explore.json"),
+        serde_json::to_string_pretty(&stale_explore).unwrap(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove"))
+        .arg("serve")
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove serve");
+
+    let mut stdin = child.stdin.take().unwrap();
+    // initialize (id=1)
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18" }
+    });
+    writeln!(stdin, "{init_req}").unwrap();
+    // tools/list (id=2)
+    let list_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    writeln!(stdin, "{list_req}").unwrap();
+    drop(stdin); // close stdin → server exits at EOF
+
+    let output = child.wait_with_output().expect("grove serve to finish");
+
+    // Parse stdout lines and find the tools/list response (id=2).
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let tools_response = stdout_str
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|v| v["id"] == serde_json::json!(2))
+        .expect("tools/list response (id=2) must be present");
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("result.tools is an array");
+
+    // Must be exactly 7 tools (standard surface), not the single explore tool.
+    assert_eq!(
+        tools.len(),
+        7,
+        "config.json mode=mcp + stale explore.json must give the 7-tool standard surface, got: {tools:?}"
+    );
+
+    // Prove the explore delegating tool is absent (it would be named "explore").
+    assert!(
+        !tools.iter().any(|t| t["name"] == serde_json::json!("explore")),
+        "the 'explore' delegating tool must not appear when config.json declares mode=mcp"
     );
 
     std::fs::remove_dir_all(&dir).ok();
@@ -612,7 +724,7 @@ fn mcp_llm_steering_block_idempotency() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
@@ -654,7 +766,7 @@ fn mcp_llm_agents_md_created_and_appended() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
@@ -751,7 +863,7 @@ fn tap_enables_tracing_in_config() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": ["grove"],
             "tap": false
         })
@@ -788,7 +900,7 @@ fn tap_no_enable_leaves_config_untouched() {
         "provider": "ollama",
         "base_url": "http://127.0.0.1:11434/v1",
         "model": "llama3",
-        "mode": "standard",
+        "steering": "standard",
         "allowed_tools": ["grove"],
         "tap": false
     })
@@ -854,7 +966,7 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
             "provider": "ollama",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "llama3",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         })
         .to_string(),
@@ -890,6 +1002,125 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
     assert_eq!(arg_strs, vec!["serve", "--explore"], "grove args must be [serve, --explore]");
 
     std::fs::remove_dir_all(&base).ok();
+}
+
+// ── grove doctor integration tests ──────────────────────────────────────────
+
+fn doctor_fixture(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir()
+        .join(format!("grove_doctor_cli_{}_{tag}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+    dir
+}
+
+fn write_mcp_json_for_test(dir: &Path, args: &[&str]) {
+    let exe = env!("CARGO_BIN_EXE_grove");
+    let args_json: Vec<String> = args.iter().map(|a| format!("\"{a}\"")).collect();
+    let args_str = args_json.join(",");
+    std::fs::write(
+        dir.join(".mcp.json"),
+        format!("{{\"mcpServers\":{{\"grove\":{{\"command\":\"{exe}\",\"args\":[{args_str}]}}}}}}\n"),
+    )
+    .unwrap();
+}
+
+fn write_claude_md_for_test(dir: &Path, marker: &str) {
+    std::fs::write(
+        dir.join("CLAUDE.md"),
+        format!("<!-- grove:start -->\n## grove\n{marker}\n<!-- grove:end -->\n"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn doctor_help_documents_verb() {
+    let dir = fixture("doctor_help");
+    let out = grove(&dir, &["doctor", "--help"]);
+    assert!(out.status.success(), "doctor --help failed");
+    let text = stdout(&out);
+    assert!(text.contains("doctor"), "--help output must mention doctor: {text}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_universal_clean_exits_zero() {
+    let dir = doctor_fixture("clean");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve"]);
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    let out = grove(&dir, &["doctor", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "doctor on clean mcp project should exit 0; human stdout: {}; stderr: {}",
+        stdout(&out),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_json_output_is_valid() {
+    let dir = doctor_fixture("json");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve"]);
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    let out = grove(&dir, &["--json", "doctor", dir.to_str().unwrap()]);
+    let text = stdout(&out);
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("not valid JSON: {e}\n{text}"));
+    assert!(
+        v.get("ok").is_some(),
+        "JSON output must have 'ok' field: {v:#?}"
+    );
+    assert!(
+        v["checks"].is_array(),
+        "JSON output must have 'checks' array: {v:#?}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_fail_exits_nonzero() {
+    // Induce harness drift: config=mcp but .mcp.json has --explore args.
+    let dir = doctor_fixture("fail");
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        r#"{"version":1,"mode":"mcp"}"#,
+    )
+    .unwrap();
+    write_mcp_json_for_test(&dir, &["serve", "--explore"]); // wrong for mcp mode
+    write_claude_md_for_test(&dir, "mcp__grove__outline");
+
+    // Human output: must exit 1
+    let out = grove(&dir, &["doctor", dir.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "doctor with harness drift should exit non-zero (human mode); stdout: {}",
+        stdout(&out)
+    );
+
+    // JSON output: must also exit 1 and ok=false
+    let out_json = grove(&dir, &["--json", "doctor", dir.to_str().unwrap()]);
+    assert!(
+        !out_json.status.success(),
+        "doctor with harness drift should exit non-zero (json mode)"
+    );
+    let text = stdout(&out_json);
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("json output not parseable: {e}\n{text}"));
+    assert_eq!(v["ok"], serde_json::json!(false), "ok must be false: {v:#?}");
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// GROVE-S02-T07 (AC2): none of the source files in core/src/, cli/src/,

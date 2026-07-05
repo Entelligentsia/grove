@@ -1,0 +1,24 @@
+{
+  "objective": "Add verify_lock(path) -> Result<Option<Vec<LockVerifyEntry>>> plus LockVerifyStatus enum and LockVerifyEntry struct to core/src/registry.rs, enabling grove doctor (T07) to recompute each cached grammar wasm's sha256 and compare it against the lock file.",
+  "key_changes": [
+    "Added pub enum LockVerifyStatus { Match, Mismatch, Missing } to registry.rs",
+    "Added pub struct LockVerifyEntry { lang, expected, actual: Option<String>, status } to registry.rs",
+    "Added pub fn verify_lock(path: &Path) -> Result<Option<Vec<LockVerifyEntry>>> — Ok(None) when lock absent",
+    "Wasm resolved via registry_root()/<name>/grammar.wasm (same path as resolve())",
+    "NotFound I/O error → Missing; hash equality → Match; hash mismatch → Mismatch",
+    "Other I/O errors propagated via anyhow with context",
+    "Added verify_lock_returns_none_when_file_absent unit test",
+    "Added verify_lock_matches_after_write_lock_for unit test (fresh lock verifies all Match)",
+    "Added verify_lock_detects_tampered_hash unit test (mutated wasm field → Mismatch)",
+    "Added verify_lock_detects_missing_wasm unit test (nonexistent lang → Missing)",
+    "Added pub use registry::{LockVerifyEntry, LockVerifyStatus} to core/src/lib.rs curated surface",
+    "All 165 unit tests pass; 4 new verify_lock tests all green"
+  ],
+  "files_changed": [
+    "core/src/registry.rs",
+    "core/src/lib.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

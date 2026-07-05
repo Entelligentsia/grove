@@ -8,10 +8,10 @@
 //! more model turn, so exhaustion produces an *answer*, not a "no answer
 //! produced" sentinel.
 //!
-//! Arm selection ([`Mode`]):
-//! - [`Mode::Standard`] → merit (all four tools, model chooses),
-//! - [`Mode::Aggressive`] → coerce (grove-first steering),
-//! - [`Mode::Balanced`] → plan-first (recon → `submit_plan` → execute, with the
+//! Arm selection ([`Steering`]):
+//! - [`Steering::Standard`] → merit (all four tools, model chooses),
+//! - [`Steering::Aggressive`] → coerce (grove-first steering),
+//! - [`Steering::Balanced`] → plan-first (recon → `submit_plan` → execute, with the
 //!   recon plan cached once per repo per process).
 
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ use std::sync::{Mutex, OnceLock};
 use serde_json::Value;
 
 use super::client::{ChatClient, ChatRequest, ClientError, Message, Usage};
-use super::config::{ExploreConfig, Mode};
+use super::config::{ExploreConfig, Steering};
 use super::trace::TraceWriter;
 use super::{grounding, steering, toolset};
 
@@ -163,7 +163,7 @@ pub fn run_explore_reporting(
     // Progress bar spans the worst case: one tick per turn, plus a final tick.
     let total = MAX_TURNS + 2;
     let qwen = cfg.model.to_lowercase().contains("qwen");
-    let plan_first = cfg.mode == Mode::Balanced;
+    let plan_first = cfg.steering == Steering::Balanced;
 
     let cached_plan = if plan_first {
         plan_cache().lock().unwrap().get(&cache_key(root)).cloned()
@@ -172,7 +172,7 @@ pub fn run_explore_reporting(
     };
     let do_recon = plan_first && cached_plan.is_none();
 
-    let mut sys_content = steering::system_prompt(cfg.mode, root);
+    let mut sys_content = steering::system_prompt(cfg.steering, root);
     if do_recon {
         sys_content.push_str(steering::PHASE1_NOTE);
     }
@@ -459,12 +459,12 @@ mod tests {
         }
     }
 
-    fn cfg(mode: Mode) -> ExploreConfig {
+    fn cfg(steering: Steering) -> ExploreConfig {
         ExploreConfig {
             provider: Provider::Ollama,
             base_url: "http://localhost:11434/v1".into(),
             model: "qwen3.5:4b".into(),
-            mode,
+            steering,
             allowed_tools: vec!["grove".into(), "rg".into()],
             tap: false,
             trace_retain: 50,
@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn standard_returns_first_text_only_turn_as_answer() {
         let client = FakeClient::new(vec![text_response("done\n<final_answer>\n</final_answer>")]);
-        let ans = run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        let ans = run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
         assert!(!ans.truncated);
         assert_eq!(ans.turns, 1);
         assert!(ans.text.starts_with("done"));
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn standard_offers_the_four_execute_tools() {
         let client = FakeClient::new(vec![text_response("x")]);
-        run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
         let seen = &client.seen_tool_names.borrow()[0];
         assert_eq!(seen, &vec!["Read", "Glob", "Grep", "Grove"]);
     }
@@ -497,7 +497,7 @@ mod tests {
             responses.push(tool_call_response("Grove", json!({"command": "map ."})));
         }
         let client = FakeClient::new(responses);
-        let ans = run_explore("q", Path::new("."), &cfg(Mode::Standard), &client).unwrap();
+        let ans = run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
         assert!(ans.truncated, "hit the turn cap");
         // The forced-final-answer user message was injected before the last call.
         assert!(ans.turns >= MAX_TURNS);
@@ -518,7 +518,7 @@ mod tests {
         ]);
         let root = std::env::temp_dir().join(format!("grove-agent-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let ans = run_explore("q", &root, &cfg(Mode::Balanced), &client).unwrap();
+        let ans = run_explore("q", &root, &cfg(Steering::Balanced), &client).unwrap();
         assert!(!ans.truncated);
         let seen = client.seen_tool_names.borrow();
         // Turn 1: Grove + submit_plan (recon, grove open).
@@ -549,7 +549,7 @@ mod tests {
         let rec = Recorder {
             ticks: RefCell::new(Vec::new()),
         };
-        run_explore_reporting("q", Path::new("."), &cfg(Mode::Standard), &client, &rec, None)
+        run_explore_reporting("q", Path::new("."), &cfg(Steering::Standard), &client, &rec, None)
             .unwrap();
         let ticks = rec.ticks.borrow();
         // At least: turn 1 pre-call, turn 2 pre-call, final "grounding answer".
@@ -571,7 +571,7 @@ mod tests {
                 })
             }
         }
-        let err = run_explore("q", Path::new("."), &cfg(Mode::Standard), &DownClient).unwrap_err();
+        let err = run_explore("q", Path::new("."), &cfg(Steering::Standard), &DownClient).unwrap_err();
         assert!(matches!(err, ExploreError::ProviderDown { .. }));
     }
 }

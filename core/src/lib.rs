@@ -39,13 +39,16 @@
 //! # }
 //! ```
 
+pub mod config;
+pub mod doctor;
 pub mod engine;
 pub mod explore;
+pub mod fetch;
+pub mod harness;
+pub mod ingest;
 pub mod init;
 pub mod ops;
 pub mod registry;
-pub mod fetch;
-pub mod ingest;
 
 // ---- Curated public surface ----
 //
@@ -62,4 +65,8 @@ pub use ops::{CallSite, FileMap, MapEntry, SourceResult};
 /// The grammar-provisioning entry point behind `grove init` (see [`init`]).
 pub use init::provision_project;
 /// The explore subsystem configuration model (see [`explore`]).
-pub use explore::{ExploreConfig, Mode, Provider};
+pub use explore::{ExploreConfig, Provider, Steering};
+/// The grove project config type and integration mode (see [`config`]).
+pub use config::{active_mode, GroveConfig, Mode, ModeChoice};
+/// Lock-file verification types returned by [`registry::verify_lock`].
+pub use registry::{LockVerifyEntry, LockVerifyStatus};

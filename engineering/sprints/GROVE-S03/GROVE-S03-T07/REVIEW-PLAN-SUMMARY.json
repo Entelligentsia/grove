@@ -1,0 +1,17 @@
+{
+  "objective": "Re-reviewed the revised grove doctor plan (core::harness + core::doctor + Cmd::Doctor) to confirm the two prior blockers and one advisory were resolved and all reused seams exist.",
+  "key_changes": [
+    "Blocker 1 (constant ownership) resolved: new core/src/harness.rs is single source of truth; init.rs migrates to import it — no core->cli cycle, no duplication.",
+    "Verified on-disk init.rs owns CLAUDE_START/END (l.20-21) and MCP_SERVER_KEY (l.79); plan's per-mode markers match real steering blocks (outline/skill/explore).",
+    "Blocker 2 (cross-crate private test helpers) resolved: unit tests build tempdir fixtures via std::fs::write, no reconcile_harness/seed_lock imports.",
+    "Advisory (warn-only exits zero) incorporated as warn_only_report_exits_zero; Report::ok() correctly keys only off Status::Fail.",
+    "Seam active_mode(root, ModeChoice)->Mode confirmed (config.rs:291); ModeChoice None/ForceExplore/ForceStandard matches --explore/--standard precedence.",
+    "verify_lock (registry.rs:465), health_probe + HealthError{Unreachable,ModelMissing} (client.rs), list_models, ExploreConfig::validate, toolset consts, registry helpers all present.",
+    "Mode enum {Mcp,Skill,Both,McpLlm,Grammars} matches expected_mcp_args mapping; global --json flag present (main.rs:24) so AC6 dual-format exit code is implementable.",
+    "Advisory (non-blocking): harness_serve_surface is Info-only; acceptable since surface is derived and .mcp.json drift is already a hard Fail. No live determine_surface seam — compute inline.",
+    "Advisory (non-blocking): ensure explore/standard bool->ModeChoice conversion mirrors serve; decide+test precedence when both flags passed."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

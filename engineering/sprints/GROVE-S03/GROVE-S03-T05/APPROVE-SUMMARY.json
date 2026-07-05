@@ -1,0 +1,15 @@
+{
+  "objective": "Architectural sign-off on the config TUI mode badge + inert explore-section rendering when mode != mcp-llm.",
+  "key_changes": [
+    "Elm-style layering preserved: grove_mode/explore_active are pure model state, inert gate in update, badge/notice in view — no cross-layer leakage.",
+    "AC4 invariant upheld: grove_mode set once in from_grove_config, never mutated; no mode selector; Save round-trips mode unchanged — TUI cannot become a second harness writer.",
+    "All 6 ACs pass; badge covers all 5 Mode variants; edits and Save no-op when explore inactive; new coverage asserts badge + inert behaviour.",
+    "Regression-safe: App::default() routes through McpLlm-active config; 283 tests passed / 0 failed; clippy -D warnings clean.",
+    "Backward compatible: main.rs/init.rs load GroveConfig with graceful fallback to legacy ExploreConfig::load for pre-migration projects.",
+    "Deployment: version bump required at release (visible TUI change); no migrations, regeneration, or security scan needed.",
+    "Follow-up: optional fuller field-body dimming (non-blocking); retire legacy ExploreConfig::load fallback once all consumers migrate to GroveConfig."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

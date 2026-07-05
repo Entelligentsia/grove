@@ -3,7 +3,7 @@
 //! The same operations are exposed as a human CLI (`grove outline …`) and as an
 //! MCP server (`grove serve`). Both call `ops`; neither owns engine logic.
 
-use grove_core::{ops, registry, fetch, ingest};
+use grove_core::{doctor, ops, registry, fetch, ingest};
 
 mod config_tui;
 mod init;
@@ -113,6 +113,19 @@ enum Cmd {
         /// Show what would be detected/written without writing.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Run a pre-flight health check on the grove setup for a project
+    /// (analogous to `brew doctor` / `flutter doctor`).
+    Doctor {
+        /// Project directory (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Force explore-mode checks even if config declares standard mode.
+        #[arg(long = "explore")]
+        explore: bool,
+        /// Force standard-mode checks.
+        #[arg(long = "standard")]
+        standard: bool,
     },
     /// Download grammars from the hosted registry into the OS cache.
     Fetch {
@@ -296,10 +309,85 @@ fn main() -> Result<()> {
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
         }
+        Cmd::Doctor { path, explore, standard } => {
+            let force = if standard {
+                grove_core::config::ModeChoice::ForceStandard
+            } else if explore {
+                grove_core::config::ModeChoice::ForceExplore
+            } else {
+                grove_core::config::ModeChoice::None
+            };
+            let report = doctor::diagnose(&path, force);
+            if cli.json {
+                // ── JSON output ──────────────────────────────────────────────
+                let checks_json: Vec<_> = report.checks.iter().map(|c| {
+                    serde_json::json!({
+                        "group": c.group,
+                        "name": c.name,
+                        "status": status_str(c.status),
+                        "detail": c.detail,
+                        "hint": c.hint,
+                    })
+                }).collect();
+                let counts = tally(&report);
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "path": path.canonicalize().unwrap_or_else(|_| path.clone()),
+                    "mode": format!("{:?}", report.mode).to_lowercase(),
+                    "ok": report.ok(),
+                    "checks": checks_json,
+                    "summary": {
+                        "ok": counts.0, "warn": counts.1, "fail": counts.2, "info": counts.3
+                    }
+                }))?);
+            } else {
+                // ── Human output ─────────────────────────────────────────────
+                println!(
+                    "grove doctor · {} · mode: {:?}",
+                    path.display(),
+                    report.mode
+                );
+                let mut groups: Vec<&str> = Vec::new();
+                for c in &report.checks {
+                    if !groups.contains(&c.group) {
+                        groups.push(c.group);
+                    }
+                }
+                for g in &groups {
+                    let title = if *g == "universal" { "Universal" } else { "Explore" };
+                    println!("\n  {title}");
+                    for c in report.checks.iter().filter(|c| c.group == *g) {
+                        let icon = match c.status {
+                            doctor::Status::Ok   => "✓",
+                            doctor::Status::Warn => "⚠",
+                            doctor::Status::Fail => "✗",
+                            doctor::Status::Info => "·",
+                        };
+                        println!("    {icon} {} · {}", c.name, c.detail);
+                        if let Some(ref hint) = c.hint {
+                            println!("        → {hint}");
+                        }
+                    }
+                }
+                let counts = tally(&report);
+                println!();
+                if counts.2 > 0 || counts.1 > 0 {
+                    println!(
+                        "  {} failure(s), {} warning(s)",
+                        counts.2,
+                        counts.1
+                    );
+                } else {
+                    println!("  all checks passed");
+                }
+            }
+            if !report.ok() {
+                std::process::exit(1);
+            }
+        }
         Cmd::Config { path } => {
-            // Load existing config if present; start from defaults otherwise.
-            let existing = grove_core::ExploreConfig::load(&path).ok();
-            config_tui::run(&path, existing)?;
+            // Load existing GroveConfig (mode + explore) if present; defaults otherwise.
+            let grove_cfg = grove_core::config::GroveConfig::load(&path).ok();
+            config_tui::run(&path, grove_cfg)?;
         }
         Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
@@ -339,4 +427,34 @@ fn main() -> Result<()> {
         Cmd::Tap { path, no_enable } => tap::run(&path, no_enable)?,
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// doctor helpers
+// ---------------------------------------------------------------------------
+
+fn status_str(s: doctor::Status) -> &'static str {
+    match s {
+        doctor::Status::Ok   => "ok",
+        doctor::Status::Warn => "warn",
+        doctor::Status::Fail => "fail",
+        doctor::Status::Info => "info",
+    }
+}
+
+/// Returns (ok, warn, fail, info) counts.
+fn tally(report: &doctor::Report) -> (usize, usize, usize, usize) {
+    let mut ok = 0usize;
+    let mut warn = 0usize;
+    let mut fail = 0usize;
+    let mut info = 0usize;
+    for c in &report.checks {
+        match c.status {
+            doctor::Status::Ok   => ok   += 1,
+            doctor::Status::Warn => warn += 1,
+            doctor::Status::Fail => fail += 1,
+            doctor::Status::Info => info += 1,
+        }
+    }
+    (ok, warn, fail, info)
 }

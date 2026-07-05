@@ -1,0 +1,18 @@
+{
+  "objective": "Assessed the GroveConfig type + explore-section demotion + steering mode→steering rename plan for feasibility, completeness, and call-site accuracy.",
+  "key_changes": [
+    "Plan's 9-file modification list is complete and accurate — verified every steering-Mode call site via grove callers/grep.",
+    "Correctly excludes app.mode (TUI App.mode usize index) in config_tui view.rs/update.rs — not the steering enum.",
+    "Correctly excludes SessionMeta.mode / s.mode trace-session string field in trace.rs and trace_tui.",
+    "ExploreConfig's existing custom Deserialize (config.rs L149) lets GroveConfig embed Option<ExploreConfig> directly, preserving field-named errors.",
+    "All 7 ACs map to concrete plan items; 7-test suite covers AC6's six categories plus atomic save/load and missing-file.",
+    "ADVISORY: enum variant sketch spells MpcLlm — land as McpLlm (on-disk spelling mcp-llm is what is contractual).",
+    "ADVISORY: RawGroveConfig should carry version+mode:String+explore:Option<ExploreConfig>; avoid Option<serde_json::Value> which bypasses inner validation.",
+    "ADVISORY: consider validate() rejecting version != 1 per AC1's fixed wire shape.",
+    "ADVISORY: assert explicitly that a legacy explore 'mode' key fails deserialization (missing steering) — correct T01 behaviour, T02 owns migration.",
+    "ADVISORY: update model.rs L124 doc comment referencing Mode::LEGAL to Steering::LEGAL."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

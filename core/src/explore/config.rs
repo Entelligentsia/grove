@@ -35,7 +35,7 @@ impl Provider {
     /// and to enumerate valid values in error messages.
     pub const LEGAL: &'static [&'static str] = &["ollama", "llamacpp"];
 
-    fn from_name(s: &str) -> Result<Self> {
+    pub(crate) fn from_name(s: &str) -> Result<Self> {
         match s {
             "ollama" => Ok(Provider::Ollama),
             "llamacpp" => Ok(Provider::LlamaCpp),
@@ -52,7 +52,7 @@ impl Provider {
 /// only names the three levels. Serialized lowercase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Mode {
+pub enum Steering {
     /// Merit-based steering — the default, least intrusive.
     Standard,
     /// Plan-first steering.
@@ -61,17 +61,17 @@ pub enum Mode {
     Aggressive,
 }
 
-impl Mode {
+impl Steering {
     /// The legal on-disk spellings, in declaration order.
     pub const LEGAL: &'static [&'static str] = &["standard", "balanced", "aggressive"];
 
-    fn from_name(s: &str) -> Result<Self> {
+    pub(crate) fn from_name(s: &str) -> Result<Self> {
         match s {
-            "standard" => Ok(Mode::Standard),
-            "balanced" => Ok(Mode::Balanced),
-            "aggressive" => Ok(Mode::Aggressive),
+            "standard" => Ok(Steering::Standard),
+            "balanced" => Ok(Steering::Balanced),
+            "aggressive" => Ok(Steering::Aggressive),
             other => bail!(
-                "invalid `mode` value `{other}`: expected one of {}",
+                "invalid `steering` value `{other}`: expected one of {}",
                 Self::LEGAL.join(", ")
             ),
         }
@@ -91,7 +91,7 @@ pub struct ExploreConfig {
     /// The model identifier the provider serves.
     pub model: String,
     /// The steering level.
-    pub mode: Mode,
+    pub steering: Steering,
     /// The tools the inner explorer is permitted to invoke.
     pub allowed_tools: Vec<String>,
     /// When true, `grove serve --explore` records every LLM request/response of
@@ -113,14 +113,14 @@ fn default_trace_retain() -> u32 {
 }
 
 /// Raw wire shape with `String` enum fields, so enum parse failures can name
-/// the offending field (`provider` / `mode`) and enumerate legal values —
+/// the offending field (`provider` / `steering`) and enumerate legal values —
 /// serde's stock unknown-variant error names neither the field nor the struct.
 #[derive(Deserialize)]
 struct RawExploreConfig {
     provider: String,
     base_url: String,
     model: String,
-    mode: String,
+    steering: String,
     #[serde(default)]
     allowed_tools: Vec<String>,
     #[serde(default)]
@@ -137,7 +137,7 @@ impl TryFrom<RawExploreConfig> for ExploreConfig {
             provider: Provider::from_name(&raw.provider)?,
             base_url: raw.base_url,
             model: raw.model,
-            mode: Mode::from_name(&raw.mode)?,
+            steering: Steering::from_name(&raw.steering)?,
             allowed_tools: raw.allowed_tools,
             tap: raw.tap,
             trace_retain: raw.trace_retain,
@@ -161,7 +161,7 @@ impl Default for ExploreConfig {
             provider: Provider::Ollama,
             base_url: "http://localhost:11434/v1".to_string(),
             model: "qwen2.5-coder:7b".to_string(),
-            mode: Mode::Standard,
+            steering: Steering::Standard,
             allowed_tools: vec![
                 "grove".to_string(),
                 "rg".to_string(),
@@ -257,12 +257,12 @@ mod tests {
             "provider": "llamacpp",
             "base_url": "http://localhost:8080/v1",
             "model": "custom",
-            "mode": "aggressive",
+            "steering": "aggressive",
             "allowed_tools": ["grove"]
         }"#;
         let cfg: ExploreConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.provider, Provider::LlamaCpp);
-        assert_eq!(cfg.mode, Mode::Aggressive);
+        assert_eq!(cfg.steering, Steering::Aggressive);
         assert_eq!(cfg.base_url, "http://localhost:8080/v1");
         assert_eq!(cfg.model, "custom");
         assert_eq!(cfg.allowed_tools, vec!["grove".to_string()]);
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(cfg.provider, Provider::Ollama);
         assert_eq!(cfg.base_url, "http://localhost:11434/v1");
         assert_eq!(cfg.model, "qwen2.5-coder:7b");
-        assert_eq!(cfg.mode, Mode::Standard);
+        assert_eq!(cfg.steering, Steering::Standard);
         assert_eq!(cfg.allowed_tools, vec!["grove", "rg", "grep", "find"]);
         assert_eq!(cfg.trace_retain, DEFAULT_TRACE_RETAIN);
     }
@@ -287,7 +287,7 @@ mod tests {
             "provider": "ollama",
             "base_url": "http://localhost:11434/v1",
             "model": "x",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": ["grove"]
         }"#;
         let cfg: ExploreConfig = serde_json::from_str(json).unwrap();
@@ -298,7 +298,7 @@ mod tests {
     fn provider_serializes_lowercase() {
         assert_eq!(serde_json::to_string(&Provider::Ollama).unwrap(), "\"ollama\"");
         assert_eq!(serde_json::to_string(&Provider::LlamaCpp).unwrap(), "\"llamacpp\"");
-        assert_eq!(serde_json::to_string(&Mode::Standard).unwrap(), "\"standard\"");
+        assert_eq!(serde_json::to_string(&Steering::Standard).unwrap(), "\"standard\"");
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
             "provider": "gpt4all",
             "base_url": "http://localhost:11434/v1",
             "model": "x",
-            "mode": "standard",
+            "steering": "standard",
             "allowed_tools": []
         }"#;
         let err = serde_json::from_str::<ExploreConfig>(json).unwrap_err();
@@ -363,5 +363,21 @@ mod tests {
         assert_eq!(cfg, loaded);
 
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn legacy_mode_key_rejected() {
+        // The old JSON key "mode" is not accepted — T02 owns migration.
+        // Missing "steering" field must fail deserialization.
+        let json = r#"{
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "x",
+            "mode": "standard",
+            "allowed_tools": []
+        }"#;
+        let err = serde_json::from_str::<ExploreConfig>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("steering") || msg.contains("missing"), "should fail on missing steering: {msg}");
     }
 }

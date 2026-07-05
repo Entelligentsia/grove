@@ -8,6 +8,8 @@ use ratatui::{
     Frame,
 };
 
+use grove_core::config::Mode;
+
 use crate::config_tui::model::{App, Field};
 
 /// Colours.
@@ -27,47 +29,72 @@ const MODE_DESCS: &[&str] = &[
 pub fn view(app: &App, frame: &mut Frame) {
     let area = frame.area();
 
-    // Outer chrome — shortcuts now live in the footer, not the title.
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .title(" grove config — Explore Setup ");
+    // Outer chrome — title includes the integration mode badge.
+    let title = format!(
+        " grove config   mode: {} ",
+        match app.grove_mode {
+            Mode::Mcp      => "mcp",
+            Mode::Skill    => "skill",
+            Mode::Both     => "both",
+            Mode::McpLlm   => "mcp-llm ✓",
+            Mode::Grammars => "grammars",
+        }
+    );
+    let outer = Block::default().borders(Borders::ALL).title(title);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    // Vertical sections
+    // Vertical sections (leading row for the explore notice)
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Provider
-            Constraint::Length(3), // Endpoint URL
-            Constraint::Length(3), // Model
-            Constraint::Length(5), // Mode (3 items + borders)
-            Constraint::Length(3), // Tap
-            Constraint::Min(4),    // Allowed Tools
-            Constraint::Length(1), // Status bar
-            Constraint::Length(1), // Footer shortcuts
+            Constraint::Length(1), // [0] explore notice (blank when active)
+            Constraint::Length(3), // [1] Provider
+            Constraint::Length(3), // [2] Endpoint URL
+            Constraint::Length(3), // [3] Model
+            Constraint::Length(5), // [4] Mode (3 items + borders)
+            Constraint::Length(3), // [5] Tap
+            Constraint::Min(4),    // [6] Allowed Tools
+            Constraint::Length(1), // [7] Status bar
+            Constraint::Length(1), // [8] Footer shortcuts
         ])
         .split(inner);
 
-    render_provider(app, frame, rows[0]);
-    render_url(app, frame, rows[1]);
-    render_model(app, frame, rows[2]);
-    render_mode(app, frame, rows[3]);
-    render_tap(app, frame, rows[4]);
-    render_tools(app, frame, rows[5]);
-    render_status(app, frame, rows[6]);
-    render_footer(app, frame, rows[7]);
+    render_explore_notice(app, frame, rows[0]);
+    render_provider(app, frame, rows[1]);
+    render_url(app, frame, rows[2]);
+    render_model(app, frame, rows[3]);
+    render_mode(app, frame, rows[4]);
+    render_tap(app, frame, rows[5]);
+    render_tools(app, frame, rows[6]);
+    render_status(app, frame, rows[7]);
+    render_footer(app, frame, rows[8]);
 
     // The model dropdown floats over the lower rows when open.
     if app.focus == Field::Model && app.model_dropdown {
-        render_model_dropdown(app, frame, rows[2]);
+        render_model_dropdown(app, frame, rows[3]);
     }
+}
+
+// ── Explore notice ────────────────────────────────────────────────────────────
+
+fn render_explore_notice(app: &App, frame: &mut Frame, area: Rect) {
+    let para = if app.explore_active {
+        // Invisible placeholder — blank line keeps layout stable.
+        Paragraph::new("")
+    } else {
+        Paragraph::new(
+            "  ⚠  Explore settings inactive — run: grove init --as mcp-llm to activate",
+        )
+        .style(Style::default().fg(Color::Yellow))
+    };
+    frame.render_widget(para, area);
 }
 
 // ── Tap ─────────────────────────────────────────────────────────────────────
 
 fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Tap;
+    let focused = app.explore_active && app.focus == Field::Tap;
     let text = if app.tap {
         "☑ on — recording sessions to .grove/traces/  (browse: grove tap)"
     } else {
@@ -94,7 +121,7 @@ fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 fn render_provider(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Provider;
+    let focused = app.explore_active && app.focus == Field::Provider;
     let border_style = border_style(focused);
 
     let labels = &["Ollama", "Llama.cpp"];
@@ -128,7 +155,7 @@ fn render_provider(app: &App, frame: &mut Frame, area: Rect) {
 // ── Endpoint URL ──────────────────────────────────────────────────────────────
 
 fn render_url(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Url;
+    let focused = app.explore_active && app.focus == Field::Url;
     let cursor_suffix = if focused { "█" } else { "" };
     let para = Paragraph::new(format!("{}{}", app.base_url, cursor_suffix))
         .block(
@@ -144,7 +171,7 @@ fn render_url(app: &App, frame: &mut Frame, area: Rect) {
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 fn render_model(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Model;
+    let focused = app.explore_active && app.focus == Field::Model;
     let cursor_suffix = if focused { "█" } else { "" };
     let title = if focused {
         " Model (↓ to pick from provider) "
@@ -215,7 +242,7 @@ fn render_model_dropdown(app: &App, frame: &mut Frame, model_area: Rect) {
 // ── Mode ──────────────────────────────────────────────────────────────────────
 
 fn render_mode(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Mode;
+    let focused = app.explore_active && app.focus == Field::Mode;
     let items: Vec<ListItem> = MODE_DESCS
         .iter()
         .enumerate()
@@ -246,7 +273,7 @@ fn render_mode(app: &App, frame: &mut Frame, area: Rect) {
 // ── Allowed Tools ─────────────────────────────────────────────────────────────
 
 fn render_tools(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Field::Tools;
+    let focused = app.explore_active && app.focus == Field::Tools;
 
     // Split: tool list on left, add-tool input on right
     let cols = Layout::default()
@@ -320,14 +347,18 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
 
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     // Context-sensitive to the focused field; global keys always shown.
-    let field_keys = match app.focus {
-        Field::Provider => "↑↓ select provider",
-        Field::Url => "type to edit URL",
-        Field::Model if app.model_dropdown => "↑↓ pick · type filter · Enter select · Esc close",
-        Field::Model => "type model · ↓ browse provider models",
-        Field::Mode => "↑↓ select mode",
-        Field::Tap => "Space toggle tracing",
-        Field::Tools => "↑↓ move · Space toggle · type+Enter add",
+    let field_keys = if !app.explore_active {
+        "explore settings inactive — Esc to cancel"
+    } else {
+        match app.focus {
+            Field::Provider => "↑↓ select provider",
+            Field::Url => "type to edit URL",
+            Field::Model if app.model_dropdown => "↑↓ pick · type filter · Enter select · Esc close",
+            Field::Model => "type model · ↓ browse provider models",
+            Field::Mode => "↑↓ select mode",
+            Field::Tap => "Space toggle tracing",
+            Field::Tools => "↑↓ move · Space toggle · type+Enter add",
+        }
     };
     let text = format!(" {field_keys}  │  Tab next · F2 save · Esc cancel ");
     let bar = Paragraph::new(Line::from(Span::styled(

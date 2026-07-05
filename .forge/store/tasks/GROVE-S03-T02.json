@@ -1,0 +1,129 @@
+{
+  "taskId": "GROVE-S03-T02",
+  "sprintId": "GROVE-S03",
+  "title": "Legacy .grove/explore.json migration on load (deprecated immediately)",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T02",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S03-T01"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Extend GroveConfig::load with a legacy-migration branch that reads .grove/explore.json, synthesises a GroveConfig (mode=mcp-llm, mapped steering), rewrites to config.json atomically, and emits a deprecation warning.",
+      "key_changes": [
+        "Add private `LegacyExploreRaw` struct in config.rs with old `mode: String` steering key mirroring the pre-S03 explore.json wire shape.",
+        "Add private `migrate_from_legacy_explore(root)` fn: reads explore.json, maps old `mode` → Steering, builds GroveConfig, saves atomically, warns stderr.",
+        "Extend GroveConfig::load: config.json present → existing path; explore.json present → migration; neither → actionable error (unchanged).",
+        "Deprecation warning on stderr directs users to commit config.json and remove explore.json from the repo.",
+        "Migration does NOT delete explore.json — grove doctor (later task) will warn on its presence.",
+        "No changes to explore/config.rs — ExploreConfig::config_path is reused read-only from config.rs.",
+        "Test 5a: legacy explore.json (old mode key) migrates → config.json with mode=McpLlm and correct explore.steering.",
+        "Test 5b: second load reads config.json directly; does not re-enter migration; explore.json is unmodified.",
+        "Test 5c: config.json present alongside stale explore.json — stale file silently ignored.",
+        "Test 5d: deprecation warning path is exercised by the migration.",
+        "All existing T01 tests unaffected; cargo clippy -D warnings must be clean.",
+        "Material change: version bump required at release — config.json created for all deployed mcp-llm projects on next load."
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assessed the plan for migrating legacy .grove/explore.json to .grove/config.json on GroveConfig::load.",
+      "key_changes": [
+        "Verified plan against actual source: GroveConfig, Mode::McpLlm, Steering::from_name, Provider::from_name, ExploreConfig::config_path, and GroveConfig::save all exist and are usable as described.",
+        "Three-branch load cascade (config.json -> explore.json migration -> grove init bail) is correct; ExploreConfig already in scope, no new import needed.",
+        "AC1/AC2 satisfied: from_name calls validate + remap old mode->steering; migration preserves provider, base_url, model, allowed_tools, tap, trace_retain with no data loss.",
+        "AC3 one-time warning is structurally guaranteed: config.json presence routes subsequent loads to branch 1; test 5b confirms idempotency.",
+        "AC-to-test mapping complete (5a-5d) plus existing missing_file_actionable_error guards AC4.",
+        "ADVISORY: default_trace_retain is private in explore/config.rs (only DEFAULT_TRACE_RETAIN const is pub) - serde default ref won't compile from config.rs; use a local fn or the pub const.",
+        "ADVISORY: test 5d stderr capture is fragile (plan admits weak CI-output fallback); recommend a testable warning const + side-effect assertion instead.",
+        "ADVISORY: malformed explore.json yields Err rather than the grove init steer - acceptable but document the branch semantics."
+      ],
+      "findings": [
+        "Plan is feasible and complete; all 6 acceptance criteria map to concrete steps and tests. Approved with three non-blocking advisory notes."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Extend GroveConfig::load with a legacy-migration branch that reads .grove/explore.json, synthesises a GroveConfig (mode=McpLlm, mapped steering), rewrites to config.json atomically, and emits a one-time deprecation warning.",
+      "key_changes": [
+        "Made Provider::from_name and Steering::from_name pub(crate) in explore/config.rs to allow use from config.rs.",
+        "Added pub(crate) DEPRECATION_WARNING const — named constant makes the warning testable without stderr capture.",
+        "Added private LegacyExploreRaw struct mirroring old explore.json wire shape with 'mode' as the steering key.",
+        "Added default_legacy_trace_retain() helper delegating to crate::explore::config::DEFAULT_TRACE_RETAIN.",
+        "Added migrate_from_legacy_explore(root): reads explore.json, maps mode→Steering and provider→Provider, builds GroveConfig{McpLlm}, validates, saves config.json atomically, emits warning.",
+        "Extended GroveConfig::load to three-branch cascade: config.json present → existing path; explore.json present → migration; neither → actionable error.",
+        "Test 5a: migrate_legacy_explore_writes_config_json — mode=McpLlm, steering=Balanced (from mode=balanced), config.json exists after migration.",
+        "Test 5b: second_load_after_migration_reads_config_not_legacy — second load returns equal config; explore.json mtime unchanged.",
+        "Test 5c: config_json_present_ignores_stale_explore_json — config.json wins; stale explore.json silently ignored.",
+        "Test 5d: deprecation_warning_emitted — asserts DEPRECATION_WARNING contains key strings; exercises migration side-effect.",
+        "All 261 tests pass (155 unit + 77 CLI + 28 integration + 1 doc-test). Clippy -D warnings clean."
+      ],
+      "files_changed": [
+        "core/src/config.rs",
+        "core/src/explore/config.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Reviewed the legacy .grove/explore.json → config.json migration branch added to GroveConfig::load.",
+      "key_changes": [
+        "Three-branch load cascade correct: config.json → normal; else explore.json → migrate; else grove init bail (AC1, AC4).",
+        "Legacy `mode` key correctly remapped to `steering` via validating Steering::from_name; all other explore fields preserved, no data loss (AC2).",
+        "One-time deprecation warning structurally guaranteed — post-migration config.json shadows the migration branch on subsequent loads; test 5b confirms idempotency (AC3).",
+        "Prior plan-review advisory resolved: DEFAULT_TRACE_RETAIN is pub const in pub mod config, so default_legacy_trace_retain compiles; from_name fns correctly pub(crate).",
+        "ExploreConfig::config_path returns .grove/explore.json and is reused read-only — migration never mutates the legacy file (verified via mtime assert in 5b).",
+        "Independently ran cargo test -p grove-cst config → 22 passed 0 failed; all four new tests 5a-5d green.",
+        "cargo clippy -p grove-cst --all-targets -- -D warnings clean; both files end with trailing newline (AC6).",
+        "Follows established T01 conventions: private LegacyExploreRaw wire struct + from_name validation + atomic save reuse.",
+        "Advisory (non-blocking): test 5d asserts on const content rather than capturing stderr — agreed tradeoff.",
+        "Advisory (non-blocking): malformed explore.json yields Err rather than grove init steer — intentional and documented."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that GroveConfig::load correctly migrates legacy .grove/explore.json to config.json with mode=McpLlm, maps explore.mode→explore.steering, emits a one-time deprecation warning, and handles all four cascade branches correctly.",
+      "key_changes": [
+        "AC1 PASS: Three-branch load cascade correct — config.json→normal; explore.json→migrate_from_legacy_explore; neither→actionable error. Test 5a confirms migration branch triggers.",
+        "AC2 PASS: LegacyExploreRaw.mode mapped via Steering::from_name to ExploreConfig.steering. Test 5a asserts mode='balanced'→Steering::Balanced; all other fields preserved.",
+        "AC3 PASS: eprintln!(DEPRECATION_WARNING) in migrate_from_legacy_explore. One-time: post-migration config.json routes to branch 1. Test 5b confirms idempotency via mtime assert.",
+        "AC4 PASS: Neither file → bail with 'run `grove init`' message. Pre-existing missing_file_actionable_error test still passes; no regression.",
+        "AC5 PASS: All four new tests green — 5a (migration), 5b (idempotency+mtime), 5c (config.json wins over stale explore.json), 5d (const content + path exercised).",
+        "AC6 PASS: clippy -D warnings clean; cargo test --release --locked: 261 tests (155+77+28+1), 0 failures; both modified files end with trailing newline.",
+        "EDGE CASE PASS: config.json + stale explore.json — test 5c confirms load short-circuits on config.json presence; stale file never opened.",
+        "EDGE CASE PASS: explore.json mtime unchanged on second load — mtime assertion in 5b catches any inadvertent write to legacy file.",
+        "REGRESSION PASS: legacy_mode_key_rejected in explore/config.rs still passes; ExploreConfig deserializer correctly rejects old 'mode' key.",
+        "NOTE: test 5d asserts on DEPRECATION_WARNING const content, not stderr capture — accepted tradeoff; eprintln! call confirmed by code inspection."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on the legacy .grove/explore.json to config.json forward-migration added to GroveConfig::load.",
+      "key_changes": [
+        "Three-branch load cascade (config.json normal load / explore.json migrate / neither -> grove init steer) is coherent and satisfies AC1 and AC4.",
+        "Reuses established T01 conventions: private LegacyExploreRaw wire struct, validating from_name remaps, existing atomic GroveConfig::save. No parallel config path introduced.",
+        "Blast radius contained: only cross-module change is widening Provider/Steering::from_name to pub(crate) plus a pub(crate) DEPRECATION_WARNING const. No public API surface shifts.",
+        "One-time warning is structurally guaranteed: post-migration config.json shadows the migration branch. Test 5b mtime assert confirms the legacy file is read-only, never mutated or deleted.",
+        "Data preserved: explore.mode -> explore.steering remap plus provider/base_url/model/allowed_tools/tap/trace_retain carried forward with no loss (AC2).",
+        "Deployment: version bump required at release -- config.json synthesised on next serve/load for all deployed mcp-llm projects; migration automatic; one-time stderr deprecation warning informs operator.",
+        "Follow-up: grove doctor should warn on stale explore.json presence (cleanup intentionally deferred here).",
+        "Follow-up: 5d asserts on DEPRECATION_WARNING const content rather than stderr capture -- accepted documented tradeoff.",
+        "Full pipeline green: plan, review-plan, implement, review-code, validate all approved; 261 tests pass, clippy -D warnings clean, trailing newlines present."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

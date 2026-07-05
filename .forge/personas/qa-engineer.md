@@ -60,7 +60,7 @@ acceptance criterion, flag it — do not assume the criterion is met.
 ## Commands
 
 - **Syntax check**: `cargo test --release --locked`
-- **Lint**: `cargo clippy -- -D warnings`
+- **Lint**: `cargo clippy --all-targets --workspace -- -D warnings` (matches CI; the default `cargo clippy` does NOT lint test code)
 
 ## Installed Skill Wiring
 

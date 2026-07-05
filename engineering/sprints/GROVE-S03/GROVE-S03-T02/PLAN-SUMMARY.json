@@ -1,0 +1,20 @@
+{
+  "objective": "Extend GroveConfig::load with a legacy-migration branch that reads .grove/explore.json, synthesises a GroveConfig (mode=mcp-llm, mapped steering), rewrites to config.json atomically, and emits a deprecation warning.",
+  "key_changes": [
+    "Add private `LegacyExploreRaw` struct in config.rs with old `mode: String` steering key mirroring the pre-S03 explore.json wire shape.",
+    "Add private `migrate_from_legacy_explore(root)` fn: reads explore.json, maps old `mode` → Steering, builds GroveConfig, saves atomically, warns stderr.",
+    "Extend GroveConfig::load: config.json present → existing path; explore.json present → migration; neither → actionable error (unchanged).",
+    "Deprecation warning on stderr directs users to commit config.json and remove explore.json from the repo.",
+    "Migration does NOT delete explore.json — grove doctor (later task) will warn on its presence.",
+    "No changes to explore/config.rs — ExploreConfig::config_path is reused read-only from config.rs.",
+    "Test 5a: legacy explore.json (old mode key) migrates → config.json with mode=McpLlm and correct explore.steering.",
+    "Test 5b: second load reads config.json directly; does not re-enter migration; explore.json is unmodified.",
+    "Test 5c: config.json present alongside stale explore.json — stale file silently ignored.",
+    "Test 5d: deprecation warning path is exercised by the migration.",
+    "All existing T01 tests unaffected; cargo clippy -D warnings must be clean.",
+    "Material change: version bump required at release — config.json created for all deployed mcp-llm projects on next load."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

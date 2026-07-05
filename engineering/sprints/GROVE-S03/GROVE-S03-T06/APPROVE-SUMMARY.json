@@ -1,0 +1,18 @@
+{
+  "objective": "Architect sign-off on the additive read-only verify_lock wasm sha256 primitive (LockVerifyStatus/LockVerifyEntry) in core/src/registry.rs for grove doctor (T07).",
+  "key_changes": [
+    "Purely additive: no existing signatures, lock-file format, or Cargo.toml deps changed — nothing downstream must migrate.",
+    "Verifier reuses the same sha256() primitive as write_lock_for/wasm_sha256(), so a fresh lock round-trips to all-Match with no writer/verifier skew.",
+    "Wasm path registry_root()/<name>/grammar.wasm is consistent with resolve(); covers dev-stubs, cache_root, GROVE_REGISTRY.",
+    "Signal mapping clean and non-swallowing: Ok(None) absent, NotFound->Missing, eq->Match, diff->Mismatch; other I/O errors propagate via anyhow.",
+    "Malformed lock entries deliberately continue-skipped, not unwrapped — resolves the plan-review 'decide deliberately' advisory.",
+    "No cross-cutting coupling; doc comment correctly directs T07 to pass the resolved grove.lock file path, not a project root.",
+    "Independently corroborated: code review 8/8 plan/AC + clippy clean; validation 5/5 AC pass, full suite green.",
+    "Deployment: no version bump on its own, no regeneration, no migration, no security scan.",
+    "Advisory (non-blocking): lock top-level version field not validated — acceptable for a read-only advisory primitive; fold into T07 if doctor ever gates on schema version.",
+    "Follow-up: T07 grove doctor is the intended consumer — surface Mismatch/Missing as actionable diagnostics."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

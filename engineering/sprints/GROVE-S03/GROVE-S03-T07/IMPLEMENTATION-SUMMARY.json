@@ -1,0 +1,27 @@
+{
+  "objective": "Implement grove doctor with core::harness (sentinel constants), core::doctor (pure diagnose), and Cmd::Doctor CLI verb with --json and exit-code semantics.",
+  "key_changes": [
+    "New core/src/harness.rs: GROVE_START, GROVE_END, MCP_SERVER_KEY, expected_mcp_args(Mode), expected_claude_marker(Mode), agents_md_expected(Mode) — single source of truth.",
+    "cli/src/init.rs: removed local CLAUDE_START/CLAUDE_END/MCP_SERVER_KEY consts; imported from grove_core::harness — sentinel strings in exactly one place.",
+    "New core/src/doctor.rs: Status{Ok,Warn,Fail,Info}, Check, Report, Report::ok(), diagnose(root,force)->Report — pure read-only using core primitives.",
+    "core/src/lib.rs: added pub mod harness and pub mod doctor (alphabetically ordered).",
+    "Universal checks (11): grove_version, config_present, legacy_explore_json, four harness sub-checks, registry_root, grammar_cache, project_languages, lock_integrity.",
+    "Harness sub-checks compare on-disk state to harness::expected_* functions; Fail on drift with grove init --as <mode> hint.",
+    "Explore-mode checks (McpLlm only): explore_config_valid, provider_reachable, model_served, allowed_tools_known, tap_config.",
+    "cli/src/main.rs: Cmd::Doctor{path,explore,standard}; grouped human output or --json; exit 1 from Report::ok() under both formats.",
+    "Unit tests in harness.rs: 3 coverage tests for all Mode variants across all three functions.",
+    "Unit tests in doctor.rs: warn_only exits zero, harness matrix all 5 modes, 4 drift scenarios, lock absent, explore absent, provider unreachable.",
+    "Integration tests in cli/tests/cli.rs: doctor --help, clean project exits 0, --json valid, drift exits nonzero (human + json)."
+  ],
+  "files_changed": [
+    "core/src/harness.rs",
+    "core/src/doctor.rs",
+    "core/src/lib.rs",
+    "cli/src/init.rs",
+    "cli/src/main.rs",
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

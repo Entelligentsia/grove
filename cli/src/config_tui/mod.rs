@@ -21,18 +21,18 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use grove_core::ExploreConfig;
+use grove_core::{config::GroveConfig, ExploreConfig};
 
 use model::{Action, App, Field, Msg};
 
 /// Launch the config TUI.
 ///
-/// * `root` — project root used by [`ExploreConfig::save`].
-/// * `existing` — pre-populated config loaded by the caller; `None` for defaults.
+/// * `root` — project root used by [`GroveConfig::save`].
+/// * `grove_cfg` — pre-populated config loaded by the caller; `None` for defaults (McpLlm active).
 ///
 /// Returns `Ok(())` on save or cancel. Returns an error for I/O failures and
 /// (importantly) for non-TTY environments.
-pub fn run(root: &Path, existing: Option<ExploreConfig>) -> Result<()> {
+pub fn run(root: &Path, grove_cfg: Option<GroveConfig>) -> Result<()> {
     // ── Non-TTY guard ────────────────────────────────────────────────────────
     if !io::stdout().is_terminal() {
         anyhow::bail!(
@@ -43,9 +43,9 @@ pub fn run(root: &Path, existing: Option<ExploreConfig>) -> Result<()> {
     }
 
     // ── Initialise TUI state ─────────────────────────────────────────────────
-    let mut app = match existing {
-        Some(cfg) => App::from_config(cfg),
-        None => App::default(),
+    let mut app = match grove_cfg {
+        Some(cfg) => App::from_grove_config(cfg),
+        None => App::default(), // McpLlm-active default; used by init first-run
     };
 
     // ── Set up terminal ──────────────────────────────────────────────────────
@@ -80,7 +80,12 @@ fn event_loop(
         };
         match update::update(app, msg) {
             Some(Action::Save) => match app.to_config() {
-                Ok(cfg) => {
+                Ok(explore_cfg) => {
+                    let cfg = GroveConfig {
+                        version: 1,
+                        mode: app.grove_mode,
+                        explore: Some(explore_cfg),
+                    };
                     cfg.save(root)?;
                     return Ok(());
                 }

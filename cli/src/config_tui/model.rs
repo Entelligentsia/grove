@@ -1,6 +1,7 @@
 //! Pure data types for the config TUI (Elm-style Model layer).
 
-use grove_core::{ExploreConfig, Mode, Provider};
+use grove_core::{config::GroveConfig, ExploreConfig, Provider, Steering};
+use grove_core::config::Mode;
 
 /// Which field currently holds focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +116,10 @@ pub const LLAMACPP_DEFAULT_URL: &str = "http://localhost:8080/v1";
 /// The full TUI state.
 #[derive(Debug, Clone)]
 pub struct App {
+    /// The grove integration mode, read from `GroveConfig` — never mutated by TUI.
+    pub grove_mode: Mode,
+    /// `true` when `grove_mode == Mode::McpLlm`; explore fields are editable only then.
+    pub explore_active: bool,
     /// Index into `Provider::LEGAL`.
     pub provider: usize,
     /// The base URL currently in the text buffer.
@@ -152,11 +157,30 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        App::from_config(ExploreConfig::default()).reset_dirty()
+        App::from_grove_config(GroveConfig {
+            version: 1,
+            mode: Mode::McpLlm,
+            explore: None,
+        })
+        .reset_dirty()
     }
 }
 
 impl App {
+    /// Construct TUI state from a [`GroveConfig`].
+    ///
+    /// Sets `grove_mode` and `explore_active` from the config; populates
+    /// explore fields from `cfg.explore` when present, or uses defaults.
+    pub fn from_grove_config(cfg: GroveConfig) -> Self {
+        let explore_active = cfg.mode == Mode::McpLlm;
+        let grove_mode = cfg.mode;
+        let explore_cfg = cfg.explore.unwrap_or_default();
+        let mut app = App::from_config(explore_cfg);
+        app.grove_mode = grove_mode;
+        app.explore_active = explore_active;
+        app
+    }
+
     /// Pre-populate TUI state from an existing [`ExploreConfig`].
     ///
     /// `dirty_url` is set to `true` so that a provider switch does **not**
@@ -166,14 +190,16 @@ impl App {
             Provider::Ollama => 0,
             Provider::LlamaCpp => 1,
         };
-        let mode = match cfg.mode {
-            Mode::Standard => 0,
-            Mode::Balanced => 1,
-            Mode::Aggressive => 2,
+        let mode = match cfg.steering {
+            Steering::Standard => 0,
+            Steering::Balanced => 1,
+            Steering::Aggressive => 2,
         };
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
         Self {
+            grove_mode: Mode::McpLlm,
+            explore_active: true,
             provider,
             base_url: cfg.base_url,
             model: cfg.model,
@@ -217,10 +243,10 @@ impl App {
             0 => Provider::Ollama,
             _ => Provider::LlamaCpp,
         };
-        let mode = match self.mode {
-            0 => Mode::Standard,
-            1 => Mode::Balanced,
-            _ => Mode::Aggressive,
+        let steering = match self.mode {
+            0 => Steering::Standard,
+            1 => Steering::Balanced,
+            _ => Steering::Aggressive,
         };
         let allowed_tools = self
             .tools
@@ -232,7 +258,7 @@ impl App {
             provider,
             base_url: self.base_url.clone(),
             model: self.model.clone(),
-            mode,
+            steering,
             allowed_tools,
             tap: self.tap,
             trace_retain: self.trace_retain,

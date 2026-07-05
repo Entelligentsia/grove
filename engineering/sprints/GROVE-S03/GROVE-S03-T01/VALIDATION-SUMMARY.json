@@ -1,0 +1,17 @@
+{
+  "objective": "Validate all 7 acceptance criteria for GroveConfig core type, integration Mode enum, explore-section demotion, and mode→steering rename across core and CLI.",
+  "key_changes": [
+    "AC1 PASS: GroveConfig in core/src/config.rs, exported from lib.rs; wire shape {version:1,mode,explore?}; RawGroveConfig raw-wire-shape deserialization; validate/load/atomic-save all present.",
+    "AC2 PASS: Mode enum has 5 kebab-case variants (mcp/skill/both/mcp-llm/grammars); LEGAL slice complete; from_name fails fast naming field+legal values; McpLlm spelling correct.",
+    "AC3 PASS: Steering rename complete — explore/config.rs, mod.rs, agent.rs, steering.rs, lib.rs, config_tui, mcp.rs; fixture JSONs all use 'steering'; no stray Mode refs in explore/CLI.",
+    "AC4 PASS: explore field is Option<ExploreConfig> with skip_serializing_if=is_none; all 7 fields round-trip; present/absent tests both pass.",
+    "AC5 PASS: config_path returns <root>/.grove/config.json; bad mode yields field-named error; missing file yields actionable steer.",
+    "AC6 PASS: All 6 required test categories covered; plus legacy_mode_key_rejected boundary test.",
+    "AC7 PASS: 257 tests passed, 0 failed; clippy -D warnings clean; all touched files newline-terminated.",
+    "ADVISORY (non-blocking): model.rs:124 doc comment 'Mode::LEGAL' stale — cosmetic, no toolchain warning.",
+    "REGRESSION: All 257 pre-existing tests green."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-04T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

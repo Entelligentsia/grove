@@ -1,0 +1,16 @@
+{
+  "objective": "Validated that verify_lock + LockVerifyStatus/LockVerifyEntry are correctly implemented in core/src/registry.rs against all five acceptance criteria.",
+  "key_changes": [
+    "AC#1 PASS: verify_lock returns Ok(None) for absent lock file; test verify_lock_returns_none_when_file_absent passes.",
+    "AC#2 PASS: All three status variants (Match/Mismatch/Missing) tested and passing; assertions are specific.",
+    "AC#3 PASS: verify_lock calls sha256(&bytes); write_lock_for uses wasm_sha256() delegating to same sha256 — round-trip Match test confirms.",
+    "AC#4 PASS: Exactly 4 unit tests covering absent-lock, Match, Mismatch, Missing — all 4 pass.",
+    "AC#5 PASS: cargo clippy -D warnings clean; cargo test 287 total 0 failed; files end with newline.",
+    "Public surface: pub use registry::{LockVerifyEntry, LockVerifyStatus} confirmed at lib.rs:70.",
+    "Error handling: NotFound->Missing, other I/O errors propagated via anyhow, malformed entries skipped.",
+    "Additive only: no existing signatures, lock format, or Cargo.toml changed. No regressions."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

@@ -1,0 +1,129 @@
+{
+  "taskId": "GROVE-S03-T05",
+  "sprintId": "GROVE-S03",
+  "title": "config TUI mode badge + inert explore-section rendering",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S03/GROVE-S03-T05",
+  "estimate": "S",
+  "dependencies": [
+    "GROVE-S03-T01"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Extend the grove config TUI to read the integration mode from GroveConfig, display it as a badge, and render explore-section fields as inert/greyed when mode != mcp-llm, with no mode-mutation control added.",
+      "key_changes": [
+        "model.rs: add grove_mode: Mode and explore_active: bool to App; add App::from_grove_config(cfg: GroveConfig) -> Self constructor",
+        "model.rs: update App::default() to use Mode::McpLlm so all existing headless tests remain green without modification",
+        "view.rs: outer block title includes mode badge (e.g. 'grove config   mode: mcp-llm ✓')",
+        "view.rs: layout gains a leading Constraint::Length(1) row for the explore notice; rendered blank when active, yellow warning when inactive",
+        "view.rs: all render functions gate focused=true on app.explore_active && app.focus == Field::X — DIM style applied automatically when inactive",
+        "view.rs: footer hint suppressed for field-specific keys when explore_active=false",
+        "update.rs: all explore-edit Msg variants (Provider/Url/Model/Mode/Tap/Tools edits) return None no-op when !explore_active",
+        "update.rs: Msg::Save returns None and sets app.last_error when !explore_active; Tab/Quit always pass through",
+        "mod.rs: run() signature changes to Option<GroveConfig>; save action builds GroveConfig{mode, explore} and calls grove_cfg.save(root)",
+        "main.rs: Cmd::Config loads GroveConfig::load instead of ExploreConfig::load",
+        "init.rs: after config_tui::run returns, prefer GroveConfig::load for explore section over legacy ExploreConfig::load(explore.json)",
+        "5 new unit tests in update.rs: badge_reflects_grove_mode, explore_inert_blocks_all_edits, save_blocked_when_inert, save_allowed_when_mcp_llm, tab_and_quit_always_work"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assessed the plan to add a read-only integration-mode badge and inert explore-section rendering to the grove config TUI.",
+      "key_changes": [
+        "Verified grove_core::Mode variants (Mcp/Skill/Both/McpLlm/Grammars) match the badge match arms and that Mode derives Copy — supports match + move into GroveConfig without clone.",
+        "GroveConfig shape (version/mode/explore) and load/save signatures confirmed against core/src/config.rs; constructor and save snippets are correct.",
+        "No namespace collision: existing App.mode:usize (steering) and Field::Mode vs newly-imported grove_core::Mode type; grove_mode naming is correct.",
+        "Both run() callers covered (main.rs:302 switches to GroveConfig::load; init.rs:127 keeps None, valid under Option<GroveConfig>).",
+        "All Msg variants referenced by gating/tests exist; gating strategy (edits no-op when !explore_active, Tab/Quit pass through) is feasible on the current single-match update fn.",
+        "Regression safety holds: new default() routes through from_grove_config(McpLlm) => explore_active=true, so existing fresh()-based tests stay green unmodified.",
+        "All 6 ACs map to concrete changes; 'TUI never mutates mode' invariant honoured (no Mode selector added).",
+        "Advisory 1: mod.rs text says remove ExploreConfig import but it is still used at mod.rs:105 (fetch_models) — keep it (snippet is correct).",
+        "Advisory 2: mod.rs import snippet includes Mode which is unused in mod.rs body — will fail clippy -D warnings (AC6); import only {ExploreConfig, GroveConfig}.",
+        "Advisory 3: view.rs badge match names Mode::* but view.rs lacks the import — needs use grove_core::Mode; (plan only mentions it under model.rs)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Extend the grove config TUI to read integration mode from GroveConfig, display it as a badge in the outer title, and render explore-section fields as inert/greyed (DIM, no-op edits) when mode != mcp-llm.",
+      "key_changes": [
+        "model.rs: added grove_mode: Mode and explore_active: bool fields to App struct",
+        "model.rs: added App::from_grove_config(cfg: GroveConfig) constructor; Default routes through McpLlm-active config so existing tests remain green",
+        "view.rs: outer block title includes mode badge (e.g. 'grove config   mode: mcp-llm ✓')",
+        "view.rs: layout gains leading Constraint::Length(1) row [0] for explore notice; all row indices shifted by +1",
+        "view.rs: render_explore_notice — blank when active, yellow warning when inactive",
+        "view.rs: all render functions gate focused=true on app.explore_active && app.focus == Field::X",
+        "view.rs: footer hint suppressed for field keys when !explore_active",
+        "update.rs: all explore-edit Msg variants no-op when !explore_active; Msg::Save sets last_error and returns None when inactive",
+        "update.rs: 5 new unit tests: badge_reflects_grove_mode, explore_inert_blocks_all_edits, save_blocked_when_inert, save_allowed_when_mcp_llm, tab_and_quit_always_work",
+        "mod.rs: run() signature changed to Option<GroveConfig>; save action builds GroveConfig and calls cfg.save(root)",
+        "main.rs: Cmd::Config loads GroveConfig::load instead of ExploreConfig::load",
+        "init.rs: after config_tui::run returns, prefer GroveConfig::load for explore section over legacy ExploreConfig::load"
+      ],
+      "files_changed": [
+        "cli/src/config_tui/model.rs",
+        "cli/src/config_tui/view.rs",
+        "cli/src/config_tui/update.rs",
+        "cli/src/config_tui/mod.rs",
+        "cli/src/main.rs",
+        "cli/src/init.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Assessed the config TUI implementation adding a read-only integration-mode badge and inert/greyed explore-section rendering when mode != mcp-llm.",
+      "key_changes": [
+        "Reviewed uncommitted working-tree delta (status 'implemented', not committed); merge-base diff conflated T01-T04 committed work, so review scoped to git diff of working tree.",
+        "AC1: view.rs outer title renders mode badge over all 5 Mode variants, sourced from app.grove_mode via App::from_grove_config.",
+        "AC2: Default/from_config set explore_active=true under McpLlm; existing edit paths untouched, 17 pre-existing update tests green.",
+        "AC3: every edit Msg no-ops when !explore_active; Save sets last_error; border_style(false) applies DIM borders; yellow notice row + footer hint added.",
+        "AC4: no mode selector; grove_mode read-only; Save (only reachable under McpLlm) round-trips mode unchanged — TUI never mutates mode.",
+        "AC5: 5 new update tests all pass; existing suite unmodified and green.",
+        "AC6 verified independently: clippy -D warnings clean, config_tui 22 passed, init:: 30 passed, all 6 files newline-terminated.",
+        "All 3 plan-review advisories honoured: view.rs imports grove_core::config::Mode; mod.rs keeps ExploreConfig, no unused Mode import.",
+        "init.rs/main.rs load GroveConfig with graceful fallback to legacy ExploreConfig::load — backward compatible.",
+        "Advisory (non-blocking): field body text not additionally dimmed; DIM borders + notice + footer satisfy AC3 as written."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that the config TUI correctly reads integration mode from GroveConfig, displays it as a badge, and renders explore-section fields as inert/greyed when mode != mcp-llm.",
+      "key_changes": [
+        "AC1 PASS: view.rs title badge covers all 5 Mode variants; App::from_grove_config sets grove_mode from cfg.mode; main.rs loads GroveConfig::load for Cmd::Config.",
+        "AC2 PASS: App::default() routes through McpLlm-active config; 17 pre-existing update tests remain green; save_allowed_when_mcp_llm confirms Save -> Some(Action::Save).",
+        "AC3 PASS: render_explore_notice shows yellow warning when !explore_active; DIM borders; footer shows dormant hint; all 8 edit Msg variants no-op when inactive.",
+        "AC3 PASS (save blocked): Msg::Save sets last_error and returns None when !explore_active; save_blocked_when_inert test (Mode::Skill) confirmed.",
+        "AC4 PASS: grove_mode set once in from_grove_config and never mutated by any Msg; mod.rs save round-trips unchanged; no mode selector added.",
+        "AC5 PASS: 5 new tests all green — badge_reflects_grove_mode, explore_inert_blocks_all_edits, save_blocked_when_inert, save_allowed_when_mcp_llm, tab_and_quit_always_work.",
+        "AC6 PASS: 283 tests passed 0 failed; clippy -D warnings clean; all 6 modified files end with newline.",
+        "REGRESSION: Full suite (161+92+29+1) all green — no regressions."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on the config TUI mode badge + inert explore-section rendering when mode != mcp-llm.",
+      "key_changes": [
+        "Elm-style layering preserved: grove_mode/explore_active are pure model state, inert gate in update, badge/notice in view — no cross-layer leakage.",
+        "AC4 invariant upheld: grove_mode set once in from_grove_config, never mutated; no mode selector; Save round-trips mode unchanged — TUI cannot become a second harness writer.",
+        "All 6 ACs pass; badge covers all 5 Mode variants; edits and Save no-op when explore inactive; new coverage asserts badge + inert behaviour.",
+        "Regression-safe: App::default() routes through McpLlm-active config; 283 tests passed / 0 failed; clippy -D warnings clean.",
+        "Backward compatible: main.rs/init.rs load GroveConfig with graceful fallback to legacy ExploreConfig::load for pre-migration projects.",
+        "Deployment: version bump required at release (visible TUI change); no migrations, regeneration, or security scan needed.",
+        "Follow-up: optional fuller field-body dimming (non-blocking); retire legacy ExploreConfig::load fallback once all consumers migrate to GroveConfig."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

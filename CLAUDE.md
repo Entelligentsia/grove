@@ -177,6 +177,10 @@ grove index  [dir] [--release-base <url>] [-o index.json]
   messages. Match the surrounding style; keep `main`/`mcp` thin.
 - "Boring and obvious" over clever. Single responsibility per function.
 - Files end with a newline. `cargo build` must be warning-clean.
+- **Lint gate:** CI runs `cargo clippy --all-targets --workspace --locked -- -D warnings`
+  (`.github/workflows/ci.yml`). Run the **same** command locally — plain
+  `cargo clippy` does NOT lint test code (`--all-targets` adds tests/examples/
+  benches), so test-only lints slip past the default and fail CI.
 - **Commits:** do NOT add `Co-Authored-By` lines. Branch before committing to a
   default branch. Conventional-commit style (`feat(registry): …`).
 - This repo dogfoods itself: `.mcp.json` registers `grove serve`. A session here
@@ -244,7 +248,6 @@ Personas live in `.forge/personas/`.
 |----------|---------|
 | [Plan](.forge/workflows/plan_task.md) | Research codebase → implementation plan |
 | [Implement](.forge/workflows/implement_plan.md) | Execute approved plan → code changes |
-| [Run task](.claude/workflows/wfl-run-task.js) | Full task pipeline (plan → implement → review → approve → commit) |
-| [Run sprint](.claude/workflows/wfl-run-sprint.js) | Full sprint orchestration |
-| [Fix bug](.claude/workflows/wfl-fix-bug.js) | Triage → fix → verify |
+| [Sprint plan](.forge/workflows/architect_sprint_plan.md) | Sprint planning and task decomposition |
+| [Sprint intake](.forge/workflows/architect_sprint_intake.md) | Sprint intake and requirements elicitation |
 <!-- /forge-workflow-links -->

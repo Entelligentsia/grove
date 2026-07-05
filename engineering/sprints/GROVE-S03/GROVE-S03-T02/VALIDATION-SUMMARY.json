@@ -1,0 +1,18 @@
+{
+  "objective": "Validate that GroveConfig::load correctly migrates legacy .grove/explore.json to config.json with mode=McpLlm, maps explore.mode→explore.steering, emits a one-time deprecation warning, and handles all four cascade branches correctly.",
+  "key_changes": [
+    "AC1 PASS: Three-branch load cascade correct — config.json→normal; explore.json→migrate_from_legacy_explore; neither→actionable error. Test 5a confirms migration branch triggers.",
+    "AC2 PASS: LegacyExploreRaw.mode mapped via Steering::from_name to ExploreConfig.steering. Test 5a asserts mode='balanced'→Steering::Balanced; all other fields preserved.",
+    "AC3 PASS: eprintln!(DEPRECATION_WARNING) in migrate_from_legacy_explore. One-time: post-migration config.json routes to branch 1. Test 5b confirms idempotency via mtime assert.",
+    "AC4 PASS: Neither file → bail with 'run `grove init`' message. Pre-existing missing_file_actionable_error test still passes; no regression.",
+    "AC5 PASS: All four new tests green — 5a (migration), 5b (idempotency+mtime), 5c (config.json wins over stale explore.json), 5d (const content + path exercised).",
+    "AC6 PASS: clippy -D warnings clean; cargo test --release --locked: 261 tests (155+77+28+1), 0 failures; both modified files end with trailing newline.",
+    "EDGE CASE PASS: config.json + stale explore.json — test 5c confirms load short-circuits on config.json presence; stale file never opened.",
+    "EDGE CASE PASS: explore.json mtime unchanged on second load — mtime assertion in 5b catches any inadvertent write to legacy file.",
+    "REGRESSION PASS: legacy_mode_key_rejected in explore/config.rs still passes; ExploreConfig deserializer correctly rejects old 'mode' key.",
+    "NOTE: test 5d asserts on DEPRECATION_WARNING const content, not stderr capture — accepted tradeoff; eprintln! call confirmed by code inspection."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

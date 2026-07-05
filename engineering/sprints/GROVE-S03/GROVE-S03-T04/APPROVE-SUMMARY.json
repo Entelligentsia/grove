@@ -1,0 +1,16 @@
+{
+  "objective": "Architect sign-off on reconcile_harness — the single mode-exact harness writer with strip direction, config.json mode persistence, and the 20-pair transition-matrix test.",
+  "key_changes": [
+    "Architecturally sound: on-disk harness becomes a pure function of new_mode, eliminating the old_mode-residue drift class (bug 2). Strictly stronger than the removed write_harness.",
+    "Blast radius contained to cli/src/init.rs; no core/src/config.rs changes. Target->Mode 1-to-1 bridge keeps config surface stable.",
+    "Destructive ops are safe: strip is sentinel-bounded and .mcp.json edit removes only mcpServers.grove; host content + sibling servers preserved verbatim (explicit test).",
+    "Test rigor: 20 ordered A->B pairs across all 5 modes; fixtures structured for T07 reuse; active_mode round-trip covered separately.",
+    "Dry-run safe: provisioned.is_empty() guard short-circuits before reconcile/save. Non-TTY guard widened to treat config.json mcp-llm as already-configured.",
+    "Deployment: version bump required at release; no migration — drifted projects self-heal via one grove init --as <current-mode>. No security scan needed.",
+    "Follow-up: T07 fixture reuse needs a visibility change (non-blocking); tidy reconcile_harness doc comment (drives from new_mode, not on-disk state).",
+    "All prior phases approved; 278 tests green, cargo clippy -D warnings clean, files end with newline."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

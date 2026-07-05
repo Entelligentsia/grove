@@ -1,0 +1,18 @@
+{
+  "objective": "Assessed the config TUI implementation adding a read-only integration-mode badge and inert/greyed explore-section rendering when mode != mcp-llm.",
+  "key_changes": [
+    "Reviewed uncommitted working-tree delta (status 'implemented', not committed); merge-base diff conflated T01-T04 committed work, so review scoped to git diff of working tree.",
+    "AC1: view.rs outer title renders mode badge over all 5 Mode variants, sourced from app.grove_mode via App::from_grove_config.",
+    "AC2: Default/from_config set explore_active=true under McpLlm; existing edit paths untouched, 17 pre-existing update tests green.",
+    "AC3: every edit Msg no-ops when !explore_active; Save sets last_error; border_style(false) applies DIM borders; yellow notice row + footer hint added.",
+    "AC4: no mode selector; grove_mode read-only; Save (only reachable under McpLlm) round-trips mode unchanged — TUI never mutates mode.",
+    "AC5: 5 new update tests all pass; existing suite unmodified and green.",
+    "AC6 verified independently: clippy -D warnings clean, config_tui 22 passed, init:: 30 passed, all 6 files newline-terminated.",
+    "All 3 plan-review advisories honoured: view.rs imports grove_core::config::Mode; mod.rs keeps ExploreConfig, no unused Mode import.",
+    "init.rs/main.rs load GroveConfig with graceful fallback to legacy ExploreConfig::load — backward compatible.",
+    "Advisory (non-blocking): field body text not additionally dimmed; DIM borders + notice + footer satisfy AC3 as written."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

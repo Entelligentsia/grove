@@ -5,6 +5,6 @@
   "upToDate": true,
   "localVersion": "0.0.0",
   "distribution": "forge@forge",
-  "forgeRoot": ".",
-  "forgeRef": "0.0.0"
+  "forgeRoot": "/home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload",
+  "forgeRef": "1.6.10"
 }

@@ -1,0 +1,20 @@
+{
+  "objective": "Fix bug-1 (sticky explore surface) by replacing explore.json file-existence check with a declared config.mode trigger, implemented via a shared active_mode(root, force)->Mode resolver in core::config that serve and doctor both call.",
+  "key_changes": [
+    "Add pub enum ModeChoice { None, ForceExplore, ForceStandard } to core/src/config.rs.",
+    "Add pub fn active_mode(root, force) -> Mode: ForceStandard→Mcp, ForceExplore→McpLlm, None→GroveConfig::load(root).mode (Mcp on failure).",
+    "Re-export ModeChoice and active_mode from core/src/lib.rs alongside existing GroveConfig, Mode re-exports.",
+    "Rewrite determine_surface in cli/src/mcp.rs: map (force_standard, force_explore) to ModeChoice, call active_mode, branch on Mode::McpLlm.",
+    "When Mode::McpLlm: load GroveConfig again for explore section (not ExploreConfig::load); handle missing explore section gracefully.",
+    "Remove ExploreConfig::config_path(root).exists() and ExploreConfig::load(root) calls from determine_surface.",
+    "Add import use grove_core::config::{active_mode, GroveConfig, ModeChoice, Mode} in cli/src/mcp.rs.",
+    "6 new unit tests for active_mode in core/src/config.rs (force variants, declared modes, bug-1 regression, no-config fallback).",
+    "New integration test bug1_serve_mcp_mode_ignores_stale_explore_json: config.json mode=mcp + stale explore.json → 7-tool standard surface.",
+    "Update comment on existing explore_mode_unhealthy_provider_falls_back_to_standard_surface to reference T03.",
+    "Health-gated fallback (mcp-llm + unhealthy provider → standard) preserved unchanged in the rewritten determine_surface.",
+    "Change is material (bug fix to serve surface selection); version bump required at release."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-05T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}
