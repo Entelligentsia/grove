@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/favicon.png" width="80" alt="grove favicon">
+
 # grove
 
 ### structural sight for coding agents
