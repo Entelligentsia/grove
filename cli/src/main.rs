@@ -204,10 +204,7 @@ fn main() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&ops::project(&syms, detail))?);
             } else {
-                for s in &syms {
-                    let owner = s.parent.clone().unwrap_or_default();
-                    println!("{:<10} {:<26} {:<18} {}:{:<4} {}", s.kind, s.name, owner, s.line, s.col, s.signature);
-                }
+                print!("{}", grove_core::render::outline(&syms));
                 eprintln!("\n{} definitions · {}", syms.len(), ops::rel(&file));
             }
         }
@@ -216,10 +213,7 @@ fn main() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&syms)?);
             } else {
-                for s in &syms {
-                    let mark = if s.is_definition { "def" } else { "ref" };
-                    println!("{:<3} {:<10} {:<28} {}", mark, s.kind, s.name, s.id);
-                }
+                print!("{}", grove_core::render::symbols(&syms));
                 eprintln!("\n{} symbols", syms.len());
             }
         }
@@ -231,7 +225,7 @@ fn main() -> Result<()> {
                 if !res.other_candidates.is_empty() {
                     eprintln!("(also matched: {})", res.other_candidates.join(", "));
                 }
-                println!("{}", res.source);
+                print!("{}", grove_core::render::source(&res));
             }
         }
         Cmd::Check { file } => {
@@ -253,14 +247,9 @@ fn main() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&sites)?);
             } else {
-                for s in &sites {
-                    let inf = s.in_function.as_deref().unwrap_or("<top-level>");
-                    // Lead with `path:line:col` so the location is greppable and,
-                    // for a directory-wide query, you can tell which file it's in (#29).
-                    // [S]/[T] = structural (tree-sitter) vs textual (grep) provenance (#33).
-                    let tag = if s.source == ops::CallSource::Structural { "S" } else { "T" };
-                    println!("{}:{}:{}   {:<28} [{}] {}", s.file, s.line, s.col, inf, tag, s.text);
-                }
+                // Lead with `path:line:col` (greppable + file-locating for dir-wide
+                // queries, #29); [S]/[T] = structural vs textual provenance (#33).
+                print!("{}", grove_core::render::callers(&sites));
                 eprintln!("\n{} reference(s) of `{}` (S=structural, T=textual)", sites.len(), name);
             }
         }
@@ -269,17 +258,7 @@ fn main() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&maps)?);
             } else {
-                for fm in &maps {
-                    println!("{}", fm.file);
-                    for e in &fm.entries {
-                        let parent = e.parent.as_deref().unwrap_or("");
-                        if e.references.is_empty() {
-                            println!("  {:<10} {:<26} {:<18} {:<4} {}", e.kind, e.name, parent, e.row, e.signature);
-                        } else {
-                            println!("  {:<10} {:<26} {:<18} {:<4} {}  → {}", e.kind, e.name, parent, e.row, e.signature, e.references.join(", "));
-                        }
-                    }
-                }
+                print!("{}", grove_core::render::map(&maps));
                 let total: usize = maps.iter().map(|fm| fm.entries.len()).sum();
                 eprintln!("\n{} definitions across {} files", total, maps.len());
             }
@@ -298,14 +277,9 @@ fn main() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&defs)?);
             } else {
-                for s in &defs {
-                    let owner = s.parent.clone().unwrap_or_default();
-                    // `definition` searches a whole dir, so results can span
-                    // files — lead with `file:line:col` so the caller knows
-                    // which file each hit is in without a follow-up `symbols`.
-                    let loc = format!("{}:{}:{}", s.file, s.line, s.col);
-                    println!("{:<10} {:<26} {:<18} {:<28} {}", s.kind, s.name, owner, loc, s.signature);
-                }
+                // `definition` searches a whole dir, so hits can span files —
+                // render leads each with `file:line:col` (no follow-up `symbols`).
+                print!("{}", grove_core::render::definition(&defs));
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
         }
