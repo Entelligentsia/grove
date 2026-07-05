@@ -274,7 +274,7 @@ mod tests {
         update(&mut app, Msg::ModeDown);
         assert_eq!(app.mode, 1); // Balanced
         update(&mut app, Msg::ModeDown);
-        assert_eq!(app.mode, 2); // Aggressive
+        assert_eq!(app.mode, 2); // Strict
         update(&mut app, Msg::ModeDown); // already max
         assert_eq!(app.mode, 2);
         update(&mut app, Msg::ModeUp);
@@ -467,7 +467,7 @@ mod tests {
             provider: grove_core::Provider::LlamaCpp,
             base_url: "http://localhost:8080/v1".to_string(),
             model: "llama3".to_string(),
-            steering: grove_core::Steering::Aggressive,
+            steering: grove_core::Steering::Strict,
             allowed_tools: vec!["grove".to_string()],
             tap: true,
             trace_retain: 25,
@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(app.provider, 1, "LlamaCpp should map to index 1");
         assert_eq!(app.base_url, "http://localhost:8080/v1");
         assert_eq!(app.model, "llama3");
-        assert_eq!(app.mode, 2, "Aggressive should map to index 2");
+        assert_eq!(app.mode, 2, "Strict should map to index 2");
         assert_eq!(app.tools, vec![("grove".to_string(), true)]);
         assert_eq!(app.trace_retain, 25, "retention carried through unchanged");
         assert!(app.dirty_url, "loaded config must set dirty_url=true");

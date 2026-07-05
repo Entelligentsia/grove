@@ -3,7 +3,7 @@
 //! mechanism, with the arm mapping fixed by the sprint decision:
 //!
 //! - [`Steering::Standard`]  → **merit**: balanced steering, Grove as one option.
-//! - [`Steering::Aggressive`]→ **coerce**: the MANDATORY grove-first steering.
+//! - [`Steering::Strict`]    → the MANDATORY grove-first steering.
 //! - [`Steering::Balanced`]  → **plan-first**: merit steering; the two-phase recon
 //!   notes are appended by [`crate::explore::agent`] at run time.
 //!
@@ -20,8 +20,8 @@ use super::config::Steering;
 const SYSTEM_MD: &str = include_str!("prompts/system.md");
 /// Balanced "one toolkit" Grove steering (vendored `grove_steering.md`) — merit.
 const GROVE_STEERING_MERIT: &str = include_str!("prompts/grove_steering_merit.md");
-/// "MANDATORY TOOL POLICY — use Grove, not Grep" (original repo) — coerce.
-const GROVE_STEERING_COERCE: &str = include_str!("prompts/grove_steering_coerce.md");
+/// "MANDATORY TOOL POLICY — use Grove, not Grep" (original repo) — strict.
+const GROVE_STEERING_STRICT: &str = include_str!("prompts/grove_steering_strict.md");
 
 /// The plan-first phase-1 note, ported verbatim from `mcp_server.py`.
 pub const PHASE1_NOTE: &str = "\n\n## PLANNING PHASE\nYou are scoping WHERE to look before investigating. Tools now:\n- Grove — structure only: map, symbols, outline, definition.\n- submit_plan — records your focus area and unlocks the execution tools.\n\nDo 1-2 Grove calls to locate the relevant code (e.g. `symbols . --name-contains --name <term>`, then `map <dir>` or `outline <file>`). As soon as you can name the files and symbols involved, CALL submit_plan(focus_files, focus_symbols, steps). You CANNOT read bodies, Grep, or answer until you call submit_plan; after 1-2 Grove calls Grove closes and submit_plan is your only option — do not over-explore.";
@@ -49,7 +49,7 @@ pub const FORCE_FINAL_ANSWER: &str =
 /// `WORK_DIR_LS`) followed by the `[GROVE_SECTION]` substitution.
 pub fn system_prompt(steering: Steering, root: &Path) -> String {
     let grove_block = match steering {
-        Steering::Aggressive => GROVE_STEERING_COERCE,
+        Steering::Strict => GROVE_STEERING_STRICT,
         // Standard (merit) and Balanced (plan-first) share the merit base; the
         // plan-first phase notes are layered on by the agent loop.
         Steering::Standard | Steering::Balanced => GROVE_STEERING_MERIT,
@@ -90,20 +90,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn merit_and_coerce_select_distinct_grove_blocks() {
+    fn merit_and_strict_select_distinct_grove_blocks() {
         let root = std::env::temp_dir();
         let std_p = system_prompt(Steering::Standard, &root);
-        let agg_p = system_prompt(Steering::Aggressive, &root);
+        let strict_p = system_prompt(Steering::Strict, &root);
         assert!(
-            agg_p.contains("MANDATORY TOOL POLICY"),
-            "aggressive uses coerce steering"
+            strict_p.contains("MANDATORY TOOL POLICY"),
+            "strict uses the mandatory grove-first steering"
         );
         assert!(
             !std_p.contains("MANDATORY TOOL POLICY"),
             "standard uses merit steering"
         );
         assert!(!std_p.contains("[GROVE_SECTION]"));
-        assert!(!agg_p.contains("[GROVE_SECTION]"));
+        assert!(!strict_p.contains("[GROVE_SECTION]"));
     }
 
     #[test]

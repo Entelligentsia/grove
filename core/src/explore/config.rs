@@ -48,7 +48,7 @@ impl Provider {
 }
 
 /// The steering level applied to the inner explorer (merit / plan-first /
-/// coerce). Steering *content* is out of scope for this task (T03); this enum
+/// strict). Steering *content* lives in [`crate::explore::steering`]; this enum
 /// only names the three levels. Serialized lowercase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,19 +57,24 @@ pub enum Steering {
     Standard,
     /// Plan-first steering.
     Balanced,
-    /// Coercive steering.
-    Aggressive,
+    /// Strict steering — the mandatory grove-first tool policy (structural
+    /// tools before text search).
+    Strict,
 }
 
 impl Steering {
     /// The legal on-disk spellings, in declaration order.
-    pub const LEGAL: &'static [&'static str] = &["standard", "balanced", "aggressive"];
+    pub const LEGAL: &'static [&'static str] = &["standard", "balanced", "strict"];
 
     pub(crate) fn from_name(s: &str) -> Result<Self> {
         match s {
             "standard" => Ok(Steering::Standard),
             "balanced" => Ok(Steering::Balanced),
-            "aggressive" => Ok(Steering::Aggressive),
+            "strict" => Ok(Steering::Strict),
+            // Deprecated alias: `strict` was named `aggressive` before it was
+            // renamed to drop the negative framing. Accept it on read so
+            // existing configs keep loading; it is no longer an advertised value.
+            "aggressive" => Ok(Steering::Strict),
             other => bail!(
                 "invalid `steering` value `{other}`: expected one of {}",
                 Self::LEGAL.join(", ")
@@ -257,15 +262,24 @@ mod tests {
             "provider": "llamacpp",
             "base_url": "http://localhost:8080/v1",
             "model": "custom",
-            "steering": "aggressive",
+            "steering": "strict",
             "allowed_tools": ["grove"]
         }"#;
         let cfg: ExploreConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.provider, Provider::LlamaCpp);
-        assert_eq!(cfg.steering, Steering::Aggressive);
+        assert_eq!(cfg.steering, Steering::Strict);
         assert_eq!(cfg.base_url, "http://localhost:8080/v1");
         assert_eq!(cfg.model, "custom");
         assert_eq!(cfg.allowed_tools, vec!["grove".to_string()]);
+    }
+
+    #[test]
+    fn strict_serializes_lowercase_and_aggressive_is_a_read_alias() {
+        // Current value serializes as `strict`.
+        assert_eq!(serde_json::to_string(&Steering::Strict).unwrap(), "\"strict\"");
+        assert_eq!(Steering::from_name("strict").unwrap(), Steering::Strict);
+        // Deprecated pre-rename spelling still loads (back-compat), mapping to Strict.
+        assert_eq!(Steering::from_name("aggressive").unwrap(), Steering::Strict);
     }
 
     #[test]

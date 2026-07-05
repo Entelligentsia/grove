@@ -84,7 +84,7 @@ project's grove integration, with the explore backend demoted to a section:
 - **`mode`** records the init `Target` verbatim (`mcp` | `skill` | `both` |
   `mcp-llm` | `grammars`). It is written by `grove init` on every run.
 - **`explore`** is today's `ExploreConfig`, present only when relevant. Its inner
-  `mode` field (steering level: standard/balanced/aggressive) is renamed to
+  `mode` field (steering level: standard/balanced/strict) is renamed to
   **`steering`** to remove the `config.mode` / `config.explore.mode` ambiguity —
   optional polish, not load-bearing (see Scope boundary).
 
