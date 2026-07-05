@@ -13,6 +13,8 @@ consumer.
 
 ## One engine, four surfaces
 
+![One engine, four surfaces diagram](assets/grove_architecture_surfaces.svg)
+
 grove is a single Rust binary and a library over one engine. You can reach it
 four ways:
 

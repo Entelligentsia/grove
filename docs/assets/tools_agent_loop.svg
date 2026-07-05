@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <!-- Card Background -->
+  <rect width="760" height="300" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- Diagram Title -->
+  <text x="30" y="35" font-size="18" font-weight="700" fill="#0f172a">The 7 Tools and the Agent Loop</text>
+  <text x="30" y="55" font-size="12" fill="#64748b">Mapping grove's syntax-driven tools to an AI agent's iterative working lifecycle</text>
+
+  <!-- Connective Pipeline Line -->
+  <line x1="75" y1="165" x2="685" y2="165" stroke="#cbd5e1" stroke-width="3"/>
+
+  <!-- Phase 1: Orient -->
+  <circle cx="75" cy="165" r="14" fill="#0284c7" stroke="#ffffff" stroke-width="2"/>
+  <text x="75" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="75" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Orient</text>
+  <text x="75" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Map directory structure</text>
+  <rect x="25" y="195" width="100" height="35" rx="4" fill="#ffffff" stroke="#0284c7" stroke-width="1.2"/>
+  <text x="75" y="217" font-size="11.5" font-weight="700" fill="#0369a1" text-anchor="middle">grove map</text>
+
+  <!-- Phase 2: Find -->
+  <circle cx="197" cy="165" r="14" fill="#0d9488" stroke="#ffffff" stroke-width="2"/>
+  <text x="197" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="197" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Find</text>
+  <text x="197" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Search symbol names</text>
+  <rect x="147" y="195" width="100" height="35" rx="4" fill="#ffffff" stroke="#0d9488" stroke-width="1.2"/>
+  <text x="197" y="217" font-size="11.5" font-weight="700" fill="#0f766e" text-anchor="middle">grove symbols</text>
+
+  <!-- Phase 3: Read -->
+  <circle cx="319" cy="165" r="14" fill="#4f46e5" stroke="#ffffff" stroke-width="2"/>
+  <text x="319" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="319" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Read</text>
+  <text x="319" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Inspect symbols cheaply</text>
+  <rect x="269" y="195" width="100" height="48" rx="4" fill="#ffffff" stroke="#4f46e5" stroke-width="1.2"/>
+  <text x="319" y="214" font-size="11.5" font-weight="700" fill="#3730a3" text-anchor="middle">grove outline</text>
+  <text x="319" y="232" font-size="11.5" font-weight="700" fill="#3730a3" text-anchor="middle">grove source</text>
+
+  <!-- Phase 4: Locate -->
+  <circle cx="441" cy="165" r="14" fill="#d97706" stroke="#ffffff" stroke-width="2"/>
+  <text x="441" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+  <text x="441" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Locate</text>
+  <text x="441" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Go-to-definition</text>
+  <rect x="391" y="195" width="100" height="35" rx="4" fill="#ffffff" stroke="#d97706" stroke-width="1.2"/>
+  <text x="441" y="217" font-size="11.5" font-weight="700" fill="#b45309" text-anchor="middle">grove definition</text>
+
+  <!-- Phase 5: Trace -->
+  <circle cx="563" cy="165" r="14" fill="#c026d3" stroke="#ffffff" stroke-width="2"/>
+  <text x="563" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+  <text x="563" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Trace</text>
+  <text x="563" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Follow call graphs</text>
+  <rect x="513" y="195" width="100" height="35" rx="4" fill="#ffffff" stroke="#c026d3" stroke-width="1.2"/>
+  <text x="563" y="217" font-size="11.5" font-weight="700" fill="#a21caf" text-anchor="middle">grove callers</text>
+
+  <!-- Phase 6: Verify -->
+  <circle cx="685" cy="165" r="14" fill="#16a34a" stroke="#ffffff" stroke-width="2"/>
+  <text x="685" y="169" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">6</text>
+  <text x="685" y="115" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Verify</text>
+  <text x="685" y="132" font-size="10.5" fill="#64748b" text-anchor="middle">Check syntax post-edit</text>
+  <rect x="635" y="195" width="100" height="35" rx="4" fill="#ffffff" stroke="#16a34a" stroke-width="1.2"/>
+  <text x="685" y="217" font-size="11.5" font-weight="700" fill="#15803d" text-anchor="middle">grove check</text>
+</svg>

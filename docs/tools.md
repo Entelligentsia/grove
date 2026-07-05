@@ -4,6 +4,8 @@ grove's surface is the agent loop in miniature — seven tools, each returning o
 symbol's worth of structure with a stable id. Add `--json` to any command for the
 agent-facing structured shape.
 
+![The 7 Tools and the Agent Loop](assets/tools_agent_loop.svg)
+
 | Phase | Command | What it does |
 |---|---|---|
 | Read | `grove outline <file> [--kind K] [--detail 0\|1\|2]` | compact definition skeleton: kind · name · parent · signature · id. Filter by kind / dial detail down for big files |

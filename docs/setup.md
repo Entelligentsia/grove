@@ -37,8 +37,9 @@ grove init --as mcp-llm  # explore-mode: .mcp.json (serve --explore) + CLAUDE.md
 
 > **Opt-in.** The `.grove/config.json` config format and the `explore` tool
 > contract are covered by semantic versioning as of 0.3.0. The standard
-> `--as mcp|skill|both` targets and the 7-tool `grove serve` are unaffected. See
-> the README's *Delegated local-LLM mode* section for the architecture diagram.
+> `--as mcp|skill|both` targets and the 7-tool `grove serve` are unaffected.
+
+![Standard vs. Explore mode comparison](assets/mcp_explore_comparison.svg)
 
 `--as mcp-llm` wires grove in **explore-mode**: instead of exposing the 7
 structural tools directly, the MCP server surfaces a single `explore` tool

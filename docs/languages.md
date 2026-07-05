@@ -4,6 +4,8 @@ A grammar is a `registry/<lang>/` directory holding `grammar.wasm` + `tags.scm` 
 `manifest.json`. They load at runtime — `grove init` fetches what your project
 needs, or fetch explicitly:
 
+![Grammar Registry & Provisioning Pipeline](assets/grammar_pipeline.svg)
+
 ```bash
 grove languages      # what's installed locally
 grove fetch          # install all grammars from the hosted registry
