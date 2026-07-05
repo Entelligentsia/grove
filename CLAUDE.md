@@ -30,7 +30,7 @@ cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): ses
 cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
 skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 
-core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
+core/src/explore/      inner explorer engine (mcp-llm mode — opt-in, stable as of 0.3.0)
   mod.rs               re-exports; public surface is run_explore[_reporting]()
   config.rs            ExploreConfig — .grove/explore.json serde + atomic save (tap, trace_retain)
   client.rs            ChatClient trait + OpenAiCompatClient + health_probe() + list_models() + Usage
@@ -42,8 +42,8 @@ core/src/explore/      inner explorer engine (mcp-llm mode — EXPERIMENTAL)
   prompts/             system/tool/steering prompt assets, embedded verbatim (include_str!)
 ```
 
-**mcp-llm mode is experimental** (unreleased) — a direct port of the delegation
-study's bench agent. The default CLI + 7-tool `grove serve` are the stable surface.
+**mcp-llm mode is opt-in** (stable as of 0.3.0) — a direct port of the delegation
+study's bench agent. The default CLI + 7-tool `grove serve` remain the primary surface.
 
 Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
 For mcp-llm mode: `mcp.rs` → `core::explore::run_explore` → inner loop → answer.

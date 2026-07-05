@@ -125,11 +125,12 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 Add `--json` to any command for the agent-facing shape. Full reference + examples:
 **[Tools](docs/tools.md)**.
 
-## Delegated local-LLM mode (`mcp__grove__explore`) · ⚠️ Experimental
+## Delegated local-LLM mode (`mcp__grove__explore`)
 
-> **Experimental / opt-in — unreleased.** The default grove (the CLI and the
-> standard 7-tool `grove serve`) is unaffected. This mode's behaviour, its config
-> (`.grove/explore.json`), and the tool contract may change without notice.
+> **Opt-in.** The default grove (the CLI and the standard 7-tool `grove serve`)
+> is unaffected — this mode is enabled only when you run `grove init --as mcp-llm`.
+> It is configured in `.grove/config.json`; its config format and the `explore`
+> tool contract are covered by semantic versioning as of 0.3.0.
 
 **What it is**: `mcp__grove__explore` is a single MCP tool the outer coding agent
 calls with **one narrow "where is X" question**. Grove's inner Rust explorer
