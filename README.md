@@ -145,27 +145,7 @@ WHERE relevant code lives), not a full-analysis oracle: ask a few targeted
 questions and synthesize the results yourself. The outer agent never sees the
 inner tool calls — and never spends its own context on them.
 
-```
-   outer coding agent (Claude / Cursor / …)
-      │  explore("where is session-cookie signing?")     ▲  explanation +
-      │  — one narrow locator question —                 │  file:line citations
-      ▼                                                  │  (+ live progress ticks)
- ┌────────────────────  grove serve --explore  ──────────┴──────────────────────┐
- │  startup health probe (/models):                                             │
- │     healthy   → surface ONLY  mcp__grove__explore                            │
- │     unhealthy → fall back to the 7 structural tools   (never a dead server)  │
- │                                                                              │
- │  inner explorer  (core::explore) — a port of the proven delegation agent:    │
- │     bounded loop  ≤ 6 turns · forced final answer at the cap · no byte budget│
- │                                                                              │
- │         local LLM  ⇄  Grove · Read · Glob · Grep                             │
- │      (Ollama / llama.cpp,     Grove → grove binary,  Grep/Glob → ripgrep,    │
- │       OpenAI-compatible)      Read in-process                                │
- │                                                                              │
- │     arms:  standard (merit) · balanced (plan-first) · strict (grove-first)   │
- │     result: <final_answer> citations, each validated against the filesystem  │
- └──────────────────────────────────────────────────────────────────────────────┘
-```
+![Delegated Local-LLM Mode](docs/assets/explore_delegation_flow.svg)
 
 **Setup**:
 ```
