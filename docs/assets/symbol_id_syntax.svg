@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <!-- Card Background -->
+  <rect width="760" height="180" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- The symbol string -->
+  <g transform="translate(140, 60)" font-family="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace" font-size="22" font-weight="600">
+    <!-- rust -->
+    <text x="0" y="0" fill="#d97706">rust</text>
+    <!-- : -->
+    <text x="56" y="0" fill="#94a3b8">:</text>
+    <!-- file path -->
+    <text x="70" y="0" fill="#0284c7">core/src/ops.rs</text>
+    <!-- # -->
+    <text x="278" y="0" fill="#94a3b8">#</text>
+    <!-- symbol name -->
+    <text x="292" y="0" fill="#059669">symbols</text>
+    <!-- @ -->
+    <text x="390" y="0" fill="#94a3b8">@</text>
+    <!-- line -->
+    <text x="404" y="0" fill="#db2777">42</text>
+  </g>
+
+  <!-- Connectors and Labels -->
+  <g stroke="#94a3b8" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- language -->
+    <path d="M 165,70 L 165,110 L 120,110" />
+    <!-- file path -->
+    <path d="M 314,70 L 314,140 L 269,140" />
+    <!-- symbol name -->
+    <path d="M 480,70 L 480,110 L 525,110" />
+    <!-- line -->
+    <path d="M 558,70 L 558,140 L 603,140" />
+  </g>
+
+  <!-- Labels -->
+  <g font-size="12" font-weight="600">
+    <text x="110" y="114" fill="#d97706" text-anchor="end">Language</text>
+    
+    <text x="259" y="140" fill="#0284c7" text-anchor="end">File path</text>
+    <text x="259" y="156" font-size="10" font-weight="400" fill="#64748b" text-anchor="end">repo-relative</text>
+    
+    <text x="535" y="114" fill="#059669" text-anchor="start">Symbol name</text>
+    
+    <text x="613" y="140" fill="#db2777" text-anchor="start">Line</text>
+    <text x="613" y="156" font-size="10" font-weight="400" fill="#64748b" text-anchor="start">1-based</text>
+  </g>
+
+  <!-- Connector Points -->
+  <g fill="#94a3b8">
+    <circle cx="165" cy="70" r="3" />
+    <circle cx="314" cy="70" r="3" />
+    <circle cx="480" cy="70" r="3" />
+    <circle cx="558" cy="70" r="3" />
+  </g>
+</svg>
