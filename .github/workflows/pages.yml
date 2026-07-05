@@ -32,10 +32,16 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook
+      - name: Build docs (mdBook → site/docs)
+        run: mdbook build docs
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload only the site directory
+          # Upload the marketing site plus the mdBook docs built into site/docs
           path: './site'
       - name: Deploy to GitHub Pages
         id: deployment

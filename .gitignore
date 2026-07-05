@@ -8,3 +8,6 @@ dist/npm/node_modules/
 
 # Runtime artifact from `grove serve` / tap debugging
 server.pid
+
+# mdBook output (generated into the Pages site by pages.yml)
+/site/docs/
