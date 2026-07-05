@@ -12,9 +12,9 @@
     "lastCalibrated": "2026-06-30T13:42:39.282Z"
   },
   "masterIndexHash": "c9b0b32876338a16e898c09906d440d16222101d0551fd60fa47cbcf6cb83454",
-  "configMtime": 1782826959471.0547,
+  "configMtime": 1783055907039.4226,
   "structureOk": null,
-  "generatedAt": "2026-06-30T15:02:03.015Z",
+  "generatedAt": "2026-07-03T05:19:56.881Z",
   "warnings": [
     "structure check error: Cannot find module '/home/boni/.claude/plugins/cache/forge/forge/1.6.4/tools/check-structure.cjs'\nRequire stack:\n- /home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload/tools/forge-preflight.cjs"
   ]

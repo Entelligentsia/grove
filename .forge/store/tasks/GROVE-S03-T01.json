@@ -2,9 +2,133 @@
   "taskId": "GROVE-S03-T01",
   "sprintId": "GROVE-S03",
   "title": "GroveConfig core type + explore section demotion + mode->steering rename",
-  "status": "draft",
+  "status": "committed",
   "path": "engineering/sprints/GROVE-S03/GROVE-S03-T01",
   "estimate": "M",
   "dependencies": [],
-  "pipeline": "default"
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Introduce GroveConfig (core/src/config.rs) with an integration Mode enum and optional ExploreConfig sub-section; rename steering Mode→Steering and JSON key mode→steering across core and CLI — type/serde/persistence only.",
+      "key_changes": [
+        "CREATE core/src/config.rs: integration Mode enum (mcp|skill|both|mcp-llm|grammars), GroveConfig struct, config_path/load/save/validate methods, unit tests",
+        "core/src/explore/config.rs: rename Mode→Steering; ExploreConfig.mode→.steering; RawExploreConfig.mode→.steering; update tests/fixtures",
+        "core/src/explore/mod.rs: re-export Steering instead of Mode",
+        "core/src/explore/agent.rs: Mode→Steering import and all Mode::/cfg.mode call sites",
+        "core/src/explore/steering.rs: Mode→Steering; update system_prompt signature parameter",
+        "core/src/lib.rs: add pub mod config; re-export GroveConfig + integration Mode; update explore re-export to Steering",
+        "cli/src/config_tui/model.rs: import Steering; cfg.mode→cfg.steering; ExploreConfig literal field mode→steering",
+        "cli/src/config_tui/update.rs: grove_core::Mode::Aggressive→Steering::Aggressive; literal mode→steering",
+        "cli/src/mcp.rs: enum_str(&cfg.mode) → enum_str(&cfg.steering)",
+        "GroveConfig::save is atomic (temp+rename), creates .grove/; load yields actionable error on missing file",
+        "explore section is Option<ExploreConfig> skip_serializing_if is_none — absent from output when not set",
+        "cargo build warning-clean, clippy -D warnings passes, cargo test green"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assessed the GroveConfig type + explore-section demotion + steering mode→steering rename plan for feasibility, completeness, and call-site accuracy.",
+      "key_changes": [
+        "Plan's 9-file modification list is complete and accurate — verified every steering-Mode call site via grove callers/grep.",
+        "Correctly excludes app.mode (TUI App.mode usize index) in config_tui view.rs/update.rs — not the steering enum.",
+        "Correctly excludes SessionMeta.mode / s.mode trace-session string field in trace.rs and trace_tui.",
+        "ExploreConfig's existing custom Deserialize (config.rs L149) lets GroveConfig embed Option<ExploreConfig> directly, preserving field-named errors.",
+        "All 7 ACs map to concrete plan items; 7-test suite covers AC6's six categories plus atomic save/load and missing-file.",
+        "ADVISORY: enum variant sketch spells MpcLlm — land as McpLlm (on-disk spelling mcp-llm is what is contractual).",
+        "ADVISORY: RawGroveConfig should carry version+mode:String+explore:Option<ExploreConfig>; avoid Option<serde_json::Value> which bypasses inner validation.",
+        "ADVISORY: consider validate() rejecting version != 1 per AC1's fixed wire shape.",
+        "ADVISORY: assert explicitly that a legacy explore 'mode' key fails deserialization (missing steering) — correct T01 behaviour, T02 owns migration.",
+        "ADVISORY: update model.rs L124 doc comment referencing Mode::LEGAL to Steering::LEGAL."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Introduce GroveConfig (core/src/config.rs) with integration Mode enum and optional ExploreConfig sub-section; rename explore Mode→Steering and JSON key mode→steering across core and CLI.",
+      "key_changes": [
+        "CREATE core/src/config.rs: Mode enum (mcp/skill/both/mcp-llm/grammars), GroveConfig, RawGroveConfig, atomic save/load/validate, 8 unit tests",
+        "core/src/explore/config.rs: Mode→Steering rename, mode→steering field on ExploreConfig + RawExploreConfig, updated tests, added legacy_mode_key_rejected",
+        "core/src/explore/mod.rs: re-export Steering instead of Mode",
+        "core/src/explore/agent.rs: Mode→Steering import, cfg.mode→cfg.steering, test helper updated",
+        "core/src/explore/steering.rs: Mode→Steering throughout, system_prompt parameter renamed",
+        "core/src/lib.rs: pub mod config; re-exported GroveConfig + integration Mode; explore re-export updated to Steering",
+        "cli/src/config_tui/model.rs: import Steering; cfg.steering; ExploreConfig literal field steering",
+        "cli/src/config_tui/update.rs: Mode::Aggressive→Steering::Aggressive; mode→steering in struct literal",
+        "cli/src/mcp.rs: enum_str(&cfg.mode) → enum_str(&cfg.steering)",
+        "cli/tests/cli.rs: 6 explore.json fixture JSONs updated from \"mode\"→\"steering\"",
+        "257 tests green; clippy -D warnings clean; release build warning-free"
+      ],
+      "files_changed": [
+        "core/src/config.rs",
+        "core/src/explore/config.rs",
+        "core/src/explore/mod.rs",
+        "core/src/explore/agent.rs",
+        "core/src/explore/steering.rs",
+        "core/src/lib.rs",
+        "cli/src/config_tui/model.rs",
+        "cli/src/config_tui/update.rs",
+        "cli/src/mcp.rs",
+        "cli/tests/cli.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Reviewed the GroveConfig core type, explore-section demotion, and steering mode→steering rename against the approved plan and 7 acceptance criteria.",
+      "key_changes": [
+        "All 7 ACs met; verified independently by reading source and re-running the toolchain, not trusting PROGRESS.",
+        "config.rs: RawGroveConfig + custom Deserialize preserve field-named enum errors; validate() + TryFrom both reject version != 1.",
+        "Atomic save() uses temp config.json.tmp.<pid> + rename with create_dir_all — save_load_round_trip_atomic asserts no leftover temp file.",
+        "Integration Mode enum kebab-cased (mcp|skill|both|mcp-llm|grammars); variant correctly spelled McpLlm (plan-review advisory heeded).",
+        "Steering rename complete across explore/config.rs, mod.rs, agent.rs, steering.rs, lib.rs, cli config_tui + mcp.rs; grep confirms no stray steering-Mode refs.",
+        "explore: Option<ExploreConfig> with skip_serializing_if=Option::is_none — absent/present tests both pass.",
+        "legacy_mode_key_rejected asserts old explore 'mode' key fails deserialization — correct T01 boundary (T02 owns migration).",
+        "Independent run: cargo clippy --all-targets -- -D warnings clean; cargo test 257 passed / 0 failed. PROGRESS evidence authentic.",
+        "All three touched core files newline-terminated (AC7).",
+        "ADVISORY (non-blocking): model.rs:124 doc comment 'Mode::LEGAL' is stale post-rename, should read 'Steering::LEGAL' — cosmetic, no compile/rustdoc impact."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate all 7 acceptance criteria for GroveConfig core type, integration Mode enum, explore-section demotion, and mode→steering rename across core and CLI.",
+      "key_changes": [
+        "AC1 PASS: GroveConfig in core/src/config.rs, exported from lib.rs; wire shape {version:1,mode,explore?}; RawGroveConfig raw-wire-shape deserialization; validate/load/atomic-save all present.",
+        "AC2 PASS: Mode enum has 5 kebab-case variants (mcp/skill/both/mcp-llm/grammars); LEGAL slice complete; from_name fails fast naming field+legal values; McpLlm spelling correct.",
+        "AC3 PASS: Steering rename complete — explore/config.rs, mod.rs, agent.rs, steering.rs, lib.rs, config_tui, mcp.rs; fixture JSONs all use 'steering'; no stray Mode refs in explore/CLI.",
+        "AC4 PASS: explore field is Option<ExploreConfig> with skip_serializing_if=is_none; all 7 fields round-trip; present/absent tests both pass.",
+        "AC5 PASS: config_path returns <root>/.grove/config.json; bad mode yields field-named error; missing file yields actionable steer.",
+        "AC6 PASS: All 6 required test categories covered; plus legacy_mode_key_rejected boundary test.",
+        "AC7 PASS: 257 tests passed, 0 failed; clippy -D warnings clean; all touched files newline-terminated.",
+        "ADVISORY (non-blocking): model.rs:124 doc comment 'Mode::LEGAL' stale — cosmetic, no toolchain warning.",
+        "REGRESSION: All 257 pre-existing tests green."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architect sign-off on GroveConfig core type, integration Mode enum, explore-section demotion, and steering mode→steering rename across core and CLI.",
+      "key_changes": [
+        "All 7 acceptance criteria met and independently verified through the pipeline (review-plan, code-review, validation all approved).",
+        "Persistence follows the existing serde/serde_json convention; RawGroveConfig + custom Deserialize preserves field-named enum errors, consistent with ExploreConfig's raw-wire pattern.",
+        "config_path = <root>/.grove/config.json aligns with the project's .grove/ config layout.",
+        "Atomic save (temp config.json.tmp.<pid> + rename + create_dir_all) is the correct durability posture for a user-editable config file.",
+        "Steering rename is complete and contained — grep/grove confirm no stray steering-Mode refs; integration Mode and TUI Field::Mode focus variant correctly excluded.",
+        "Clean T01/T02 boundary: legacy_mode_key_rejected asserts old explore 'mode' key fails deserialization; migration is deferred to T02.",
+        "No released surface consumes GroveConfig yet; integration Mode enum is additive — no cross-module leakage.",
+        "Operational impact: no version bump, no migration, no regeneration, no security scan, no deployment change.",
+        "Follow-up: T02 owns legacy mode→steering config migration.",
+        "Cosmetic non-blocking: model.rs:124 doc comment 'Mode::LEGAL' is stale, should read 'Steering::LEGAL'."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-04T00:00:00Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
 }

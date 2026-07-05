@@ -2,12 +2,109 @@
   "taskId": "GROVE-S03-T04",
   "sprintId": "GROVE-S03",
   "title": "reconcile_harness single harness writer + transition-matrix test",
-  "status": "draft",
+  "status": "committed",
   "path": "engineering/sprints/GROVE-S03/GROVE-S03-T04",
   "estimate": "L",
   "dependencies": [
     "GROVE-S03-T01",
     "GROVE-S03-T03"
   ],
-  "pipeline": "default"
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Extract reconcile_harness(root, old_mode, new_mode) in cli/src/init.rs to own the full mode→harness mapping with a strip direction, update grove init to load/persist mode from config.json, and prove correctness with a 20-pair transition-matrix test.",
+      "key_changes": [
+        "Add strip_steering_block(root, filename) — removes <!-- grove:start -->…<!-- grove:end --> block from CLAUDE.md/AGENTS.md, preserving host content",
+        "Add strip_grove_entry_from_mcp_json(root) — removes mcpServers.grove key from .mcp.json, preserving other servers",
+        "Add Target::to_mode(self) -> Mode method bridging the CLI Target enum and the store Mode enum (1-to-1 mapping)",
+        "Add reconcile_harness(root, old_mode, new_mode) as the single harness writer: writes or strips .mcp.json, CLAUDE.md, AGENTS.md to match new_mode exactly",
+        "Harness table: Mcp/Both → .mcp.json [serve] + CLAUDE.md; Skill → CLAUDE.md only; McpLlm → .mcp.json [serve,--explore] + CLAUDE.md + AGENTS.md; Grammars → all stripped",
+        "Update run to load prior GroveConfig (old_mode), call reconcile_harness, and save new GroveConfig after TUI/provision steps",
+        "Fix bug 2: switching away from McpLlm strips the explore sentinel block from AGENTS.md and reverts .mcp.json args to [serve]",
+        "Remove write_harness (now dead); update all callers in mod tests to reconcile_harness(dir, None, Mode::*)",
+        "Add table-driven reconcile_harness_transition_matrix test covering all 20 ordered (A→B) pairs across 5 modes",
+        "Add reconcile_harness_preserves_host_content test: host content in CLAUDE.md, AGENTS.md, and other .mcp.json servers is never touched",
+        "Add reconcile_harness_then_save_config_active_mode test verifying config.json write + active_mode round-trip",
+        "No changes to core/src/config.rs; cli/tests/cli.rs existing init integration test continues to pass"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assess the reconcile_harness refactor plan (single harness writer + strip direction + 20-pair transition-matrix test) for feasibility, AC coverage, and host-content safety.",
+      "key_changes": [
+        "Verified all assumed APIs exist: Mode derives Copy/PartialEq/Eq; GroveConfig::load/save, active_mode, ModeChoice, ExploreConfig::load/config_path are pub and reachable from the CLI crate.",
+        "Confirmed current cli/src/init.rs matches the plan's analysis (write_harness, write_steering_md, write_mcp_json_with, sentinel constants, per-mode content builders).",
+        "Confirmed harness table is mode-exact and encodes the bug-2 fix (AC#3): leaving McpLlm strips AGENTS.md block and reverts .mcp.json args to [serve].",
+        "Confirmed integration test init_provisions_and_wires_harness_per_target is non-breaking under the new config.json write; implementer must preserve .mcp.json-before-CLAUDE.md report order.",
+        "Advisory: AC#5 active_mode-consistency + T07 fixture reuse deferred to a single-pass round-trip test rather than the 20-pair loop — recommend widening or documenting.",
+        "Advisory: strip_steering_block must also remove the \\n\\n separator write_steering_md inserts, so repeated A->B->A cycles don't accrete blank lines (matrix is single-hop).",
+        "Advisory: ensure single trailing newline at EOF after stripping (AC#7); block-only case correctly empties (not deletes) the file.",
+        "Advisory: unused old_mode param is mandated by AC#1 and is fine on a private fn (no clippy warning)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Replace write_harness with reconcile_harness(root, old_mode, new_mode) as the single harness writer with strip direction, update run to load/persist mode from config.json, prove correctness with 20-pair transition-matrix test.",
+      "key_changes": [
+        "Add strip_steering_block(root, filename): removes grove sentinel block, strips separator, ensures single trailing newline",
+        "Add strip_grove_entry_from_mcp_json(root): removes mcpServers.grove key preserving other servers",
+        "Add Target::to_mode() -> Mode and mode_to_target() bridges between CLI Target and config Mode",
+        "Add reconcile_harness(root, old_mode, new_mode): single harness writer — Mcp/Both→[serve]+CLAUDE.md; Skill→CLAUDE.md only; McpLlm→[serve,--explore]+CLAUDE.md+AGENTS.md; Grammars→all stripped",
+        "Remove write_harness; update run to call reconcile_harness and save GroveConfig after TUI/provision",
+        "Update run non-TTY guard: also treats config.json with mcp-llm mode as already-configured",
+        "Add 4 strip_steering_block unit tests (removes block, empties file, noop-no-block, noop-absent)",
+        "Add 3 strip_grove_entry_from_mcp_json unit tests",
+        "Add reconcile_harness_transition_matrix: 20 ordered (A→B) pairs across 5 modes, all passing",
+        "Add reconcile_harness_preserves_host_content: host content in all 3 files never touched",
+        "Add reconcile_harness_then_save_config_active_mode: config.json round-trip test"
+      ],
+      "files_changed": [
+        "cli/src/init.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Assess the reconcile_harness refactor (single mode-exact harness writer + strip direction + config.json persistence + 20-pair transition-matrix test) against PLAN.md and the 7 acceptance criteria.",
+      "key_changes": [
+        "AC#1 met: reconcile_harness(root, Option<Mode>, Mode) drives each of .mcp.json/CLAUDE.md/AGENTS.md purely from new_mode, so old_mode residue is always stripped.",
+        "AC#2 met: run loads prior GroveConfig (old_mode), reconciles, then saves new GroveConfig with mode=new_mode verbatim.",
+        "AC#3 met: leaving mcp-llm strips AGENTS.md block and reverts .mcp.json args to [serve]/removes entry — asserted by matrix helpers for every McpLlm->B row.",
+        "AC#4 met: strip_steering_block is sentinel-bounded; strip_grove_entry_from_mcp_json removes only the grove key; reconcile_harness_preserves_host_content asserts host text + sibling servers survive.",
+        "AC#5 met: reconcile_harness_transition_matrix enumerates all 20 ordered A->B pairs; active_mode/config round-trip covered separately.",
+        "AC#6 met: cargo test -p grove-cst-cli green (87 unit + 29 integration), incl init_provisions_and_wires_harness_per_target and config_in_non_tty_fails_fast; report order .mcp.json->CLAUDE.md preserved.",
+        "AC#7 met: cargo clippy --all-targets warning-free; unused _old_mode underscore-prefixed; strip paths ensure single trailing newline, block-only files emptied not deleted.",
+        "Verified independently: read the init.rs diff, ran cargo build/clippy/test myself — not relying on PROGRESS.md claims.",
+        "Dry-run safety confirmed: provisioned.is_empty() guard short-circuits run before reconcile_harness/save, so dry-run never mutates harness or config.json.",
+        "Non-TTY guard correctly widened to treat config.json-declared mcp-llm as already-configured.",
+        "Advisory (non-blocking): reconcile_harness doc says 'drives from on-disk state' but drives purely from new_mode (wording only; behaviour correct/stronger).",
+        "Advisory (non-blocking): strip_steering_block host-precedes branch uses after.trim() collapsing trailing host whitespace to a single separator — fine for single-hop matrix."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that reconcile_harness(root, old_mode, new_mode) correctly writes/strips all harness files per declared mode, that run persists mode to config.json, that all 20 A→B transition pairs pass, and host content is never touched.",
+      "key_changes": [
+        "AC#1 PASS: reconcile_harness signature correct at cli/src/init.rs:183; drives .mcp.json/CLAUDE.md/AGENTS.md purely from new_mode; write_harness fully removed.",
+        "AC#2 PASS: run() loads prior GroveConfig→old_mode, calls reconcile_harness, saves GroveConfig{mode:new_mode} — mode recorded verbatim every run.",
+        "AC#3 PASS: Leaving mcp-llm strips AGENTS.md sentinel block and reverts .mcp.json to [serve] or removes entry; all 4 McpLlm→B matrix rows asserted.",
+        "AC#4 PASS: strip_steering_block sentinel-bounded; strip_grove_entry removes only mcpServers.grove; preserves_host_content test covers all 3 files.",
+        "AC#5 PASS (advisory): Matrix covers all 20 A→B pairs for .mcp.json/CLAUDE.md/AGENTS.md; active_mode deferred to round-trip test per approved PLAN.md.",
+        "AC#5 advisory: Fixture helpers private to mod tests — T07 will need re-impl or visibility change; plan review flagged as non-blocking.",
+        "AC#6 PASS: All 29 integration tests pass; init_provisions_and_wires_harness_per_target + config_in_non_tty_fails_fast both green.",
+        "AC#7 PASS: 278 total tests green; cargo clippy --all-targets -D warnings clean; files end with newline; _old_mode underscore-prefixed.",
+        "Regression: 0 failures across full workspace (161 core + 87 CLI unit + 29 integration + 1 doc-test)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    }
+  }
 }

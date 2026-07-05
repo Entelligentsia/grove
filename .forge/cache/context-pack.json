@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "built_at": "2026-06-30T13:42:39.797Z",
-  "source_hash": "sha256:74ddd65005b3c027115f0d37bbd197bd787480d7a662434b67237930e6f8c738",
+  "built_at": "2026-07-04T20:43:55.088Z",
+  "source_hash": "sha256:c68b3b15e3cc6d46309955be8e6798d593d6f495bb7df4304c9b0a63e3f5c675",
   "sources": [
     {
       "path": "engineering/architecture/INDEX.md",
@@ -36,7 +36,7 @@
     {
       "path": "engineering/architecture/stack-checklist.md",
       "size": 4112,
-      "mtime": "2026-06-30T13:42:26.181Z"
+      "mtime": "2026-07-03T05:18:27.044Z"
     },
     {
       "path": "engineering/architecture/stack.md",
@@ -44,5 +44,5 @@
       "mtime": "2026-06-30T13:38:18.442Z"
     }
   ],
-  "summary_path": "/home/boni/src/grove-engineering/grove/.forge/cache/context-pack.md"
+  "summary_path": ".forge/cache/context-pack.md"
 }

@@ -2,12 +2,111 @@
   "taskId": "GROVE-S03-T03",
   "sprintId": "GROVE-S03",
   "title": "serve reads declared mode + shared active_mode resolver",
-  "status": "draft",
+  "status": "committed",
   "path": "engineering/sprints/GROVE-S03/GROVE-S03-T03",
   "estimate": "M",
   "dependencies": [
     "GROVE-S03-T01",
     "GROVE-S03-T02"
   ],
-  "pipeline": "default"
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Fix bug-1 (sticky explore surface) by replacing explore.json file-existence check with a declared config.mode trigger, implemented via a shared active_mode(root, force)->Mode resolver in core::config that serve and doctor both call.",
+      "key_changes": [
+        "Add pub enum ModeChoice { None, ForceExplore, ForceStandard } to core/src/config.rs.",
+        "Add pub fn active_mode(root, force) -> Mode: ForceStandard→Mcp, ForceExplore→McpLlm, None→GroveConfig::load(root).mode (Mcp on failure).",
+        "Re-export ModeChoice and active_mode from core/src/lib.rs alongside existing GroveConfig, Mode re-exports.",
+        "Rewrite determine_surface in cli/src/mcp.rs: map (force_standard, force_explore) to ModeChoice, call active_mode, branch on Mode::McpLlm.",
+        "When Mode::McpLlm: load GroveConfig again for explore section (not ExploreConfig::load); handle missing explore section gracefully.",
+        "Remove ExploreConfig::config_path(root).exists() and ExploreConfig::load(root) calls from determine_surface.",
+        "Add import use grove_core::config::{active_mode, GroveConfig, ModeChoice, Mode} in cli/src/mcp.rs.",
+        "6 new unit tests for active_mode in core/src/config.rs (force variants, declared modes, bug-1 regression, no-config fallback).",
+        "New integration test bug1_serve_mcp_mode_ignores_stale_explore_json: config.json mode=mcp + stale explore.json → 7-tool standard surface.",
+        "Update comment on existing explore_mode_unhealthy_provider_falls_back_to_standard_surface to reference T03.",
+        "Health-gated fallback (mcp-llm + unhealthy provider → standard) preserved unchanged in the rewritten determine_surface.",
+        "Change is material (bug fix to serve surface selection); version bump required at release."
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assessed the GROVE-S03-T03 plan to replace serve's explore.json file-sniff with a declared config.mode trigger via a shared active_mode resolver.",
+      "key_changes": [
+        "AC-1: active_mode(root, ModeChoice)->Mode buildable from existing Mode/GroveConfig primitives; precedence matches today's determine_surface (force_standard first).",
+        "AC-2: determine_surface rewrite keys off active_mode==McpLlm and sources explore from grove_cfg.explore (Option<ExploreConfig>) — valid against the struct.",
+        "AC-3: GroveConfig::load checks config.json before legacy explore.json, so mode=mcp + stale explore.json resolves to Mcp->Standard immediately. Verified.",
+        "AC-4 verified: unhealthy-fallback test writes only explore.json; migrate hard-sets Mode::McpLlm, so health_probe still fires and the 'falling back' assertion holds — comment-only update correct.",
+        "AC-5: mapping (force_standard, force_explore)->ModeChoice preserves --standard over --explore precedence.",
+        "Re-export extension in core/src/lib.rs:68 (pub use config::{GroveConfig, Mode}) is consistent with adding active_mode, ModeChoice.",
+        "Advisory: active_mode is not side-effect free on the legacy path (load triggers migration + config.json write); doctor will also migrate. Consistent with load() semantics but worth a doc comment.",
+        "Advisory: double GroveConfig load is benign — second load reads freshly migrated config.json, modes agree, no double-migration.",
+        "Advisory: active_mode may return Skill/Both/Grammars; ensure the !=McpLlm branch is an explicit catch-all so future variants don't misroute.",
+        "Testing: 6 unit tests + bug1 integration test cover the AC matrix; recommend the integration test assert exactly 7 tools AND absence of the explore delegating tool."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Fix bug-1 (sticky explore surface) by replacing explore.json file-existence sniff in determine_surface with a shared active_mode(root, ModeChoice)->Mode resolver in core::config that keys off declared config.mode.",
+      "key_changes": [
+        "Added pub enum ModeChoice { None, ForceExplore, ForceStandard } to core/src/config.rs",
+        "Added pub fn active_mode(root, force) -> Mode: ForceStandard→Mcp, ForceExplore→McpLlm, None→GroveConfig::load(root).mode (Mcp on failure)",
+        "Re-exported ModeChoice and active_mode from core/src/lib.rs alongside existing GroveConfig, Mode re-exports",
+        "Rewrote determine_surface in cli/src/mcp.rs: maps (force_standard, force_explore) to ModeChoice, calls active_mode, branches on Mode::McpLlm",
+        "When Mode::McpLlm: loads GroveConfig for explore section; handles missing section gracefully",
+        "Removed ExploreConfig::config_path(root).exists() and ExploreConfig::load(root) calls from determine_surface",
+        "Added import use grove_core::config::{active_mode, GroveConfig, ModeChoice, Mode} in cli/src/mcp.rs",
+        "Added 6 unit tests for active_mode in core/src/config.rs (force variants, declared modes, bug-1 regression, no-config fallback)",
+        "Added integration test bug1_serve_mcp_mode_ignores_stale_explore_json: config.json mode=mcp + stale explore.json → 7-tool standard surface",
+        "Updated explore_mode_unhealthy_provider_falls_back_to_standard_surface: comment references T03; fixture updated to legacy explore.json format so migration+health-probe path is exercised",
+        "Health-gated fallback (mcp-llm + unhealthy provider → standard) preserved unchanged in rewritten determine_surface",
+        "All 268 tests pass; clippy clean; release build clean"
+      ],
+      "files_changed": [
+        "core/src/config.rs",
+        "core/src/lib.rs",
+        "cli/src/mcp.rs",
+        "cli/tests/cli.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Assessed the GROVE-S03-T03 implementation that replaces serve's explore.json file-sniff with a declared config.mode trigger via a shared active_mode resolver.",
+      "key_changes": [
+        "AC-1 verified: active_mode(root, ModeChoice)->Mode in core::config; precedence ForceStandard->Mcp, ForceExplore->McpLlm, None->GroveConfig::load.mode (Mcp on load failure with stderr diagnostic).",
+        "AC-2 verified: determine_surface keys off active_mode != Mode::McpLlm -> Standard; this is the explicit catch-all the plan review requested, so future Mode variants route to Standard safely.",
+        "AC-3 verified: mode=mcp + stale explore.json -> standard immediately, confirmed by unit test AM-5 and the serve-level bug1 integration test.",
+        "AC-4 verified: mcp-llm health-gated fallback preserved unchanged (health_probe path intact); migrated-fixture unhealthy test still exercises port-1 refused -> Standard.",
+        "AC-5 verified: --standard over --explore precedence preserved in flag->ModeChoice mapping (force_standard checked first).",
+        "Ran independently: 6 active_mode unit tests pass; bug1 + unhealthy integration tests pass; grove check clean; clippy --tests -D warnings clean.",
+        "bug1 integration test asserts exactly 7 tools AND absence of the 'explore' delegating tool, matching plan-review testing recommendation.",
+        "Double GroveConfig::load (active_mode + determine_surface) is benign and documented; missing explore section under mcp-llm handled gracefully with diagnostic fallback.",
+        "Advisory (non-blocking): AM-1 fixture JSON has a stray trailing quote so config.json is unparseable; test still passes (ForceStandard skips config read) but fixture no longer shows its stated intent."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validated all 6 acceptance criteria for the active_mode resolver + determine_surface rewrite that fixes bug-1 (sticky explore surface).",
+      "key_changes": [
+        "AC-1 PASS: pub fn active_mode(root, ModeChoice)->Mode in core/src/config.rs:291; re-exported from core/src/lib.rs:68.",
+        "AC-1 PASS: All 6 unit tests (AM-1..AM-6) pass: ForceStandard->Mcp, ForceExplore->McpLlm, None reads declared mode, no-config fallback.",
+        "AC-2 PASS: determine_surface keys off active_mode!=McpLlm (explicit catch-all); no ExploreConfig::config_path().exists() call anywhere in mcp.rs.",
+        "AC-3 PASS: bug1 integration test asserts exactly 7 tools AND no 'explore' tool with config.json mode=mcp + stale explore.json.",
+        "AC-4 PASS: Health-gated fallback preserved; unhealthy_provider integration test asserts 7 tools + stderr 'falling back'.",
+        "AC-5 PASS: force_standard checked before force_explore; --standard wins; confirmed by AM-1/AM-2 unit tests.",
+        "AC-6 PASS: 268 tests pass (161+77+29+1); clippy --release --tests -D warnings clean; release build clean.",
+        "Advisory (non-blocking, inherited from code review): AM-1 fixture JSON has stray trailing quote; test still passes (ForceStandard short-circuits before config read)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-05T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    }
+  }
 }

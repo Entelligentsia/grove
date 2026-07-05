@@ -24,7 +24,7 @@
     "commands": ".claude/commands/forge",
     "templates": ".forge/templates",
     "forgeRoot": "/home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload",
-    "forgeRef": "1.6.4",
+    "forgeRef": "1.6.10",
     "customCommands": "engineering/commands"
   },
   "mode": "full",

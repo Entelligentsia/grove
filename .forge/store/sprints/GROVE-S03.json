@@ -1,7 +1,7 @@
 {
   "sprintId": "GROVE-S03",
   "title": ".grove/config.json declared mode + grove doctor health check",
-  "status": "active",
+  "status": "completed",
   "taskIds": [
     "GROVE-S03-T01",
     "GROVE-S03-T02",

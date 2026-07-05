@@ -4,7 +4,7 @@
 
 > Task ID: GROVE-S03-T06
 > Sprint: [GROVE-S03](../INDEX.md)
-> Status: ✅ approved
+> Status: ✅ committed
 > Estimate: S
 
 ## Task Documents

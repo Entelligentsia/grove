@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "seededAt": 1783187723785,
+  "seedSource": "@entelligentsia/forgecli registry v1",
+  "enabledModels": [
+    "claude-*",
+    "gpt-4o*",
+    "gpt-4.1*",
+    "o1*",
+    "o3*",
+    "o4*",
+    "gemini-2*",
+    "openrouter/*",
+    "ollama/*"
+  ],
+  "defaultModelGlob": "claude-*"
+}

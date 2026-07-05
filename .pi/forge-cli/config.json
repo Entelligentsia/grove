@@ -1,0 +1,40 @@
+{
+  "persona-models": {
+    "architect": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8"
+    },
+    "supervisor": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8"
+    },
+    "engineer": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "bug-fixer": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "qa-engineer": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "product-manager": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "collator": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5"
+    },
+    "librarian": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5"
+    },
+    "orchestrator": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5"
+    }
+  }
+}

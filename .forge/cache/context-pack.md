@@ -1,7 +1,7 @@
 # Architecture Context Pack
 
-Built: 2026-06-30T13:42:39.797Z
-Source hash: sha256:74ddd65005b3c027115f0d37bbd197bd787480d7a662434b67237930e6f8c738
+Built: 2026-07-04T20:43:55.088Z
+Source hash: sha256:c68b3b15e3cc6d46309955be8e6798d593d6f495bb7df4304c9b0a63e3f5c675
 
 ## Document summaries
 
