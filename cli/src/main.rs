@@ -110,6 +110,11 @@ enum Cmd {
         /// Which integration to set up: mcp (default), skill, or both.
         #[arg(long = "as", value_enum, default_value_t = init::Target::Mcp)]
         target: init::Target,
+        /// Which coding agents to wire, comma-separated: `auto` (detect, the
+        /// default), `all`, or a list of claude-code,cursor,codex,gemini,
+        /// windsurf,vscode. Omit to preserve a prior set, else auto-detect.
+        #[arg(long)]
+        agents: Option<String>,
         /// Show what would be detected/written without writing.
         #[arg(long)]
         dry_run: bool,
@@ -363,7 +368,7 @@ fn main() -> Result<()> {
             let grove_cfg = grove_core::config::GroveConfig::load(&path).ok();
             config_tui::run(&path, grove_cfg)?;
         }
-        Cmd::Init { path, target, dry_run } => init::run(&path, target, dry_run)?,
+        Cmd::Init { path, target, agents, dry_run } => init::run(&path, target, agents, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
         Cmd::Ingest { only, sources, out } => ingest::run(&sources, &out, &only)?,
         Cmd::Index { dir, output, release_base } => {

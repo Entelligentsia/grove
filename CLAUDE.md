@@ -24,7 +24,11 @@ core/src/init.rs       grammar provisioning half of `grove init`
 
 cli/src/main.rs        CLI dispatch (clap) — every verb; thin, delegates to modules
 cli/src/mcp.rs         MCP server — newline-delimited JSON-RPC 2.0 over stdio
-cli/src/init.rs        `grove init [--as mcp|skill|both|mcp-llm]` — file-writing harness glue
+cli/src/init.rs        `grove init [--as …] [--agents …]` — file-writing harness glue;
+                       per-agent registration (JSON/TOML) + shared CLAUDE.md/AGENTS.md steering
+core/src/harness.rs    harness adapters — HarnessId {claude-code,cursor,codex,gemini,windsurf,
+                       vscode}: per-agent MCP config path/format/scope + detection; the shared
+                       source of truth for init (writer) and doctor (verifier)
 cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — incl. model-list dropdown
 cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
 cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
@@ -112,7 +116,8 @@ grove definition <name> [-d <dir>] | --at <file:line:col>   # line/col 1-based
 grove serve                         # MCP server over stdio
 
 # setup / registry
-grove init [path] [--as mcp|skill|both|mcp-llm] [--dry-run]  # provision grammars + chosen harness glue
+grove init [path] [--as mcp|skill|both|mcp-llm] [--agents auto|all|<csv>] [--dry-run]  # provision grammars + chosen harness glue
+                   # --agents selects which coding agents to wire (claude-code,cursor,codex,gemini,windsurf,vscode)
 grove config [path]                 # open the explore config TUI (requires TTY); Tap toggle + model dropdown
 grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
 grove tap [path] [--no-enable]      # enable session tracing (.grove/traces/) + browse it in a TUI

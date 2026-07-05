@@ -8,9 +8,9 @@
 use std::path::Path;
 
 use crate::{
-    config::{active_mode, GroveConfig, Mode, ModeChoice},
+    config::{active_mode, default_harnesses, GroveConfig, Mode, ModeChoice},
     explore::{health_probe, ExploreConfig, HealthError},
-    harness,
+    harness::{self, HarnessId, McpFormat},
     registry::{self, LockVerifyStatus},
 };
 
@@ -156,9 +156,28 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
     // Resolve the effective mode for harness checks (respects --explore/--standard).
     let mode = active_mode(root, force);
 
+    // The configured harness set drives per-agent registration checks. Absent a
+    // readable config, fall back to the historical Claude-Code-only expectation.
+    let harnesses = cfg_result
+        .as_ref()
+        .ok()
+        .map(|c| c.harnesses.clone())
+        .unwrap_or_else(default_harnesses);
+    let home = dirs::home_dir().unwrap_or_else(|| root.to_path_buf());
+    let claude_selected = harnesses.contains(&HarnessId::ClaudeCode);
+
     // ── harness sub-checks ──────────────────────────────────────────────────
-    checks.push(check_harness_mcp_json(root, mode));
-    checks.push(check_harness_claude_md(root, mode));
+    // Claude Code keeps its historical `.mcp.json` check (name `harness_mcp_json`);
+    // every other selected harness gets a format-aware registration check.
+    if claude_selected {
+        checks.push(check_harness_mcp_json(root, mode));
+    }
+    for &h in &harnesses {
+        if h != HarnessId::ClaudeCode {
+            checks.push(check_harness_registration(root, &home, h, mode));
+        }
+    }
+    checks.push(check_harness_claude_md(root, mode, claude_selected));
     checks.push(check_harness_agents_md(root, mode));
     checks.push(check_harness_serve_surface(mode, has_explore_cfg));
 
@@ -417,9 +436,85 @@ fn check_harness_mcp_json(root: &Path, mode: Mode) -> Check {
     }
 }
 
-fn check_harness_claude_md(root: &Path, mode: Mode) -> Check {
+/// Read grove's registered `args` from a harness MCP config, format-aware:
+/// JSON (`<root_key>.grove.args`) or TOML (`[<table>.grove] args`). `None` when
+/// the file is absent/unparseable or has no grove entry.
+fn read_grove_args(path: &Path, format: McpFormat) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    match format {
+        McpFormat::Json { root_key, .. } => {
+            let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+            let args = doc[root_key][harness::MCP_SERVER_KEY]["args"].as_array()?;
+            Some(args.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        }
+        McpFormat::Toml { table } => {
+            let doc: toml_edit::DocumentMut = text.parse().ok()?;
+            let args = doc.get(table)?.get(harness::MCP_SERVER_KEY)?.get("args")?.as_array()?;
+            Some(args.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        }
+    }
+}
+
+/// The stable check name for a harness's registration (`harness_mcp_<slug>`).
+fn harness_reg_check_name(h: HarnessId) -> &'static str {
+    match h {
+        HarnessId::ClaudeCode => "harness_mcp_json",
+        HarnessId::Cursor => "harness_mcp_cursor",
+        HarnessId::Codex => "harness_mcp_codex",
+        HarnessId::Gemini => "harness_mcp_gemini",
+        HarnessId::Windsurf => "harness_mcp_windsurf",
+        HarnessId::VsCode => "harness_mcp_vscode",
+    }
+}
+
+/// Verify one non-Claude harness's MCP registration against the expected args
+/// for `mode`, reading its own path + format. Mirrors [`check_harness_mcp_json`]
+/// but generalized across harnesses (VS Code's `servers` key, Codex's TOML, …).
+fn check_harness_registration(root: &Path, home: &Path, h: HarnessId, mode: Mode) -> Check {
+    let name = harness_reg_check_name(h);
+    let path = h.mcp_config_path_in(root, Some(home));
+    let label = h.display_name();
+    let expected_args = harness::expected_mcp_args(mode);
+    let actual_args = read_grove_args(&path, h.mcp_format());
+
+    let (status, detail) = match (expected_args, actual_args) {
+        (None, None) => (
+            Status::Ok,
+            format!("{label}: no grove entry expected and none present"),
+        ),
+        (None, Some(_)) => (
+            Status::Fail,
+            format!("{label}: registration has a grove entry but none is expected"),
+        ),
+        (Some(expected), None) => (
+            Status::Fail,
+            format!("{label}: registration absent or no grove entry; expected args {expected:?}"),
+        ),
+        (Some(expected), Some(actual)) => {
+            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
+            if expected == actual_refs.as_slice() {
+                (Status::Ok, format!("{label}: args {actual:?}"))
+            } else {
+                (
+                    Status::Fail,
+                    format!("{label}: expected args {expected:?}, found {actual:?}"),
+                )
+            }
+        }
+    };
+    let hint = matches!(status, Status::Fail).then(|| format!("grove init --as {}", mode_name(mode)));
+    Check { group: "universal", name, status, detail, hint }
+}
+
+fn check_harness_claude_md(root: &Path, mode: Mode, claude_selected: bool) -> Check {
     let path = root.join("CLAUDE.md");
-    let expected_marker = harness::expected_claude_marker(mode);
+    // When Claude Code isn't in the harness set, CLAUDE.md should carry no grove
+    // block (same expectation as Grammars mode) — so drop the marker requirement.
+    let expected_marker = if claude_selected {
+        harness::expected_claude_marker(mode)
+    } else {
+        None
+    };
     let text = std::fs::read_to_string(&path).ok();
 
     match expected_marker {
@@ -840,6 +935,8 @@ mod tests {
             Mode::Mcp | Mode::Both => {
                 write_mcp_json(dir, &["serve"]);
                 write_claude_md(dir, "mcp__grove__outline");
+                // Standard MCP surfaces now also carry the shared AGENTS.md block.
+                write_agents_md(dir);
             }
             Mode::McpLlm => {
                 write_mcp_json(dir, &["serve", "--explore"]);
@@ -888,6 +985,53 @@ mod tests {
     }
 
     // ── drift scenarios ────────────────────────────────────────────────────────
+
+    #[test]
+    fn multi_harness_config_checks_each_registration() {
+        let dir = tmp("multi_doctor_ok");
+        std::fs::create_dir_all(dir.join(".grove")).unwrap();
+        std::fs::write(
+            dir.join(".grove").join("config.json"),
+            r#"{"version":1,"mode":"mcp","harnesses":["claude-code","cursor"]}"#,
+        )
+        .unwrap();
+        write_mcp_json(dir.as_path(), &["serve"]);
+        write_claude_md(&dir, "mcp__grove__outline");
+        write_agents_md(&dir);
+        // Seed the cursor registration at its own path.
+        std::fs::create_dir_all(dir.join(".cursor")).unwrap();
+        std::fs::write(
+            dir.join(".cursor").join("mcp.json"),
+            r#"{"mcpServers":{"grove":{"command":"g","args":["serve"]}}}"#,
+        )
+        .unwrap();
+
+        let report = diagnose(&dir, ModeChoice::None);
+        let cursor = report.checks.iter().find(|c| c.name == "harness_mcp_cursor").unwrap();
+        assert!(matches!(cursor.status, Status::Ok), "cursor OK: {}", cursor.detail);
+        let claude = report.checks.iter().find(|c| c.name == "harness_mcp_json").unwrap();
+        assert!(matches!(claude.status, Status::Ok), "claude OK: {}", claude.detail);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn multi_harness_missing_cursor_registration_is_fail() {
+        let dir = tmp("multi_doctor_fail");
+        std::fs::create_dir_all(dir.join(".grove")).unwrap();
+        std::fs::write(
+            dir.join(".grove").join("config.json"),
+            r#"{"version":1,"mode":"mcp","harnesses":["claude-code","cursor"]}"#,
+        )
+        .unwrap();
+        write_mcp_json(dir.as_path(), &["serve"]);
+        write_claude_md(&dir, "mcp__grove__outline");
+        write_agents_md(&dir);
+        // Cursor selected but its registration is missing → Fail.
+        let report = diagnose(&dir, ModeChoice::None);
+        let cursor = report.checks.iter().find(|c| c.name == "harness_mcp_cursor").unwrap();
+        assert!(matches!(cursor.status, Status::Fail), "missing cursor reg → Fail: {}", cursor.detail);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn mcp_mode_with_explore_args_in_mcp_json_is_fail() {

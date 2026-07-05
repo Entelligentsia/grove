@@ -62,10 +62,14 @@ grove init
 ```
 
 `grove init` detects the project's languages, auto-fetches their grammars, and
-writes `.mcp.json` (the tools exist) + a `CLAUDE.md` steering directive (the
-agent reaches for grove instead of grep) + `grove.lock`. That's it — your agent
-now has structural sight. Other install channels (Homebrew, npm, cargo, agent
-skill) and `--as mcp|skill|both|mcp-llm` are in **[Install](docs/install.md)** and
+writes each coding agent's MCP registration + a steering directive (so the agent
+reaches for grove instead of grep) + `grove.lock`. That's it — your agent now has
+structural sight. By default it **auto-detects the agents in use** (Claude Code,
+Cursor, Codex, Gemini CLI, Windsurf, VS Code) and wires each at its own config
+path/format; scope it with `--agents claude-code,cursor,…` (or `all`). Claude Code
+gets its native `CLAUDE.md`; the rest read a shared `AGENTS.md`. Other install
+channels (Homebrew, npm, cargo, agent skill), `--as mcp|skill|both|mcp-llm`, and
+the full `--agents` list are in **[Install](docs/install.md)** and
 **[Setup](docs/setup.md)**.
 
 > As an **agent skill** (Claude Code, Cursor, Codex, Cline, …):
