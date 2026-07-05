@@ -4,10 +4,10 @@
 //! The inner explorer sees exactly four tools — **Read**, **Glob**, **Grep**,
 //! **Grove** — plus **submit_plan** during the plan-first recon phase. This is
 //! the toolset the study validated; it is deliberately NOT grove's 7 structural
-//! MCP tools. `Grove` is a single command-string tool that shells out to the
-//! grove binary (the port of the reference's `GROVE_BIN` subprocess), so its
-//! behaviour is byte-identical to what the bench measured. `Grep`/`Glob` shell
-//! to ripgrep; `Read` is in-process.
+//! MCP tools. `Grove` is a single command-string tool that runs the read-only
+//! structural verbs **in-process** via `ops` + [`crate::render`] (ADR 0003) —
+//! same text the CLI prints, but no subprocess spawn or reparse per call.
+//! `Grep`/`Glob` shell to ripgrep; `Read` is in-process.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -402,13 +402,14 @@ fn grove_tool(args: &Value, root: &Path) -> String {
             );
         }
     }
-    let grove_bin = match grove_binary() {
-        Some(p) => p,
-        None => {
-            return "<system-reminder>Grove: binary not found (set GROVE_BIN or install `grove`).</system-reminder>".into()
-        }
+    // In-process dispatch: call `ops` + `core::render` directly instead of
+    // spawning the grove binary (ADR 0003) — keeps the process-wide grammar
+    // cache warm and avoids a reparse per tool call. The verb is already
+    // validated against ALLOWED_VERBS and paths are sandboxed above.
+    let out = match dispatch_grove(&verb, &parts[1..], root) {
+        Ok(s) => s,
+        Err(e) => return format!("<system-reminder>Grove: {e}</system-reminder>"),
     };
-    let out = run_capture(&grove_bin, &parts, root);
     if out.trim().is_empty() {
         return "No results.".into();
     }
@@ -424,22 +425,75 @@ fn grove_tool(args: &Value, root: &Path) -> String {
     }
 }
 
+/// Run one read-only structural verb in-process and return its rendered text
+/// (identical to the CLI's stdout — see [`crate::render`]). `args` is the token
+/// list after the verb; only the six verbs' documented flags are parsed (`core`
+/// stays clap-free), and unknown flags are tolerated (skipped).
+fn dispatch_grove(verb: &str, args: &[String], root: &Path) -> anyhow::Result<String> {
+    use crate::{ops, render};
+
+    let mut pos: Vec<&str> = Vec::new();
+    let (mut kind, mut name, mut dir, mut at): (Option<&str>, Option<&str>, Option<&str>, Option<&str>) =
+        (None, None, None, None);
+    let (mut name_contains, mut refs) = (false, false);
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--kind" => { kind = args.get(i + 1).map(String::as_str); i += 2; }
+            "--name" => { name = args.get(i + 1).map(String::as_str); i += 2; }
+            "--name-contains" | "--name-substr" => { name_contains = true; i += 1; }
+            "--refs" => { refs = true; i += 1; }
+            "-d" | "--dir" => { dir = args.get(i + 1).map(String::as_str); i += 2; }
+            "--at" => { at = args.get(i + 1).map(String::as_str); i += 2; }
+            "--detail" => { i += 2; } // text output ignores --detail
+            a if a.starts_with('-') => { i += 1; } // tolerate unknown flags
+            a => { pos.push(a); i += 1; }
+        }
+    }
+
+    // `dir`-defaulting verbs mirror the CLI's `default_value = "."`.
+    let dir_or_cwd = || dir.unwrap_or(".");
+    Ok(match verb {
+        "outline" => {
+            let file = pos.first().ok_or_else(|| anyhow::anyhow!("outline needs a file"))?;
+            render::outline(&ops::outline(&root.join(file), kind)?)
+        }
+        "symbols" => {
+            let d = pos.first().copied().unwrap_or(".");
+            render::symbols(&ops::symbols(&root.join(d), kind, name, refs, name_contains)?)
+        }
+        "source" => {
+            let id_or_file = pos.first().ok_or_else(|| anyhow::anyhow!("source needs an id or file"))?;
+            render::source(&ops::source(id_or_file, pos.get(1).copied())?)
+        }
+        "callers" => {
+            let nm = pos.first().ok_or_else(|| anyhow::anyhow!("callers needs a name"))?;
+            render::callers(&ops::callers(&root.join(dir_or_cwd()), nm)?)
+        }
+        "definition" => {
+            let defs = match at {
+                Some(p) => {
+                    let (file, row, col) = ops::parse_pos(p)?;
+                    ops::definition_at(&root.join(file), row, col, &root.join(dir_or_cwd()))?.1
+                }
+                None => {
+                    let nm = pos.first().ok_or_else(|| anyhow::anyhow!("definition needs a name or --at"))?;
+                    ops::definition(&root.join(dir_or_cwd()), nm)?
+                }
+            };
+            render::definition(&defs)
+        }
+        "map" => {
+            let d = pos.first().copied().unwrap_or(".");
+            render::map(&ops::map(&root.join(d), kind, name, name_contains)?)
+        }
+        other => anyhow::bail!("unknown verb `{other}`"), // unreachable: ALLOWED_VERBS gates this
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Resolve the grove binary: `GROVE_BIN` env, else this executable, else PATH.
-fn grove_binary() -> Option<String> {
-    if let Ok(p) = std::env::var("GROVE_BIN") {
-        if !p.is_empty() {
-            return Some(p);
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        return Some(exe.display().to_string());
-    }
-    which("grove")
-}
 
 fn rg_path() -> Option<String> {
     which("rg")
@@ -646,6 +700,22 @@ mod tests {
     fn grove_rejects_absolute_path_arg() {
         let out = grove_tool(&json!({"command": "outline /etc/passwd"}), Path::new("."));
         assert!(out.contains("must be inside the workspace"), "{out}");
+    }
+
+    #[test]
+    fn dispatch_grove_parses_flags_and_positionals() {
+        let empty: Vec<String> = vec![];
+        let r = Path::new(".");
+        // Missing positionals surface a clear per-verb error (no grammar needed).
+        assert!(dispatch_grove("outline", &empty, r).unwrap_err().to_string().contains("needs a file"));
+        assert!(dispatch_grove("source", &empty, r).unwrap_err().to_string().contains("id or file"));
+        assert!(dispatch_grove("callers", &empty, r).unwrap_err().to_string().contains("needs a name"));
+        assert!(dispatch_grove("definition", &empty, r).unwrap_err().to_string().contains("name or --at"));
+        // A flag and its value are consumed as a flag — never mistaken for the
+        // file positional (the parser separates them correctly).
+        let flagged = vec!["--kind".to_string(), "function".to_string()];
+        let e = dispatch_grove("outline", &flagged, r).unwrap_err().to_string();
+        assert!(e.contains("needs a file"), "flag value must not become a positional: {e}");
     }
 
     #[test]

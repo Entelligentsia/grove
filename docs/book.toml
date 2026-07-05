@@ -1,0 +1,17 @@
+[book]
+title = "grove documentation"
+authors = ["Entelligentsia"]
+description = "Structural, byte-precise, token-cheap codebase access for coding agents — a Rust library, a CLI, and two MCP modes over one tree-sitter engine."
+src = "."
+language = "en"
+
+[output.html]
+git-repository-url = "https://github.com/Entelligentsia/grove"
+edit-url-template = "https://github.com/Entelligentsia/grove/edit/main/docs/{path}"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+no-section-label = true
+
+[build]
+build-dir = "../site/docs"
+create-missing = false

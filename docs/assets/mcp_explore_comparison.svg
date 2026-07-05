@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="370" viewBox="0 0 760 370" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <!-- Card Background -->
+  <rect width="760" height="370" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- Diagram Title -->
+  <text x="30" y="35" font-size="18" font-weight="700" fill="#0f172a">MCP Modes: Standard vs. Explore Mode</text>
+  <text x="30" y="55" font-size="12" fill="#64748b">Comparison of direct tool access and delegated local-LLM code location</text>
+
+  <!-- Split Line -->
+  <line x1="380" y1="90" x2="380" y2="340" stroke="#e2e8f0" stroke-dasharray="4,4" stroke-width="1.5"/>
+
+  <!-- LEFT COLUMN: STANDARD MCP -->
+  <text x="205" y="100" font-size="13" font-weight="700" fill="#1e3a8a" text-anchor="middle">STANDARD MCP MODE</text>
+  <text x="205" y="118" font-size="11" fill="#64748b" text-anchor="middle">Exposes 7 structural tools directly</text>
+
+  <!-- Coding Agent (Top) -->
+  <rect x="110" y="140" width="190" height="40" rx="5" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="205" y="165" font-size="12" font-weight="600" fill="#1e3050" text-anchor="middle">Outer Coding Agent</text>
+
+  <!-- standard tool invocation arrows -->
+  <path d="M205,180 L205,215" fill="none" stroke="#2563eb" stroke-width="1.5"/>
+  <polygon points="205,220 202,214 208,214" fill="#2563eb"/>
+  <text x="212" y="202" font-size="10.5" fill="#2563eb" font-weight="600">call tools (outline, callers, ...)</text>
+
+  <!-- Grove Serve -->
+  <rect x="110" y="220" width="190" height="50" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="205" y="243" font-size="12.5" font-weight="700" fill="#1e40af" text-anchor="middle">grove serve</text>
+  <text x="205" y="258" font-size="10.5" fill="#2563eb" text-anchor="middle">Standard MCP Server</text>
+
+  <!-- Filesystem Access -->
+  <path d="M205,270 L205,305" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+  <polygon points="205,310 202,304 208,304" fill="#64748b"/>
+
+  <rect x="110" y="310" width="190" height="30" rx="4" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="205" y="329" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">Filesystem (Tree-sitter AST)</text>
+
+
+  <!-- RIGHT COLUMN: EXPLORE MODE -->
+  <text x="555" y="100" font-size="13" font-weight="700" fill="#5b21b6" text-anchor="middle">EXPLORE MODE</text>
+  <text x="555" y="118" font-size="11" fill="#db2777" text-anchor="middle">Delegates code-finding loop to local LLM</text>
+
+  <!-- Coding Agent (Top) -->
+  <rect x="460" y="140" width="190" height="40" rx="5" fill="#ffffff" stroke="#f0abfc" stroke-width="1.5"/>
+  <text x="555" y="165" font-size="12" font-weight="600" fill="#1e3050" text-anchor="middle">Outer Coding Agent</text>
+
+  <!-- Single high-level call arrow -->
+  <path d="M555,180 L555,215" fill="none" stroke="#db2777" stroke-width="1.5"/>
+  <polygon points="555,220 552,214 558,214" fill="#db2777"/>
+  <text x="562" y="202" font-size="10.5" fill="#db2777" font-weight="600">explore("where is X?")</text>
+
+  <!-- Grove Serve explore -->
+  <rect x="440" y="220" width="230" height="75" rx="5" fill="#fdf2f8" stroke="#db2777" stroke-width="1.5"/>
+  <text x="555" y="240" font-size="12.5" font-weight="700" fill="#86198f" text-anchor="middle">grove serve --explore</text>
+  <text x="555" y="254" font-size="10.5" fill="#db2777" text-anchor="middle">Explore MCP Server</text>
+
+  <!-- Local LLM Loop Indicator -->
+  <rect x="450" y="261" width="210" height="26" rx="4" fill="#ffffff" stroke="#db2777" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="555" y="278" font-size="10.5" font-weight="600" fill="#701a75" text-anchor="middle">Inner loop: local LLM (≤ 6 turns)</text>
+
+  <!-- Loop back arrow to grove tools / grep -->
+  <path d="M660,274 C690,274 690,235 660,235" fill="none" stroke="#db2777" stroke-dasharray="2,2" stroke-width="1.2"/>
+  <polygon points="658,235 663,232 663,238" fill="#db2777"/>
+  <text x="682" y="259" font-size="9" fill="#9d174d" font-weight="600">reads &amp; grep</text>
+
+  <!-- Filesystem Access -->
+  <path d="M555,295 L555,320" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+  <polygon points="555,325 552,319 558,319" fill="#64748b"/>
+
+  <rect x="460" y="325" width="190" height="30" rx="4" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="555" y="344" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">Filesystem &amp; Git</text>
+</svg>

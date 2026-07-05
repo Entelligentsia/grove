@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <!-- Card Background -->
+  <rect width="760" height="420" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- Diagram Title -->
+  <text x="30" y="35" font-size="18" font-weight="700" fill="#0f172a">One Engine, Four Surfaces</text>
+  <text x="30" y="55" font-size="12" fill="#64748b">Unified CST operations driving humans, standard agents, local LLMs, and custom Rust programs</text>
+
+  <!-- Section Labels -->
+  <text x="30" y="110" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1">SURFACE LAYER (CONSUMERS)</text>
+  <text x="30" y="235" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1">ENGINE LAYER (CORE)</text>
+  <text x="30" y="340" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1">SYNTACTIC DESCRIPTOR REGISTRY</text>
+
+  <!-- 1. Surfaces (Top Layer) -->
+  <!-- CLI -->
+  <rect x="30" y="130" width="150" height="60" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="30" y="130" width="150" height="6" rx="3" fill="#64748b"/>
+  <text x="45" y="157" font-size="13" font-weight="700" fill="#334155">Developer CLI</text>
+  <text x="45" y="173" font-size="10.5" fill="#64748b">grove &lt;verb&gt;</text>
+
+  <!-- MCP Standard -->
+  <rect x="210" y="130" width="150" height="60" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="210" y="130" width="150" height="6" rx="3" fill="#2563eb"/>
+  <text x="225" y="157" font-size="13" font-weight="700" fill="#1e3a8a">MCP: Standard</text>
+  <text x="225" y="173" font-size="10.5" fill="#2563eb">grove serve (7 tools)</text>
+
+  <!-- MCP Explore -->
+  <rect x="390" y="130" width="150" height="60" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="390" y="130" width="150" height="6" rx="3" fill="#db2777"/>
+  <text x="405" y="157" font-size="13" font-weight="700" fill="#5b21b6">MCP: Explore</text>
+  <text x="405" y="173" font-size="10.5" fill="#db2777">serve --explore</text>
+
+  <!-- Rust Library -->
+  <rect x="570" y="130" width="150" height="60" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="570" y="130" width="150" height="6" rx="3" fill="#d97706"/>
+  <text x="585" y="157" font-size="13" font-weight="700" fill="#78350f">Rust Library</text>
+  <text x="585" y="173" font-size="10.5" fill="#d97706">grove-cst crate</text>
+
+  <!-- 2. Engine Layer (Middle Layer) -->
+  <rect x="30" y="255" width="690" height="55" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1.5"/>
+  <!-- Decorative badge -->
+  <rect x="42" y="270" width="90" height="25" rx="4" fill="#334155"/>
+  <text x="52" y="286" font-size="11.5" font-weight="700" fill="#f8fafc">grove-core</text>
+  <!-- Engine core text -->
+  <text x="150" y="287" font-size="13.5" font-weight="600" fill="#cbd5e1">Unified API Engine (<tspan fill="#f59e0b">grove_core::ops</tspan>)</text>
+  <text x="490" y="286" font-size="11" fill="#94a3b8">AST Slicing · Position Resolution · Check · Map</text>
+
+  <!-- 3. Grammar Registry (Bottom Layer) -->
+  <rect x="30" y="360" width="320" height="40" rx="5" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="45" y="384" font-size="11.5" font-weight="600" fill="#475569">Local OS Caches &amp; Vendor Dir</text>
+  <text x="215" y="383" font-size="10" fill="#94a3b8">~/.cache/grove/grammars/</text>
+
+  <rect x="400" y="360" width="320" height="40" rx="5" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <text x="415" y="384" font-size="11.5" font-weight="600" fill="#64748b">Hosted WASM Registry Catalog</text>
+  <text x="590" y="383" font-size="10" font-weight="600" fill="#2563eb">Entelligentsia/registry</text>
+
+  <!-- Connections / Arrows -->
+  <g fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Surfaces to Core -->
+    <path d="M105,190 L105,225 L340,225 L340,250" />
+    <path d="M285,190 L285,250" />
+    <path d="M465,190 L465,250" />
+    <path d="M645,190 L645,225 L400,225 L400,250" />
+
+    <!-- Core to local cache -->
+    <path d="M190,310 L190,355" />
+    <!-- Local cache to Registry Catalog (Fetch path) -->
+    <path d="M350,380 L395,380" stroke-dasharray="3,3" />
+    <!-- Catalog to Core (On-demand catalog lookup) -->
+    <path d="M560,360 L560,310" stroke-dasharray="3,3" />
+  </g>
+
+  <!-- Arrow Heads -->
+  <g fill="#94a3b8">
+    <polygon points="340,255 337,249 343,249" />
+    <polygon points="285,255 282,249 288,249" />
+    <polygon points="465,255 462,249 468,249" />
+    <polygon points="400,255 397,249 403,249" />
+    <polygon points="190,359 187,353 193,353" />
+    <!-- Bidirectional load arrow -->
+    <polygon points="190,311 187,317 193,317" />
+    <!-- Registry Fetch Arrow head -->
+    <polygon points="351,380 357,377 357,383" />
+    <!-- Catalog lookups -->
+    <polygon points="560,311 557,317 563,317" />
+  </g>
+</svg>

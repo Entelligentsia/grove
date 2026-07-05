@@ -4,6 +4,8 @@ grove's surface is the agent loop in miniature — seven tools, each returning o
 symbol's worth of structure with a stable id. Add `--json` to any command for the
 agent-facing structured shape.
 
+![The 7 Tools and the Agent Loop](assets/tools_agent_loop.svg)
+
 | Phase | Command | What it does |
 |---|---|---|
 | Read | `grove outline <file> [--kind K] [--detail 0\|1\|2]` | compact definition skeleton: kind · name · parent · signature · id. Filter by kind / dial detail down for big files |
@@ -45,6 +47,76 @@ grove map     src --kind function         # dependency graph, no source bodies
 grove check   src/registry.rs
 grove symbols . --name batch              # exact: just `batch`
 grove symbols . --name batch --name-contains   # substring: testCreateBatch, …
+```
+
+## Example results
+
+Real output, run against grove's own Rust source. Add `--json` to any command
+for the agent-facing structured shape.
+
+**`outline`** — a file's definition skeleton (kind · name · parent · line:col · signature):
+
+```console
+$ grove outline core/src/render.rs
+function   outline                                 13:8    pub fn outline(syms: &[Symbol]) -> String {
+function   source                                  37:8    pub fn source(res: &SourceResult) -> String {
+function   map                                     72:8    pub fn map(maps: &[FileMap]) -> String {
+module     tests                                   95:5    mod tests {
+method     sym                        tests        99:8    fn sym(kind: &str, …) -> Symbol {
+```
+
+**`symbols`** — find a name across a directory; each hit carries a stable id:
+
+```console
+$ grove symbols core/src --name outline
+def function   outline                      rust:core/src/ops.rs#outline@100
+def function   outline                      rust:core/src/render.rs#outline@13
+```
+
+**`source`** — one symbol's full body, by id (or `source <file> <name>`):
+
+```console
+$ grove source rust:core/src/render.rs#source@37
+pub fn source(res: &SourceResult) -> String {
+    format!("{}\n", res.source)
+}
+```
+
+**`callers`** — every reference to a name, with its enclosing function and
+provenance (`S` = structural / tree-sitter, `T` = textual / grep):
+
+```console
+$ grove callers outline -d core/src
+core/src/ops.rs:909:20   tests::project_tiers_control_field_density   [S] let syms = outline(&file, None).unwrap();
+core/src/ops.rs:939:19   tests::outline_filters_by_kind_and_skips_references  [S] let all = outline(&file, None).unwrap();
+core/src/lib.rs:14:14    <top-level>                                  [T] //! - [`ops::outline`] — the definitions in one file …
+```
+
+**`map`** — a directory's definitions, each with its outgoing references after `→`
+(no source bodies — one call replaces many `symbols`+`source` round-trips):
+
+```console
+$ grove map core/src
+core/src/config.rs
+  method     from_name              Mode          55   pub fn from_name(s: &str) …          → Ok, bail
+  method     try_from               GroveConfig   111  fn try_from(raw: RawGroveConfig) …  → Ok, bail
+  function   migrate_from_legacy_explore          157  fn migrate_from_legacy_explore() …  → Ok, Some, save, validate
+```
+
+**`definition`** — go-to-def by name (results can span files, so each leads with
+`file:line:col`); `--at file:line:col` resolves from a specific usage site:
+
+```console
+$ grove definition symbols -d core/src
+function   symbols                    core/src/ops.rs:153:8        pub fn symbols(
+function   symbols                    core/src/render.rs:26:8      pub fn symbols(syms: &[Symbol]) -> String {
+```
+
+**`check`** — ERROR / MISSING nodes after an edit (exit 1 if any; here, clean):
+
+```console
+$ grove check core/src/render.rs
+ok · no syntax errors · core/src/render.rs
 ```
 
 ## When to use which

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="320" viewBox="0 0 760 320" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <!-- Card Background -->
+  <rect width="760" height="320" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- Diagram Title -->
+  <text x="30" y="35" font-size="18" font-weight="700" fill="#0f172a">Grammar Registry &amp; Provisioning Pipeline</text>
+  <text x="30" y="55" font-size="12" fill="#64748b">How grove detects languages, resolves versions, verifies integrity, and locks grammars</text>
+
+  <!-- Connective Pipeline Line -->
+  <line x1="120" y1="180" x2="640" y2="180" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- STEP 1: DETECT -->
+  <g transform="translate(40, 90)">
+    <!-- Node box -->
+    <rect x="0" y="0" width="130" height="150" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect x="0" y="0" width="130" height="5" rx="2" fill="#0284c7"/>
+    <!-- Step label -->
+    <text x="65" y="25" font-size="10" font-weight="700" fill="#0284c7" text-anchor="middle">1. DETECT</text>
+    <!-- Description -->
+    <text x="65" y="50" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">Workspace Scan</text>
+    <text x="65" y="70" font-size="10.5" fill="#64748b" text-anchor="middle">`grove init` runs</text>
+    <text x="65" y="85" font-size="10.5" fill="#64748b" text-anchor="middle">auto-detects files</text>
+    <text x="65" y="100" font-size="10" font-weight="600" fill="#0369a1" text-anchor="middle">e.g. .py, .rs, .go</text>
+  </g>
+
+  <!-- STEP 2: RESOLVE -->
+  <g transform="translate(210, 90)">
+    <!-- Node box -->
+    <rect x="0" y="0" width="130" height="150" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect x="0" y="0" width="130" height="5" rx="2" fill="#4f46e5"/>
+    <!-- Step label -->
+    <text x="65" y="25" font-size="10" font-weight="700" fill="#4f46e5" text-anchor="middle">2. RESOLVE</text>
+    <!-- Description -->
+    <text x="65" y="50" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">Catalog Query</text>
+    <text x="65" y="70" font-size="10.5" fill="#64748b" text-anchor="middle">Checks local cache</text>
+    <text x="65" y="85" font-size="10.5" fill="#64748b" text-anchor="middle">Queries hosted</text>
+    <text x="65" y="100" font-size="10.5" fill="#64748b" text-anchor="middle">`index.json` catalog</text>
+    <text x="65" y="125" font-size="9" fill="#857f76" font-family="ui-monospace,monospace" text-anchor="middle">version &amp; provenance</text>
+  </g>
+
+  <!-- STEP 3: FETCH & VERIFY -->
+  <g transform="translate(380, 90)">
+    <!-- Node box -->
+    <rect x="0" y="0" width="150" height="150" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect x="0" y="0" width="150" height="5" rx="2" fill="#d97706"/>
+    <!-- Step label -->
+    <text x="75" y="25" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle">3. FETCH &amp; VERIFY</text>
+    <!-- Description -->
+    <text x="75" y="50" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">Secure Download</text>
+    <text x="75" y="70" font-size="10.5" fill="#64748b" text-anchor="middle">Downloads from CDN:</text>
+    <text x="75" y="85" font-size="9.5" fill="#475569" font-family="ui-monospace,monospace" text-anchor="middle">wasm, tags, manifest</text>
+    <text x="75" y="110" font-size="10.5" fill="#b45309" font-weight="600" text-anchor="middle">✓ Checks SHA-256</text>
+    <text x="75" y="125" font-size="9" fill="#94a3b8" text-anchor="middle">atomic verify-then-write</text>
+  </g>
+
+  <!-- STEP 4: LOCK & CACHE -->
+  <g transform="translate(570, 90)">
+    <!-- Node box -->
+    <rect x="0" y="0" width="150" height="150" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect x="0" y="0" width="150" height="5" rx="2" fill="#16a34a"/>
+    <!-- Step label -->
+    <text x="75" y="25" font-size="10" font-weight="700" fill="#16a34a" text-anchor="middle">4. CACHE &amp; LOCK</text>
+    <!-- Description -->
+    <text x="75" y="50" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">Reproducibility</text>
+    <text x="75" y="72" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">Writes grove.lock</text>
+    <text x="75" y="87" font-size="9" fill="#857f76" text-anchor="middle">pins versions &amp; hashes</text>
+    <text x="75" y="112" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">Caches WASM</text>
+    <text x="75" y="127" font-size="9.5" fill="#857f76" text-anchor="middle">OS cache (zero-compile)</text>
+  </g>
+
+  <!-- Connective arrows -->
+  <g fill="#cbd5e1">
+    <polygon points="190,165 180,160 180,170" />
+    <polygon points="360,165 350,160 350,170" />
+    <polygon points="550,165 540,160 540,170" />
+  </g>
+</svg>

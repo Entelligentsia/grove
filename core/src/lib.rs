@@ -49,6 +49,7 @@ pub mod ingest;
 pub mod init;
 pub mod ops;
 pub mod registry;
+pub mod render;
 
 // ---- Curated public surface ----
 //
