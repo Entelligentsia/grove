@@ -243,6 +243,9 @@ mod tests {
     #[test]
     fn provider_switch_sets_url_default() {
         let mut app = fresh();
+        // The shipped default is LlamaCpp; force Ollama first so this test is
+        // independent of the default provider.
+        update(&mut app, Msg::ProviderUp); // clamp to Ollama (index 0)
         assert_eq!(app.provider, 0); // Ollama
         assert_eq!(app.base_url, OLLAMA_DEFAULT_URL);
 

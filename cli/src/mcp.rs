@@ -251,12 +251,14 @@ fn explore_instructions(cfg: &ExploreConfig) -> String {
     format!(
         "grove is in explore mode: the `explore` tool is a code LOCATOR backed by a small \
          local model ({model} at {base_url}) driving tree-sitter + text search. Ask it \
-         targeted where-is / which-file / who-calls questions and it returns file:line \
-         citations. Because the model is light, keep each question narrow and single-focus: \
-         decompose a broad task into a few focused calls and synthesize the results \
-         yourself — don't delegate one large compound question. If the provider becomes \
-         unreachable mid-session, the tool returns an actionable isError result; restart \
-         `grove serve` to recover the standard structural surface.",
+         targeted where-is / which-file / who-calls questions and it returns validated \
+         location lines — one per line, most relevant first, each `lang:path#symbol@line` \
+         (or `path:line` when a point has no enclosing symbol). It locates; it does not \
+         explain. Because the model is light, keep each question narrow and single-focus: \
+         decompose a broad task into a few focused calls, then open the cited locations and \
+         synthesize the results yourself — don't delegate one large compound question. If \
+         the provider becomes unreachable mid-session, the tool returns an actionable \
+         isError result; restart `grove serve` to recover the standard structural surface.",
         model = cfg.model,
         base_url = cfg.base_url,
     )
@@ -267,17 +269,19 @@ fn explore_tool_spec() -> Value {
     json!({
         "name": "explore",
         "description": "Locate WHERE code lives. Ask ONE narrow, single-focus question \
-                         (e.g. \"where is session-cookie signing implemented\") and get back a short \
-                         explanation plus validated file:line citations. It is a LOCATOR backed by a \
-                         small local model over structural + text search — not a full-analysis oracle. \
-                         Keep each call targeted: for a broad task, make a few focused calls (\"where \
-                         are the routes for X\", then \"which function validates Y\") and do your own \
-                         synthesis. Do NOT hand it one compound \"find every file, route, and function \
-                         and explain how it all works\" question — a light model overshoots on those. \
-                         Best flow: a few narrow explore calls to locate the pieces (iterate broad -> \
-                         symbol-specific), then read the cited spans yourself (or hand ONE focused \
-                         subagent a prompt citing those exact file:line locations) and synthesize — \
-                         don't spawn a grep-based search subagent before locating.",
+                         (e.g. \"where is session-cookie signing implemented\") and get back validated \
+                         location lines — one per line, most relevant first, each \
+                         `lang:path#symbol@line` (or `path:line` when a point has no enclosing symbol), \
+                         and nothing else. It LOCATES; it does not explain. Backed by a small local \
+                         model over structural + text search — not a full-analysis oracle. Keep each \
+                         call targeted: for a broad task, make a few focused calls (\"where are the \
+                         routes for X\", then \"which function validates Y\") and do your own synthesis. \
+                         Do NOT hand it one compound \"find every file, route, and function and explain \
+                         how it all works\" question — a light model overshoots on those. Best flow: a \
+                         few narrow explore calls to locate the pieces (iterate broad -> \
+                         symbol-specific), then read the cited locations yourself (or hand ONE focused \
+                         subagent a prompt citing those exact locations) and synthesize — don't spawn a \
+                         grep-based search subagent before locating.",
         "inputSchema": {
             "type": "object",
             "properties": {

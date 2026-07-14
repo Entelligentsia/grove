@@ -345,6 +345,22 @@ impl ChatRequest {
         }
         self
     }
+
+    /// Builder: apply the `base-q4-v2-hf` reference-explore sampling
+    /// (`run_eval.py`): `temperature` + `max_tokens` + `chat_template_kwargs`
+    /// carrying `enable_thinking` — and nothing else. Unlike
+    /// [`Self::with_bench_sampling`], this sends **no** `top_p` / `top_k` /
+    /// `reasoning_effort` (the winning harness passed only these three knobs), and
+    /// `think` is the interim winner's setting (**on**), not forced off.
+    pub fn with_explore_sampling(mut self, temperature: f32, max_tokens: u32, think: bool) -> Self {
+        self.temperature = Some(temperature);
+        self.max_completion_tokens = Some(max_tokens);
+        self.top_p = None;
+        self.top_k = None;
+        self.reasoning_effort = None;
+        self.chat_template_kwargs = Some(serde_json::json!({ "enable_thinking": think }));
+        self
+    }
 }
 
 /// A non-streaming chat-completions response.

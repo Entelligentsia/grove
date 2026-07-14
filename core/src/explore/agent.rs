@@ -1,46 +1,63 @@
-//! The inner explorer agent loop — a direct translation of the reference bench's
-//! `agent/agent.py::_agent_loop` and `mcp_server.py::_instrumented_loop`.
+//! The inner explorer loop — the `base-q4-v2-hf` reference harness
+//! (`grove-explore-model/scripts/run_eval.py::run_question`, interim winner at
+//! 80.6 on the 347-case holdout, served on llama.cpp).
 //!
-//! The loop is bounded by **turns only** (≤ [`MAX_TURNS`]); there is deliberately
-//! **no cumulative byte budget** (the earlier grove reimplementation's 128 KiB
-//! hard-abort is gone). At the turn limit the loop injects the bench's
-//! forced-final-answer message ([`steering::FORCE_FINAL_ANSWER`]) and takes one
-//! more model turn, so exhaustion produces an *answer*, not a "no answer
-//! produced" sentinel.
+//! It is a **single-phase** bounded loop: every turn offers the full reference
+//! toolset ([`toolset::all_tools`]) and the model explores until it emits a
+//! tool-less final message (the answer — bare location lines) or a backstop
+//! fires. There is no plan-first recon phase, no `submit_plan`, and no
+//! merit/strict/plan-first arm selection — the output contract and steering are
+//! the flat v2 prompt ([`steering::system_prompt`]).
 //!
-//! Arm selection ([`Steering`]):
-//! - [`Steering::Standard`] → merit (all four tools, model chooses),
-//! - [`Steering::Strict`] → the mandatory grove-first steering,
-//! - [`Steering::Balanced`] → plan-first (recon → `submit_plan` → execute, with the
-//!   recon plan cached once per repo per process).
+//! Backstops (any ends exploration and triggers the forced-answer turn):
+//! - **turn cap** ([`MAX_TURNS`]),
+//! - **thrash** — `≥ THRASH_LIMIT` consecutive unproductive calls, where a
+//!   verbatim duplicate counts `+1` but a *novel* query that returns empty counts
+//!   `+0.5` (H5: legitimate query-pivoting isn't punished as a loop),
+//! - **context-token budget** ([`TOKEN_BUDGET`]) and **wall-time budget**
+//!   ([`TIME_BUDGET_SECS`]).
+//!
+//! Convergence + recovery, all model-visible (H1/H2/H3/H4):
+//! - a soft [`steering::NUDGE`] a couple of calls before the cap,
+//! - a forced [`steering::FORCE_FINAL_ANSWER`] turn (no empty-exit offer, carries
+//!   a concrete example) when the loop stops without an answer,
+//! - **retry-on-leak**: a malformed (leaked) tool call is re-prompted rather than
+//!   accepted as an answer ([`RETRY_ON_LEAK`]), and every observation is
+//!   [`grounding::neutralize_xml`]-ed so source markup can't 500 the template.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::client::{ChatClient, ChatRequest, ClientError, Message, Usage};
-use super::config::{ExploreConfig, Steering};
+use super::config::ExploreConfig;
 use super::trace::TraceWriter;
 use super::{grounding, steering, toolset};
 
-// --- Bench constants (from the vendored MCP env / mcp_server.py) ------------
+// --- Reference harness constants (run_eval.py defaults for the winning arm) --
 
-/// Hard turn cap (`mcp_server.py::MAX_TURNS_CAP`).
-pub const MAX_TURNS: usize = 6;
-/// Grove-recon turns before Grove closes in plan-first (`FC_RECON_TURNS`).
-pub const RECON_TURNS: usize = 2;
-/// Generation cap (`FC_MAX_TOKENS`).
+/// Turn-cap backstop (`--max-turns`, winning arm: 12).
+pub const MAX_TURNS: usize = 12;
+/// Per-completion generation cap (`--max-tokens`).
 const MAX_COMPLETION_TOKENS: u32 = 1024;
-/// Sampling temperature (`FC_TEMPERATURE`).
+/// Sampling temperature (`--temp`).
 const TEMPERATURE: f32 = 0.0;
-/// Nucleus sampling (`llm.py` default `top_p`).
-const TOP_P: f32 = 0.95;
-
-/// Cached hint prefix for the recon-once plan (`mcp_server.py::CACHED_HINT`).
-const CACHED_HINT: &str = "PRIOR STRUCTURAL MAP of this repository, from an earlier recon pass (use as a starting hint — it may not fully cover THIS question; verify with tools):\n";
+/// Model thinking (`--think`, winning arm: on).
+const THINK: bool = true;
+/// Stop after this many consecutive unproductive tool calls (`--thrash-limit`).
+const THRASH_LIMIT: f64 = 3.0;
+/// Inject the soft wrap-up nudge when this many calls remain (`--nudge-at`).
+const NUDGE_AT: usize = 2;
+/// Context-size backstop: stop when a request's prompt tokens exceed this
+/// (`--token-budget`).
+const TOKEN_BUDGET: u32 = 28_000;
+/// Per-question wall-clock cap in seconds (`--time-budget`).
+const TIME_BUDGET_SECS: u64 = 90;
+/// On a malformed (leaked) tool call, re-prompt up to this many times rather than
+/// terminating (`--retry-on-leak`, winning arm: 1).
+const RETRY_ON_LEAK: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Public types (unchanged contract consumed by cli/src/mcp.rs)
@@ -49,11 +66,13 @@ const CACHED_HINT: &str = "PRIOR STRUCTURAL MAP of this repository, from an earl
 /// The successful result of an exploration run.
 #[derive(Debug, Clone)]
 pub struct ExploreAnswer {
-    /// The grounded final answer (prose + validated `<final_answer>` citations).
+    /// The grounded answer — bare location lines, FS-validated (see
+    /// [`grounding::get_final_answer`]).
     pub text: String,
     /// The number of turns consumed.
     pub turns: usize,
-    /// True when the answer came from the forced-final-answer / turn-cap path.
+    /// True when the answer came from the forced-answer / backstop path rather
+    /// than a voluntary tool-less final message.
     pub truncated: bool,
 }
 
@@ -91,36 +110,8 @@ fn map_client_error(e: ClientError) -> ExploreError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Recon-once plan cache (mcp_server.py::_PLAN_CACHE), process-global, keyed by
-// canonical repo path.
-// ---------------------------------------------------------------------------
-
-fn plan_cache() -> &'static Mutex<HashMap<String, String>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn cache_key(root: &Path) -> String {
-    root.canonicalize()
-        .unwrap_or_else(|_| root.to_path_buf())
-        .display()
-        .to_string()
-}
-
-// ---------------------------------------------------------------------------
-// The loop
-// ---------------------------------------------------------------------------
-
-#[derive(PartialEq)]
-enum Phase {
-    Recon,
-    Execute,
-}
-
 /// A sink for per-turn progress, so a long delegated call can report liveness to
-/// the waiting client (MCP `notifications/progress`). `progress`/`total` drive a
-/// bar; `message` is a short human-facing status.
+/// the waiting client (MCP `notifications/progress`).
 pub trait ProgressReporter {
     /// Report progress at `progress` of `total`, with a status `message`.
     fn report(&self, progress: usize, total: usize, message: &str);
@@ -133,6 +124,10 @@ impl ProgressReporter for NoopReporter {
     fn report(&self, _progress: usize, _total: usize, _message: &str) {}
 }
 
+// ---------------------------------------------------------------------------
+// The loop
+// ---------------------------------------------------------------------------
+
 /// Explore `question` over `root`, delegating to the local model via `client`.
 /// Convenience wrapper over [`run_explore_reporting`] with no progress sink.
 pub fn run_explore(
@@ -144,14 +139,11 @@ pub fn run_explore(
     run_explore_reporting(question, root, cfg, client, &NoopReporter, None)
 }
 
-/// Explore `question` over `root`, delegating to the local model via `client`
-/// and reporting per-turn progress to `progress`. Direct port of
-/// `_instrumented_loop` (which subsumes `_agent_loop` when plan-first is off).
+/// Explore `question` over `root`, reporting per-turn progress. Direct port of
+/// `run_eval.py::run_question` (the winning `harness_fixes`-on arm).
 ///
 /// When `trace` is `Some`, each model round-trip is recorded to the session's
-/// structured trace (one `call_start` at entry, a `turn` per round-trip with its
-/// usage + wall time, a `call_end` before returning). `None` disables tracing
-/// with zero overhead — [`run_explore`] passes `None`.
+/// structured trace; `None` disables tracing with zero overhead.
 pub fn run_explore_reporting(
     question: &str,
     root: &Path,
@@ -160,192 +152,207 @@ pub fn run_explore_reporting(
     progress: &dyn ProgressReporter,
     trace: Option<&TraceWriter>,
 ) -> Result<ExploreAnswer, ExploreError> {
-    // Progress bar spans the worst case: one tick per turn, plus a final tick.
     let total = MAX_TURNS + 2;
-    let qwen = cfg.model.to_lowercase().contains("qwen");
-    let plan_first = cfg.steering == Steering::Balanced;
+    let sys = steering::system_prompt(cfg.steering, root);
+    let mut messages: Vec<Message> = vec![Message::system(sys), Message::user(question)];
 
-    let cached_plan = if plan_first {
-        plan_cache().lock().unwrap().get(&cache_key(root)).cloned()
-    } else {
-        None
-    };
-    let do_recon = plan_first && cached_plan.is_none();
-
-    let mut sys_content = steering::system_prompt(cfg.steering, root);
-    if do_recon {
-        sys_content.push_str(steering::PHASE1_NOTE);
-    }
-
-    let mut messages: Vec<Message> = vec![Message::system(sys_content), Message::user(question)];
-    if let Some(plan) = &cached_plan {
-        messages.push(Message::user(format!("{CACHED_HINT}{plan}")));
-    }
-
-    // Trace this call, if a session writer is attached. `call_id` correlates the
-    // per-turn and end events; `agg` accumulates token usage across turns.
     let call_id = trace.map(|tw| tw.call_start(question)).unwrap_or(0);
     let call_t0 = std::time::Instant::now();
     let mut agg = Usage::default();
 
-    let mut phase = if do_recon { Phase::Recon } else { Phase::Execute };
-    let mut grove_turns = 0usize;
-    let mut n = 0usize;
-    let mut last_text = String::new();
-    // Human-facing status carried into the *next* progress tick (so each tick,
-    // emitted just before the slow model call, describes the freshest activity).
-    let mut activity = if do_recon {
-        "planning: mapping structure".to_string()
-    } else {
-        "exploring the codebase".to_string()
-    };
+    let mut seen_sigs: HashSet<String> = HashSet::new();
+    let mut consec_unprod: f64 = 0.0;
+    let mut nudged = false;
+    let mut leak_retries_left = RETRY_ON_LEAK;
+    let mut ctx_tokens: u32 = 0;
+    let mut answer_raw: Option<String> = None;
+    let mut truncated = true; // set false only on a voluntary tool-less final turn
+    let mut turns_used = 0usize;
+    let mut activity = "exploring the codebase".to_string();
 
-    loop {
-        n += 1;
-        if n > MAX_TURNS + 1 {
+    for turn in 0..MAX_TURNS {
+        turns_used = turn + 1;
+        // Don't START a new turn past the wall budget (a slow generation can't be
+        // interrupted, but we won't pile another on top).
+        if turn > 0 && call_t0.elapsed().as_secs() > TIME_BUDGET_SECS {
             break;
         }
-        if n == MAX_TURNS + 1 {
-            messages.push(Message::user(steering::FORCE_FINAL_ANSWER));
-            activity = "wrapping up: final answer".to_string();
-        }
-        // Tick before the (slow) model call, so the client sees liveness during
-        // generation and a message describing the most recent step.
-        progress.report(n, total, &format!("turn {n}/{} · {activity}", MAX_TURNS + 1));
+        progress.report(
+            turn + 1,
+            total,
+            &format!("turn {}/{MAX_TURNS} · {activity}", turn + 1),
+        );
 
-        // Toolset for this turn.
-        let tools = if phase == Phase::Recon {
-            toolset::recon_toolset(grove_turns < RECON_TURNS)
-        } else {
-            toolset::execute_toolset()
-        };
-        let allowed: Vec<String> = tools.iter().map(|t| t.function.name.clone()).collect();
-
-        // Call the model.
         let req = ChatRequest::new(messages.clone())
-            .with_tools(tools)
-            .with_bench_sampling(TEMPERATURE, TOP_P, MAX_COMPLETION_TOKENS, None, qwen);
-        // Snapshot the request body for the trace before the client consumes it,
-        // mirroring the `model` the client fills in at send-time.
-        let req_trace = trace.map(|_| {
-            let mut v = serde_json::to_value(&req).unwrap_or(Value::Null);
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("model".to_string(), Value::String(cfg.model.clone()));
-            }
-            v
-        });
+            .with_tools(toolset::all_tools())
+            .with_tool_choice(json!("auto"))
+            .with_explore_sampling(TEMPERATURE, MAX_COMPLETION_TOKENS, THINK);
+        let req_trace = trace.map(|_| request_trace(&req, &cfg.model));
         let t0 = std::time::Instant::now();
         let resp = client.chat(req).map_err(map_client_error)?;
         let wall = t0.elapsed().as_millis();
+        if let Some(u) = resp.usage {
+            agg.prompt_tokens = agg.prompt_tokens.saturating_add(u.prompt_tokens);
+            agg.completion_tokens = agg.completion_tokens.saturating_add(u.completion_tokens);
+            agg.total_tokens = agg.total_tokens.saturating_add(u.total_tokens);
+            if u.prompt_tokens > 0 {
+                ctx_tokens = u.prompt_tokens;
+            }
+        }
         if let (Some(tw), Some(req_v)) = (trace, &req_trace) {
+            let resp_v = serde_json::to_value(&resp).unwrap_or(Value::Null);
+            tw.turn(call_id, turn + 1, req_v, &resp_v, resp.usage, wall);
+        }
+
+        let step = match resp.first_message() {
+            Some(m) => m.clone(),
+            None => break,
+        };
+        let content = step.content.clone().unwrap_or_default();
+
+        if step.tool_calls.is_empty() {
+            // A malformed tool call that leaked into content is NOT an answer:
+            // re-prompt to re-issue it properly and keep the loop alive (E1/H4).
+            if leak_retries_left > 0
+                && grounding::has_leak(&content)
+                && grounding::extract_final(&content).is_none()
+            {
+                leak_retries_left -= 1;
+                messages.push(Message::assistant(grounding::neutralize_xml(&content)));
+                messages.push(Message::user(steering::LEAK_RETRY));
+                continue;
+            }
+            // Voluntary final answer.
+            if grounding::extract_final(&content).is_some() {
+                truncated = false;
+            }
+            answer_raw = Some(content);
+            break;
+        }
+
+        // Record the assistant's tool-call turn (content neutralized — the model
+        // can emit template-breaking tags in its own reasoning).
+        let mut step = step.clone();
+        step.content = Some(grounding::neutralize_xml(&content));
+        messages.push(step.clone());
+
+        // Dispatch each call, feed neutralized observations back, and score
+        // productivity for the thrash detector.
+        for c in &step.tool_calls {
+            let obs = grounding::neutralize_xml(&toolset::dispatch(&c.name, &c.arguments, root));
+            let sig = format!("{}:{}", c.name, compact_args(&c.arguments));
+            let is_dup = !seen_sigs.insert(sig);
+            let is_empty = toolset::is_empty_obs(&obs);
+            if is_dup {
+                consec_unprod += 1.0; // verbatim duplicate — full thrash
+            } else if is_empty {
+                consec_unprod += 0.5; // H5: novel-but-empty probe — half thrash
+            } else {
+                consec_unprod = 0.0;
+            }
+            messages.push(Message::tool(&c.id, obs));
+        }
+        activity = summarize_activity(&step.tool_calls);
+
+        // Backstops (any triggers the forced-answer turn).
+        if consec_unprod >= THRASH_LIMIT
+            || ctx_tokens >= TOKEN_BUDGET
+            || call_t0.elapsed().as_secs() > TIME_BUDGET_SECS
+            || turn >= MAX_TURNS - 1
+        {
+            break;
+        }
+
+        // Soft wrap-up nudge once, a couple of calls before the cap.
+        if !nudged && (MAX_TURNS - 1 - turn) <= NUDGE_AT {
+            messages.push(Message::user(steering::NUDGE));
+            nudged = true;
+        }
+    }
+
+    // Forced-answer turn: if the loop stopped without an answer, elicit one with
+    // no tools. Retry on a persistent leak up to RETRY_ON_LEAK times.
+    if answer_raw.is_none() {
+        messages.push(Message::user(steering::FORCE_FINAL_ANSWER));
+        for att in 0..=RETRY_ON_LEAK {
+            progress.report(total - 1, total, "wrapping up: final answer");
+            let req = ChatRequest::new(messages.clone()).with_explore_sampling(
+                TEMPERATURE,
+                MAX_COMPLETION_TOKENS.max(1024),
+                THINK,
+            );
+            let req_trace = trace.map(|_| request_trace(&req, &cfg.model));
+            let t0 = std::time::Instant::now();
+            let resp = client.chat(req).map_err(map_client_error)?;
+            let wall = t0.elapsed().as_millis();
             if let Some(u) = resp.usage {
                 agg.prompt_tokens = agg.prompt_tokens.saturating_add(u.prompt_tokens);
                 agg.completion_tokens = agg.completion_tokens.saturating_add(u.completion_tokens);
                 agg.total_tokens = agg.total_tokens.saturating_add(u.total_tokens);
             }
-            let resp_v = serde_json::to_value(&resp).unwrap_or(Value::Null);
-            tw.turn(call_id, n, req_v, &resp_v, resp.usage, wall);
-        }
-        let step = match resp.first_message() {
-            Some(m) => m.clone(),
-            None => break,
-        };
-        last_text = step.content.clone().unwrap_or_default();
-        messages.push(step.clone());
-
-        if step.tool_calls.is_empty() {
-            // A text-only turn ends the run in the execute phase (the final
-            // answer). In recon, it is ignored and the loop continues (the model
-            // is eventually forced to submit_plan).
-            if phase == Phase::Execute {
-                progress.report(total, total, "grounding answer");
-                let text = grounding::get_final_answer(&last_text, root);
-                if let Some(tw) = trace {
-                    tw.call_end(call_id, &text, n, agg, call_t0.elapsed().as_millis(), false);
-                }
-                return Ok(ExploreAnswer { text, turns: n, truncated: false });
+            if let (Some(tw), Some(req_v)) = (trace, &req_trace) {
+                let resp_v = serde_json::to_value(&resp).unwrap_or(Value::Null);
+                tw.turn(call_id, turns_used + 1, req_v, &resp_v, resp.usage, wall);
             }
-            continue;
-        }
-
-        // Dispatch each tool call.
-        let mut used_grove = false;
-        let mut transition = false;
-        for c in &step.tool_calls {
-            let obs = if c.name == toolset::SUBMIT_PLAN && phase == Phase::Recon {
-                let plan_args = serialize_args(&c.arguments);
-                if !plan_args.is_empty() {
-                    plan_cache()
-                        .lock()
-                        .unwrap()
-                        .insert(cache_key(root), plan_args.clone());
-                }
-                messages.push(Message::tool(&c.id, steering::PLAN_RECORDED_NOTE));
-                messages.push(Message::user(format!(
-                    "{}\n\nYour recorded plan:\n{}",
-                    steering::PHASE2_NOTE, plan_args
-                )));
-                transition = true;
+            let fcontent = resp
+                .first_message()
+                .and_then(|m| m.content.clone())
+                .unwrap_or_default();
+            let salvaged = grounding::extract_final(&fcontent);
+            if grounding::has_leak(&fcontent) && salvaged.is_none() && att < RETRY_ON_LEAK {
+                messages.push(Message::assistant(grounding::neutralize_xml(&fcontent)));
+                messages.push(Message::user(steering::FORCE_STRICT));
                 continue;
-            } else if !allowed.contains(&c.name) {
-                if phase == Phase::Recon {
-                    steering::RECON_CLOSED_NOTE.to_string()
-                } else {
-                    "<system-reminder>Planning is done. Use Read/Grep/Glob/Grove to execute your plan, then emit <final_answer>.</system-reminder>".to_string()
-                }
-            } else if phase == Phase::Recon
-                && c.name == toolset::GROVE
-                && !toolset::RECON_VERBS.contains(&toolset::grove_verb(&c.arguments).as_str())
-            {
-                steering::RECON_VERB_NOTE.to_string()
-            } else {
-                let o = toolset::dispatch(&c.name, &c.arguments, root);
-                if c.name == toolset::GROVE {
-                    used_grove = true;
-                }
-                o
-            };
-            messages.push(Message::tool(&c.id, obs));
+            }
+            answer_raw = salvaged.is_some().then_some(fcontent);
+            break;
         }
-        if used_grove {
-            grove_turns += 1;
-        }
-        if transition {
-            phase = Phase::Execute;
-        }
-        activity = summarize_activity(&step.tool_calls, transition);
     }
 
     progress.report(total, total, "grounding answer");
-    // Fell out via the turn cap: return the best-effort last text, grounded.
-    let text = grounding::get_final_answer(&last_text, root);
-    let turns = n.saturating_sub(1);
+    let text = answer_raw
+        .map(|c| grounding::get_final_answer(&c, root))
+        .unwrap_or_default();
     if let Some(tw) = trace {
-        tw.call_end(call_id, &text, turns, agg, call_t0.elapsed().as_millis(), true);
+        tw.call_end(call_id, &text, turns_used, agg, call_t0.elapsed().as_millis(), truncated);
     }
-    Ok(ExploreAnswer { text, turns, truncated: true })
+    Ok(ExploreAnswer { text, turns: turns_used, truncated })
+}
+
+/// Snapshot a request body for the trace, filling in the `model` the client sets
+/// at send-time.
+fn request_trace(req: &ChatRequest, model: &str) -> Value {
+    let mut v = serde_json::to_value(req).unwrap_or(Value::Null);
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("model".to_string(), Value::String(model.to_string()));
+    }
+    v
+}
+
+/// A stable signature of a tool call's arguments for duplicate detection.
+fn compact_args(args: &Value) -> String {
+    if args.is_null() {
+        String::new()
+    } else {
+        serde_json::to_string(args).unwrap_or_default()
+    }
 }
 
 /// A short human-facing summary of a turn's tool activity, for the next progress
-/// tick (e.g. "Grove symbols, Read userProfileManager.js").
-fn summarize_activity(calls: &[super::client::ToolCall], transitioned: bool) -> String {
-    if transitioned {
-        return "plan set — executing".to_string();
-    }
+/// tick (e.g. "grove symbols, Read query.py").
+fn summarize_activity(calls: &[super::client::ToolCall]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for c in calls {
         let part = match c.name.as_str() {
-            toolset::GROVE => format!("Grove {}", toolset::grove_verb(&c.arguments)),
-            toolset::READ => format!("Read {}", basename_arg(&c.arguments, "path")),
+            toolset::READ => format!("Read {}", basename_arg(&c.arguments, "file_path")),
             toolset::GLOB => format!("Glob {}", str_arg(&c.arguments, "pattern")),
             toolset::GREP => format!("Grep {}", str_arg(&c.arguments, "pattern")),
-            other => other.to_string(),
+            other => format!("grove {}", other.trim_start_matches("mcp__grove__")),
         };
         parts.push(part);
     }
     let joined = parts.join(", ");
-    // Char-safe truncation (activity text may contain multibyte from paths/patterns).
-    let s = if joined.chars().count() > 80 {
+    let s: String = if joined.chars().count() > 80 {
         let mut t: String = joined.chars().take(77).collect();
         t.push('…');
         t
@@ -376,23 +383,11 @@ fn basename_arg(args: &Value, key: &str) -> String {
         .unwrap_or_else(|| p.to_string())
 }
 
-/// Serialize tool-call arguments back to a compact JSON string (the plan text
-/// cached and echoed to the model, matching `c.arguments` in the reference,
-/// which is already the raw JSON string).
-fn serialize_args(args: &Value) -> String {
-    if args.is_null() {
-        String::new()
-    } else {
-        serde_json::to_string(args).unwrap_or_default()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::explore::client::{ChatResponse, Choice, Role, ToolCall};
-    use crate::explore::config::Provider;
-    use serde_json::json;
+    use crate::explore::config::{Provider, Steering};
     use std::cell::RefCell;
 
     /// A scripted client returning canned responses in order.
@@ -459,12 +454,12 @@ mod tests {
         }
     }
 
-    fn cfg(steering: Steering) -> ExploreConfig {
+    fn cfg() -> ExploreConfig {
         ExploreConfig {
-            provider: Provider::Ollama,
-            base_url: "http://localhost:11434/v1".into(),
-            model: "qwen3.5:4b".into(),
-            steering,
+            provider: Provider::LlamaCpp,
+            base_url: "http://localhost:8080/v1".into(),
+            model: "qwen3.5-4b".into(),
+            steering: Steering::Standard,
             allowed_tools: vec!["grove".into(), "rg".into()],
             tap: false,
             trace_retain: 50,
@@ -472,92 +467,93 @@ mod tests {
     }
 
     #[test]
-    fn standard_returns_first_text_only_turn_as_answer() {
-        let client = FakeClient::new(vec![text_response("done\n<final_answer>\n</final_answer>")]);
-        let ans = run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
+    fn voluntary_location_line_answer_is_not_truncated() {
+        // A real, resolvable location line so grounding keeps it.
+        let dir = std::env::temp_dir().join(format!("grove-agent-vol-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "fn a(){}\n").unwrap();
+        let client = FakeClient::new(vec![text_response("rust:a.rs#a@1")]);
+        let ans = run_explore("where is a", &dir, &cfg(), &client).unwrap();
         assert!(!ans.truncated);
         assert_eq!(ans.turns, 1);
-        assert!(ans.text.starts_with("done"));
+        assert_eq!(ans.text, "rust:a.rs#a@1");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn standard_offers_the_four_execute_tools() {
-        let client = FakeClient::new(vec![text_response("x")]);
-        run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
+    fn every_turn_offers_the_full_reference_toolset() {
+        let client = FakeClient::new(vec![text_response("done")]);
+        run_explore("q", Path::new("."), &cfg(), &client).unwrap();
         let seen = &client.seen_tool_names.borrow()[0];
-        assert_eq!(seen, &vec!["Read", "Glob", "Grep", "Grove"]);
+        assert_eq!(
+            seen,
+            &vec![
+                "Glob",
+                "Grep",
+                "Read",
+                "mcp__grove__outline",
+                "mcp__grove__symbols",
+                "mcp__grove__source",
+                "mcp__grove__callers",
+                "mcp__grove__map",
+                "mcp__grove__definition",
+            ]
+        );
     }
 
     #[test]
-    fn turn_cap_forces_a_final_answer_not_a_sentinel() {
-        // Always request a (disallowed→ignored) tool so it never terminates on
-        // text; must break at the cap and still return grounded text.
+    fn turn_cap_forces_an_answer_via_the_no_tools_turn() {
+        // Always request a (repeated) tool so it never terminates on text; the
+        // thrash detector or turn cap must break, then the forced turn answers.
         let mut responses = Vec::new();
         for _ in 0..(MAX_TURNS + 2) {
-            responses.push(tool_call_response("Grove", json!({"command": "map ."})));
+            responses.push(tool_call_response(
+                "mcp__grove__map",
+                json!({"dir": "."}),
+            ));
         }
+        responses.push(text_response("src/x.rs:1"));
         let client = FakeClient::new(responses);
-        let ans = run_explore("q", Path::new("."), &cfg(Steering::Standard), &client).unwrap();
-        assert!(ans.truncated, "hit the turn cap");
-        // The forced-final-answer user message was injected before the last call.
-        assert!(ans.turns >= MAX_TURNS);
-    }
-
-    #[test]
-    fn balanced_recon_closes_grove_then_forces_submit_plan() {
-        // Turn 1 & 2: Grove recon calls; turn 3: Grove should be closed (only
-        // submit_plan offered); model submits plan; then answers.
-        let client = FakeClient::new(vec![
-            tool_call_response("Grove", json!({"command": "map ."})),
-            tool_call_response("Grove", json!({"command": "symbols ."})),
-            tool_call_response(
-                "submit_plan",
-                json!({"focus_files": "a.rs", "steps": "read a.rs"}),
-            ),
-            text_response("answer\n<final_answer>\n</final_answer>"),
-        ]);
-        let root = std::env::temp_dir().join(format!("grove-agent-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let ans = run_explore("q", &root, &cfg(Steering::Balanced), &client).unwrap();
-        assert!(!ans.truncated);
+        let ans = run_explore("q", Path::new("."), &cfg(), &client).unwrap();
+        assert!(ans.truncated, "answer came from the forced/backstop path");
+        // The last request (forced turn) carries NO tools.
         let seen = client.seen_tool_names.borrow();
-        // Turn 1: Grove + submit_plan (recon, grove open).
-        assert!(seen[0].contains(&"Grove".to_string()) && seen[0].contains(&"submit_plan".to_string()));
-        // Turn 3 (after 2 grove recon turns): Grove closed → submit_plan only.
-        assert_eq!(seen[2], vec!["submit_plan"]);
-        std::fs::remove_dir_all(&root).ok();
+        assert!(seen.last().unwrap().is_empty(), "forced turn has no tools");
     }
 
     #[test]
-    fn progress_is_reported_each_turn_and_at_the_end() {
-        use std::cell::RefCell;
-        struct Recorder {
-            ticks: RefCell<Vec<(usize, usize, String)>>,
+    fn duplicate_calls_trip_the_thrash_backstop_early() {
+        // Three identical (duplicate) calls → consec_unprod ≥ 3 → break → forced.
+        let mut responses = Vec::new();
+        for _ in 0..5 {
+            responses.push(tool_call_response(
+                "mcp__grove__symbols",
+                json!({"dir": ".", "name": "zzz"}),
+            ));
         }
-        impl ProgressReporter for Recorder {
-            fn report(&self, progress: usize, total: usize, message: &str) {
-                self.ticks
-                    .borrow_mut()
-                    .push((progress, total, message.to_string()));
-            }
-        }
-        // Turn 1: a Grove call; turn 2: the final text answer.
+        responses.push(text_response("(nothing)"));
+        let client = FakeClient::new(responses);
+        let ans = run_explore("q", Path::new("."), &cfg(), &client).unwrap();
+        assert!(ans.truncated);
+        // Broke well before the 12-turn cap (3 dup calls → thrash).
+        assert!(ans.turns <= 4, "thrash broke early, turns={}", ans.turns);
+    }
+
+    #[test]
+    fn leaked_tool_call_is_retried_not_taken_as_answer() {
+        // Turn 1: a leaked tool-call in content (no real answer) → retry prompt.
+        // Turn 2: a real location line.
+        let dir = std::env::temp_dir().join(format!("grove-agent-leak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "fn a(){}\n").unwrap();
         let client = FakeClient::new(vec![
-            tool_call_response("Grove", json!({"command": "symbols ."})),
-            text_response("done\n<final_answer>\n</final_answer>"),
+            text_response("<tool_call>{\"name\":\"Grep\"}</tool_call>"),
+            text_response("rust:a.rs#a@1"),
         ]);
-        let rec = Recorder {
-            ticks: RefCell::new(Vec::new()),
-        };
-        run_explore_reporting("q", Path::new("."), &cfg(Steering::Standard), &client, &rec, None)
-            .unwrap();
-        let ticks = rec.ticks.borrow();
-        // At least: turn 1 pre-call, turn 2 pre-call, final "grounding answer".
-        assert!(ticks.len() >= 3, "got {} ticks", ticks.len());
-        assert!(ticks[0].2.contains("turn 1/"), "first tick: {:?}", ticks[0]);
-        // Progress is monotonically non-decreasing.
-        assert!(ticks.windows(2).all(|w| w[0].0 <= w[1].0));
-        assert_eq!(ticks.last().unwrap().2, "grounding answer");
+        let ans = run_explore("q", &dir, &cfg(), &client).unwrap();
+        assert_eq!(ans.text, "rust:a.rs#a@1");
+        assert!(!ans.truncated);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -571,7 +567,7 @@ mod tests {
                 })
             }
         }
-        let err = run_explore("q", Path::new("."), &cfg(Steering::Standard), &DownClient).unwrap_err();
+        let err = run_explore("q", Path::new("."), &cfg(), &DownClient).unwrap_err();
         assert!(matches!(err, ExploreError::ProviderDown { .. }));
     }
 }

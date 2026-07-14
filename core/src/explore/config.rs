@@ -86,7 +86,7 @@ impl Steering {
 /// The explore subsystem configuration, persisted to `.grove/explore.json`.
 ///
 /// Field names are the JSON keys. Construct with [`ExploreConfig::default`] for
-/// the Ollama defaults, then persist with [`ExploreConfig::save`].
+/// the llama.cpp reference-rig defaults, then persist with [`ExploreConfig::save`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExploreConfig {
     /// The inference backend.
@@ -163,9 +163,13 @@ impl<'de> Deserialize<'de> for ExploreConfig {
 impl Default for ExploreConfig {
     fn default() -> Self {
         ExploreConfig {
-            provider: Provider::Ollama,
-            base_url: "http://localhost:11434/v1".to_string(),
-            model: "qwen2.5-coder:7b".to_string(),
+            // The `base-q4-v2-hf` reference serving rig: qwen3.5-4b (Q4_K_M) on a
+            // llama.cpp server (the combination the winning explore harness was
+            // proven on). Existing on-disk configs are untouched — only fresh
+            // `grove init --as mcp-llm` / `grove config` runs start from this.
+            provider: Provider::LlamaCpp,
+            base_url: "http://localhost:8080/v1".to_string(),
+            model: "qwen3.5-4b".to_string(),
             steering: Steering::Standard,
             allowed_tools: vec![
                 "grove".to_string(),
@@ -283,11 +287,11 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_ollama() {
+    fn defaults_are_the_llamacpp_reference_rig() {
         let cfg = ExploreConfig::default();
-        assert_eq!(cfg.provider, Provider::Ollama);
-        assert_eq!(cfg.base_url, "http://localhost:11434/v1");
-        assert_eq!(cfg.model, "qwen2.5-coder:7b");
+        assert_eq!(cfg.provider, Provider::LlamaCpp);
+        assert_eq!(cfg.base_url, "http://localhost:8080/v1");
+        assert_eq!(cfg.model, "qwen3.5-4b");
         assert_eq!(cfg.steering, Steering::Standard);
         assert_eq!(cfg.allowed_tools, vec!["grove", "rg", "grep", "find"]);
         assert_eq!(cfg.trace_retain, DEFAULT_TRACE_RETAIN);

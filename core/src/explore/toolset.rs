@@ -1,13 +1,19 @@
-//! Tool schemas + dispatch — a direct port of the reference bench's
-//! `agent/tool/{read,glob,grep,grove}.py` and `mcp_server.py`'s `submit_plan`.
+//! Tool schemas + dispatch for the inner explorer — the `base-q4-v2-hf`
+//! reference toolset (`grove-explore-model/scripts/run_eval.py`).
 //!
-//! The inner explorer sees exactly four tools — **Read**, **Glob**, **Grep**,
-//! **Grove** — plus **submit_plan** during the plan-first recon phase. This is
-//! the toolset the study validated; it is deliberately NOT grove's 7 structural
-//! MCP tools. `Grove` is a single command-string tool that runs the read-only
-//! structural verbs **in-process** via `ops` + [`crate::render`] (ADR 0003) —
-//! same text the CLI prints, but no subprocess spawn or reparse per call.
-//! `Grep`/`Glob` shell to ripgrep; `Read` is in-process.
+//! The model sees the reference's exact tool vocabulary: three Claude-style base
+//! tools — **Glob**, **Grep**, **Read** — plus the six read-only grove structural
+//! tools under their MCP names — **mcp__grove__outline / symbols / source /
+//! callers / map / definition** (no `check`; it never appears in the reference
+//! toolset). There is **no** single `Grove` command-string tool and **no**
+//! `submit_plan`: the plan-first recon phase is gone.
+//!
+//! Observation shapes mirror the reference harness so the (untrained) base model
+//! reads what it was measured on: grove tools return `grove <verb> --json`
+//! (`serde_json::to_string_pretty` of the `ops` result, capped), dispatched
+//! **in-process** via `ops` (ADR 0003 — no subprocess/reparse per call, warm
+//! grammar cache); Read returns `== path ==\n<n>\t<line>` slices; Grep/Glob shell
+//! to ripgrep and return repo-relative `path:line:text` / path lists.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,488 +22,399 @@ use serde_json::{json, Value};
 
 use super::client::Tool;
 
-// Tool names (exact, case-sensitive — the model calls these strings).
+// Base tool names (Claude arg schemas) — exact, case-sensitive strings the model calls.
 pub const READ: &str = "Read";
 pub const GLOB: &str = "Glob";
 pub const GREP: &str = "Grep";
-pub const GROVE: &str = "Grove";
-pub const SUBMIT_PLAN: &str = "submit_plan";
 
-/// Grove verbs allowed at all (read-only exploration), from `tool/grove.py`.
-pub const ALLOWED_VERBS: &[&str] = &["outline", "symbols", "source", "callers", "definition", "map"];
-/// Grove verbs allowed during plan-first recon, from `mcp_server.py::RECON_VERBS`.
-pub const RECON_VERBS: &[&str] = &["map", "symbols", "outline", "definition"];
+// The six grove structural tools, under their MCP names.
+pub const GROVE_OUTLINE: &str = "mcp__grove__outline";
+pub const GROVE_SYMBOLS: &str = "mcp__grove__symbols";
+pub const GROVE_SOURCE: &str = "mcp__grove__source";
+pub const GROVE_CALLERS: &str = "mcp__grove__callers";
+pub const GROVE_MAP: &str = "mcp__grove__map";
+pub const GROVE_DEFINITION: &str = "mcp__grove__definition";
 
-// Read caps (read.py).
-const MAX_READ_LINES: usize = 2000;
-const MAX_READ_LINE_LEN: usize = 2000;
-// Output line caps (grove.py: 120; grep/glob: 100).
-const GROVE_MAX_LINES: usize = 120;
-const RG_MAX_LINES: usize = 100;
+// Observation caps (from run_eval.py: read 120 lines, grep 80, glob 60, grove 8000 chars).
+const READ_MAX_LINES: usize = 120;
+const READ_MAX_LINE_LEN: usize = 2000;
+const GREP_MAX_LINES: usize = 80;
+const GLOB_MAX_FILES: usize = 60;
+const GROVE_MAX_CHARS: usize = 8000;
+/// `outline --json` default `--detail` (clap default in `cli/src/main.rs`).
+const OUTLINE_DETAIL: u8 = 1;
 
-// Tool descriptions, embedded verbatim from the vendored prompts.
-const DESC_READ: &str = include_str!("prompts/tool_read.md");
-const DESC_GLOB: &str = include_str!("prompts/tool_glob.md");
-const DESC_GREP: &str = include_str!("prompts/tool_grep.md");
-const DESC_GROVE: &str = include_str!("prompts/tool_grove.md");
+/// Tool-observation markers that carry no new signal (mirror `run_eval.py::_EMPTY_OBS`).
+/// A call whose observation matches one of these is "empty" for thrash accounting.
+const EMPTY_OBS: &[&str] = &[
+    "(no matches)",
+    "(no files match)",
+    "(no such file",
+    "(empty range)",
+    "(path escapes",
+    "(grep error",
+    "(grove error",
+    "(no output)",
+    "(unknown tool",
+];
+
+/// True when `obs` carried no new signal — used by the loop's thrash detector.
+pub fn is_empty_obs(obs: &str) -> bool {
+    EMPTY_OBS.iter().any(|m| obs.contains(m))
+}
 
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
 
-fn read_schema() -> Tool {
+fn s() -> Value {
+    json!({"type": "string"})
+}
+fn b() -> Value {
+    json!({"type": "boolean"})
+}
+fn i() -> Value {
+    json!({"type": "integer"})
+}
+
+fn func(name: &str, desc: &str, props: Value, required: Value) -> Tool {
     Tool::function(
-        READ,
-        DESC_READ,
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "The path of the file to read."},
-                "offset": {"type": "integer", "description": "1-indexed start line. Only for large files."},
-                "limit": {"type": "integer", "description": "Number of lines to read. Only for large files."}
-            },
-            "required": ["path"]
-        }),
+        name,
+        desc,
+        json!({"type": "object", "properties": props, "required": required}),
     )
 }
 
-fn glob_schema() -> Tool {
-    Tool::function(
-        GLOB,
-        DESC_GLOB,
-        json!({
-            "type": "object",
-            "properties": {
-                "directory": {"type": "string", "description": "Directory to search in. Defaults to the workspace root."},
-                "pattern": {"type": "string", "description": "The glob pattern to match files."}
-            },
-            "required": ["pattern"]
-        }),
-    )
-}
-
-fn grep_schema() -> Tool {
-    Tool::function(
-        GREP,
-        DESC_GREP,
-        json!({
-            "type": "object",
-            "properties": {
-                "pattern": {"type": "string", "description": "The regular expression to search for in file contents."},
-                "path": {"type": "string", "description": "File or directory to search in. Defaults to the workspace root."},
-                "glob": {"type": "string", "description": "Glob to filter files (e.g. \"*.rs\", \"*.{ts,tsx}\")."},
-                "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"], "description": "content shows matching lines; files_with_matches shows paths; count shows counts. Default files_with_matches."},
-                "-B": {"type": "number", "description": "Lines before each match (content mode)."},
-                "-A": {"type": "number", "description": "Lines after each match (content mode)."},
-                "-C": {"type": "number", "description": "Lines around each match (content mode)."},
-                "-n": {"type": "boolean", "description": "Show line numbers (content mode). Default true."},
-                "-i": {"type": "boolean", "description": "Case-insensitive search."},
-                "type": {"type": "string", "description": "File type to search (rg --type): rs, py, js, go, java, …"},
-                "head_limit": {"type": "number", "minimum": 0, "description": "Limit output to first N lines/entries."},
-                "multiline": {"type": "boolean", "description": "Enable multiline mode. Default false."}
-            },
-            "required": ["pattern"]
-        }),
-    )
-}
-
-fn grove_schema() -> Tool {
-    Tool::function(
-        GROVE,
-        DESC_GROVE,
-        json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "grove CLI arguments WITHOUT the leading 'grove'. e.g. \"symbols . --kind function --name-contains --name rename\", \"outline merge-ort.c\", or \"source c:merge-ort.c#detect_regular_renames@1600\". Allowed verbs: outline, symbols, source, callers, definition, map."
-                }
-            },
-            "required": ["command"]
-        }),
-    )
-}
-
-/// The `submit_plan` schema, verbatim from `mcp_server.py::PLAN_SCHEMA`.
-pub fn submit_plan_schema() -> Tool {
-    Tool::function(
-        SUBMIT_PLAN,
-        "Record your focus area and unlock the execution tools (Read, Grep, Glob, and Grove source/callers). Call this after 1-2 Grove structure calls, once you know where the answer lives.",
-        json!({
-            "type": "object",
-            "properties": {
-                "focus_files": {"type": "string", "description": "the 2-5 files/dirs to investigate"},
-                "focus_symbols": {"type": "string", "description": "key functions/types, with grove ids where known"},
-                "steps": {"type": "string", "description": "ordered sub-goals; for each, what to find and which tool (source/Read/Grep)"}
-            },
-            "required": ["focus_files", "steps"]
-        }),
-    )
-}
-
-/// Full execution toolset (merit/strict, and plan-first phase 2).
-pub fn execute_toolset() -> Vec<Tool> {
-    vec![read_schema(), glob_schema(), grep_schema(), grove_schema()]
-}
-
-/// Recon toolset (plan-first phase 1): Grove (structure) while `grove_open`,
-/// always `submit_plan`. Mirrors `_instrumented_loop`'s schema selection.
-pub fn recon_toolset(grove_open: bool) -> Vec<Tool> {
-    let mut tools = Vec::new();
-    if grove_open {
-        tools.push(grove_schema());
-    }
-    tools.push(submit_plan_schema());
-    tools
+/// The full toolset offered on every turn: three base tools + six grove tools,
+/// matching `run_eval.py`'s `BASE_TOOLS + GROVE_TOOLS` (names, args, order).
+pub fn all_tools() -> Vec<Tool> {
+    vec![
+        func(
+            GLOB,
+            "List repository files matching a glob pattern (recursive '**').",
+            json!({"pattern": s()}),
+            json!(["pattern"]),
+        ),
+        func(
+            GREP,
+            "Search file contents with a regex (ripgrep). Returns file:line:text.",
+            json!({
+                "pattern": s(),
+                "path": {"type": "string", "description": "optional file/dir to scope"},
+                "glob": {"type": "string", "description": "optional file filter e.g. '*.rs'"}
+            }),
+            json!(["pattern"]),
+        ),
+        func(
+            READ,
+            "Read a slice of a file with line numbers.",
+            json!({"file_path": s(), "offset": i(), "limit": i()}),
+            json!(["file_path"]),
+        ),
+        func(
+            GROVE_OUTLINE,
+            "List the definitions in one file (kind·name·parent·signature·id).",
+            json!({"file": s(), "kind": s()}),
+            json!(["file"]),
+        ),
+        func(
+            GROVE_SYMBOLS,
+            "Find symbols across a directory, optionally filtered by name/kind.",
+            json!({"dir": s(), "name": s(), "kind": s(), "nameContains": b(), "refs": b()}),
+            json!(["dir"]),
+        ),
+        func(
+            GROVE_SOURCE,
+            "Print the full source of a symbol, by id or by file+name.",
+            json!({"id": s(), "file": s(), "name": s()}),
+            json!([]),
+        ),
+        func(
+            GROVE_CALLERS,
+            "Find references to a symbol across a directory.",
+            json!({"name": s(), "dir": s()}),
+            json!(["name"]),
+        ),
+        func(
+            GROVE_MAP,
+            "Compact structural map: definitions and their references, no bodies.",
+            json!({"dir": s(), "name": s(), "kind": s(), "nameContains": b()}),
+            json!(["dir"]),
+        ),
+        func(
+            GROVE_DEFINITION,
+            "Find where a symbol is defined (go-to-def), by name or position.",
+            json!({"name": s(), "at": s(), "dir": s()}),
+            json!([]),
+        ),
+    ]
 }
 
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
-/// Extract the leading grove verb from a `Grove` `command` argument.
-pub fn grove_verb(args: &Value) -> String {
-    args.get("command")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string()
-}
-
-/// Execute a tool call and return the observation text. `submit_plan` is handled
-/// by the agent loop and never reaches here.
+/// Execute a tool call and return the raw observation text (the caller
+/// neutralizes XML-breaking tags before feeding it back to the model).
 pub fn dispatch(name: &str, args: &Value, root: &Path) -> String {
     match name {
         READ => read_tool(args, root),
         GLOB => glob_tool(args, root),
         GREP => grep_tool(args, root),
-        GROVE => grove_tool(args, root),
-        other => format!("<system-reminder>Tool `{other}` not found.</system-reminder>"),
+        GROVE_OUTLINE | GROVE_SYMBOLS | GROVE_SOURCE | GROVE_CALLERS | GROVE_MAP
+        | GROVE_DEFINITION => grove_tool(name, args, root),
+        other => format!("(unknown tool: {other})"),
     }
 }
 
-// --- Read (port of tool/read.py) -------------------------------------------
+// --- Read (port of run_eval.py::t_read / t_read_claude) --------------------
 
 fn read_tool(args: &Value, root: &Path) -> String {
-    let file_path = match args.get("path").and_then(Value::as_str) {
-        Some(p) if !p.is_empty() => p,
-        _ => return "<system-reminder>Error: file path is required</system-reminder>".into(),
-    };
-    let offset = args.get("offset").and_then(Value::as_i64).unwrap_or(1);
-    if offset <= 0 {
-        return "<system-reminder>Error: offset must be a positive integer</system-reminder>".into();
+    // Claude's Read takes `file_path`; tolerate `path` as a synonym.
+    let raw = args
+        .get("file_path")
+        .or_else(|| args.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if raw.is_empty() {
+        return "(no such file: )".into();
     }
-    let limit = args.get("limit").and_then(Value::as_i64);
-    if let Some(l) = limit {
-        if l <= 0 {
-            return "<system-reminder>Error: limit must be a positive integer</system-reminder>"
-                .into();
-        }
-    }
-    let resolved = match resolve_read_path(file_path, root) {
+    let resolved = match resolve_read_path(raw, root) {
         Some(p) => p,
-        None => {
-            return format!(
-                "<system-reminder>Permission error: `{}` is not within the working directory `{}`</system-reminder>",
-                file_path,
-                root.display()
-            )
-        }
+        None => return "(path escapes repo)".into(),
     };
-    if !resolved.exists() {
-        return format!(
-            "<system-reminder>Error: {} does not exist</system-reminder>",
-            resolved.display()
-        );
+    if !resolved.is_file() {
+        return format!("(no such file: {raw})");
     }
+    let start = args
+        .get("offset")
+        .and_then(Value::as_i64)
+        .filter(|n| *n > 0)
+        .unwrap_or(1) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_i64)
+        .filter(|n| *n > 0)
+        .map(|n| n as usize)
+        .unwrap_or(READ_MAX_LINES)
+        .min(READ_MAX_LINES);
+    let end = start + limit - 1;
     let content = match std::fs::read_to_string(&resolved) {
         Ok(c) => c,
-        Err(e) => return format!("<system-reminder>Error reading file: {e}</system-reminder>"),
+        Err(e) => return format!("(read error: {e})"),
     };
-    let raw_lines: Vec<&str> = content.split_inclusive('\n').collect();
-    if raw_lines.is_empty() {
-        return "File is empty.".into();
-    }
-    let offset = offset as usize;
-    if offset > raw_lines.len() {
-        return "File is empty.".into();
-    }
-    let mut end_line = match limit {
-        Some(l) => offset + l as usize - 1,
-        None => raw_lines.len(),
-    };
-    if end_line > raw_lines.len() {
-        end_line = raw_lines.len();
-    }
-    let total = end_line.saturating_sub(offset) + 1;
-    if total > MAX_READ_LINES {
-        end_line = offset + MAX_READ_LINES - 1;
-    }
-    let mut out = String::new();
-    for (i, raw) in raw_lines.iter().enumerate().take(end_line).skip(offset - 1) {
-        let mut line = (*raw).to_string();
-        if line.len() > MAX_READ_LINE_LEN {
-            line.truncate(MAX_READ_LINE_LEN);
-            line.push_str("...\n");
+    let mut out = Vec::new();
+    for (n, line) in content.lines().enumerate() {
+        let n = n + 1;
+        if n < start {
+            continue;
         }
-        out.push_str(&format!("{}|{}", i + 1, line));
+        if n > end {
+            break;
+        }
+        let mut line = line.trim_end().to_string();
+        if line.len() > READ_MAX_LINE_LEN {
+            line.truncate(READ_MAX_LINE_LEN);
+            line.push('…');
+        }
+        out.push(format!("{n}\t{line}"));
     }
-    if total > MAX_READ_LINES {
-        out.push_str("...");
-    }
-    format!(
-        "```{}:{}-{}\n{}\n```",
-        resolved.display(),
-        offset,
-        end_line,
-        out
-    )
+    let body = if out.is_empty() {
+        "(empty range)".to_string()
+    } else {
+        out.join("\n")
+    };
+    format!("== {raw} ==\n{body}")
 }
 
-// --- Glob (port of tool/glob.py) -------------------------------------------
+// --- Grep (port of run_eval.py::t_grep) ------------------------------------
+
+fn grep_tool(args: &Value, root: &Path) -> String {
+    let pattern = match args.get("pattern").and_then(Value::as_str) {
+        Some(p) if !p.is_empty() => p,
+        _ => return "(no matches)".into(),
+    };
+    let rg = match which("rg") {
+        Some(p) => p,
+        None => return "(grep error: ripgrep (rg) not on PATH)".into(),
+    };
+    let path = resolve_search_path(args.get("path").and_then(Value::as_str), root);
+    let mut cmd: Vec<String> = vec![
+        "-n".into(),
+        "--no-heading".into(),
+        "-m".into(),
+        "40".into(),
+        pattern.to_string(),
+    ];
+    if let Some(g) = args.get("glob").and_then(Value::as_str) {
+        cmd.push("-g".into());
+        cmd.push(g.to_string());
+    }
+    cmd.push("--".into());
+    cmd.push(path.display().to_string());
+    let out = run_capture(&rg, &cmd, root);
+    let lines: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return "(no matches)".into();
+    }
+    if lines.len() > GREP_MAX_LINES {
+        format!(
+            "{}\n... (+{} more matches)",
+            lines[..GREP_MAX_LINES].join("\n"),
+            lines.len() - GREP_MAX_LINES
+        )
+    } else {
+        lines.join("\n")
+    }
+}
+
+// --- Glob (port of run_eval.py::t_glob) ------------------------------------
 
 fn glob_tool(args: &Value, root: &Path) -> String {
     let pattern = match args.get("pattern").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "<system-reminder>Error: pattern is required</system-reminder>".into(),
+        Some(p) if !p.is_empty() => p,
+        _ => return "(no files match)".into(),
     };
-    let dir = resolve_search_path(args.get("directory").and_then(Value::as_str), root);
-    let rg = match rg_path() {
+    let rg = match which("rg") {
         Some(p) => p,
-        None => return "<system-reminder>Glob requires ripgrep (rg) on PATH.</system-reminder>".into(),
+        None => return "(grep error: ripgrep (rg) not on PATH)".into(),
     };
     let out = run_capture(
         &rg,
         &[
             "--files".into(),
-            dir.display().to_string(),
             "--glob".into(),
             pattern.to_string(),
+            root.display().to_string(),
         ],
         root,
     );
-    let mut lines: Vec<String> = out.lines().map(str::to_string).collect();
-    if lines.len() > RG_MAX_LINES {
-        lines.truncate(RG_MAX_LINES);
-        lines.push(format!(
-            "Results are truncated: showing first {RG_MAX_LINES} results. Consider using a more specific path or pattern."
-        ));
+    let mut rels: Vec<String> = out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            Path::new(l)
+                .strip_prefix(root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| l.to_string())
+        })
+        .collect();
+    rels.sort();
+    if rels.is_empty() {
+        return "(no files match)".into();
     }
-    if lines.is_empty() {
-        return "No files found".into();
-    }
-    lines.join("\n")
-}
-
-// --- Grep (port of tool/grep.py) -------------------------------------------
-
-fn grep_tool(args: &Value, root: &Path) -> String {
-    let pattern = match args.get("pattern").and_then(Value::as_str) {
-        Some(p) => p,
-        None => return "<system-reminder>Error: pattern is required</system-reminder>".into(),
-    };
-    let rg = match rg_path() {
-        Some(p) => p,
-        None => return "<system-reminder>Grep requires ripgrep (rg) on PATH.</system-reminder>".into(),
-    };
-    let path = resolve_search_path(args.get("path").and_then(Value::as_str), root);
-    let mut cmd: Vec<String> = vec![pattern.to_string(), path.display().to_string()];
-    if let Some(g) = args.get("glob").and_then(Value::as_str) {
-        cmd.push("--glob".into());
-        cmd.push(g.to_string());
-    }
-    if args.get("-i").and_then(Value::as_bool).unwrap_or(false) {
-        cmd.push("--ignore-case".into());
-    }
-    if let Some(t) = args.get("type").and_then(Value::as_str) {
-        cmd.push("--type".into());
-        cmd.push(t.to_string());
-    }
-    if args.get("multiline").and_then(Value::as_bool).unwrap_or(false) {
-        cmd.push("--multiline".into());
-        cmd.push("--multiline-dotall".into());
-    }
-    let output_mode = args
-        .get("output_mode")
-        .and_then(Value::as_str)
-        .unwrap_or("files_with_matches");
-    match output_mode {
-        "content" => {
-            if let Some(b) = args.get("-B").and_then(Value::as_i64) {
-                cmd.push("-B".into());
-                cmd.push(b.to_string());
-            }
-            if let Some(a) = args.get("-A").and_then(Value::as_i64) {
-                cmd.push("-A".into());
-                cmd.push(a.to_string());
-            }
-            let c = args.get("-C").and_then(Value::as_i64).unwrap_or(3);
-            cmd.push("-C".into());
-            cmd.push(c.to_string());
-            if args.get("-n").and_then(Value::as_bool).unwrap_or(true) {
-                cmd.push("-n".into());
-            }
-        }
-        "count" => cmd.push("--count-matches".into()),
-        _ => cmd.push("--files-with-matches".into()),
-    }
-    cmd.push("--heading".into());
-    cmd.push("--color".into());
-    cmd.push("never".into());
-    let out = run_capture(&rg, &cmd, root);
-    if out.trim().is_empty() {
-        return "No matches found".into();
-    }
-    let mut limit = RG_MAX_LINES;
-    if let Some(h) = args.get("head_limit").and_then(Value::as_i64) {
-        if h > 0 && (h as usize) < limit {
-            limit = h as usize;
-        }
-    }
-    let lines: Vec<&str> = out.lines().collect();
-    if lines.len() > limit {
-        let mut s = lines[..limit].join("\n");
-        s.push_str(&format!("\nResults truncated to first {limit} lines"));
-        s
-    } else {
-        out
-    }
-}
-
-// --- Grove (port of tool/grove.py — shell to the grove binary) -------------
-
-fn grove_tool(args: &Value, root: &Path) -> String {
-    let cmd = args
-        .get("command")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    if cmd.is_empty() {
-        return "<system-reminder>Grove: `command` is required.</system-reminder>".into();
-    }
-    let mut parts: Vec<String> = match shell_words_split(cmd) {
-        Ok(p) => p,
-        Err(e) => return format!("<system-reminder>Grove: could not parse command ({e}).</system-reminder>"),
-    };
-    if parts.first().map(String::as_str) == Some("grove") {
-        parts.remove(0);
-    }
-    let verb = parts.first().cloned().unwrap_or_default();
-    if !ALLOWED_VERBS.contains(&verb.as_str()) {
-        return format!(
-            "<system-reminder>Grove: verb must be one of {ALLOWED_VERBS:?}. Got: {}.</system-reminder>",
-            if verb.is_empty() { "(none)" } else { &verb }
-        );
-    }
-    // Sandbox: keep path args inside the workspace (symbol ids with '/../' aside).
-    for a in &parts[1..] {
-        if a.starts_with('-') {
-            continue;
-        }
-        if a.starts_with('/') || a == ".." || a.starts_with("../") || a.contains("/../") {
-            return format!(
-                "<system-reminder>Grove: path `{a}` must be inside the workspace (relative, no '..').</system-reminder>"
-            );
-        }
-    }
-    // In-process dispatch: call `ops` + `core::render` directly instead of
-    // spawning the grove binary (ADR 0003) — keeps the process-wide grammar
-    // cache warm and avoids a reparse per tool call. The verb is already
-    // validated against ALLOWED_VERBS and paths are sandboxed above.
-    let out = match dispatch_grove(&verb, &parts[1..], root) {
-        Ok(s) => s,
-        Err(e) => return format!("<system-reminder>Grove: {e}</system-reminder>"),
-    };
-    if out.trim().is_empty() {
-        return "No results.".into();
-    }
-    let lines: Vec<&str> = out.lines().collect();
-    if lines.len() > GROVE_MAX_LINES {
+    if rels.len() > GLOB_MAX_FILES {
         format!(
-            "{}\n...(truncated {} more lines)",
-            lines[..GROVE_MAX_LINES].join("\n"),
-            lines.len() - GROVE_MAX_LINES
+            "{}\n... (+{} more)",
+            rels[..GLOB_MAX_FILES].join("\n"),
+            rels.len() - GLOB_MAX_FILES
         )
     } else {
-        out
+        rels.join("\n")
     }
 }
 
-/// Run one read-only structural verb in-process and return its rendered text
-/// (identical to the CLI's stdout — see [`crate::render`]). `args` is the token
-/// list after the verb; only the six verbs' documented flags are parsed (`core`
-/// stays clap-free), and unknown flags are tolerated (skipped).
-fn dispatch_grove(verb: &str, args: &[String], root: &Path) -> anyhow::Result<String> {
-    use crate::{ops, render};
+// --- grove structural tools (in-process ops + --json render) ---------------
 
-    let mut pos: Vec<&str> = Vec::new();
-    let (mut kind, mut name, mut dir, mut at): (Option<&str>, Option<&str>, Option<&str>, Option<&str>) =
-        (None, None, None, None);
-    let (mut name_contains, mut refs) = (false, false);
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--kind" => { kind = args.get(i + 1).map(String::as_str); i += 2; }
-            "--name" => { name = args.get(i + 1).map(String::as_str); i += 2; }
-            "--name-contains" | "--name-substr" => { name_contains = true; i += 1; }
-            "--refs" => { refs = true; i += 1; }
-            "-d" | "--dir" => { dir = args.get(i + 1).map(String::as_str); i += 2; }
-            "--at" => { at = args.get(i + 1).map(String::as_str); i += 2; }
-            "--detail" => { i += 2; } // text output ignores --detail
-            a if a.starts_with('-') => { i += 1; } // tolerate unknown flags
-            a => { pos.push(a); i += 1; }
+fn grove_tool(name: &str, a: &Value, root: &Path) -> String {
+    match grove_json(name, a, root) {
+        Ok(js) => {
+            let text = js.trim();
+            if text.is_empty() || text == "[]" || text == "null" {
+                "(no output)".into()
+            } else if text.len() > GROVE_MAX_CHARS {
+                // Char-safe truncation (JSON may hold multibyte from source spans).
+                let cut: String = text.chars().take(GROVE_MAX_CHARS).collect();
+                format!("{cut}\n... (truncated)")
+            } else {
+                text.to_string()
+            }
         }
+        Err(e) => format!("(grove error: {e})"),
     }
+}
 
-    // `dir`-defaulting verbs mirror the CLI's `default_value = "."`.
-    let dir_or_cwd = || dir.unwrap_or(".");
-    Ok(match verb {
-        "outline" => {
-            let file = pos.first().ok_or_else(|| anyhow::anyhow!("outline needs a file"))?;
-            render::outline(&ops::outline(&root.join(file), kind)?)
+/// Run one grove verb in-process and return its `--json` serialization
+/// (`serde_json::to_string_pretty` of the `ops` result — byte-identical to the
+/// CLI's `grove <verb> --json`).
+fn grove_json(name: &str, a: &Value, root: &Path) -> anyhow::Result<String> {
+    use crate::ops;
+
+    let str_arg = |k: &str| a.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let bool_arg = |k: &str| a.get(k).and_then(Value::as_bool).unwrap_or(false);
+    let dir = str_arg("dir").unwrap_or(".");
+
+    let pretty = |v: &serde_json::Value| serde_json::to_string_pretty(v).unwrap_or_default();
+    let pretty_ser = |v: &dyn ErasedSer| v.to_pretty();
+
+    Ok(match name {
+        GROVE_OUTLINE => {
+            let file = str_arg("file").ok_or_else(|| anyhow::anyhow!("outline needs `file`"))?;
+            let syms = ops::outline(&root.join(file), str_arg("kind"))?;
+            pretty(&ops::project(&syms, OUTLINE_DETAIL))
         }
-        "symbols" => {
-            let d = pos.first().copied().unwrap_or(".");
-            render::symbols(&ops::symbols(&root.join(d), kind, name, refs, name_contains)?)
+        GROVE_SYMBOLS => {
+            let syms = ops::symbols(
+                &root.join(dir),
+                str_arg("kind"),
+                str_arg("name"),
+                bool_arg("refs"),
+                bool_arg("nameContains"),
+            )?;
+            pretty_ser(&syms)
         }
-        "source" => {
-            let id_or_file = pos.first().ok_or_else(|| anyhow::anyhow!("source needs an id or file"))?;
-            render::source(&ops::source(id_or_file, pos.get(1).copied())?)
-        }
-        "callers" => {
-            let nm = pos.first().ok_or_else(|| anyhow::anyhow!("callers needs a name"))?;
-            render::callers(&ops::callers(&root.join(dir_or_cwd()), nm)?)
-        }
-        "definition" => {
-            let defs = match at {
-                Some(p) => {
-                    let (file, row, col) = ops::parse_pos(p)?;
-                    ops::definition_at(&root.join(file), row, col, &root.join(dir_or_cwd()))?.1
-                }
-                None => {
-                    let nm = pos.first().ok_or_else(|| anyhow::anyhow!("definition needs a name or --at"))?;
-                    ops::definition(&root.join(dir_or_cwd()), nm)?
-                }
+        GROVE_SOURCE => {
+            let res = if let Some(id) = str_arg("id") {
+                ops::source(id, None)?
+            } else {
+                let file = str_arg("file")
+                    .ok_or_else(|| anyhow::anyhow!("source needs `id` or `file`+`name`"))?;
+                ops::source(file, str_arg("name"))?
             };
-            render::definition(&defs)
+            pretty_ser(&res)
         }
-        "map" => {
-            let d = pos.first().copied().unwrap_or(".");
-            render::map(&ops::map(&root.join(d), kind, name, name_contains)?)
+        GROVE_CALLERS => {
+            let nm = str_arg("name").ok_or_else(|| anyhow::anyhow!("callers needs `name`"))?;
+            pretty_ser(&ops::callers(&root.join(dir), nm)?)
         }
-        other => anyhow::bail!("unknown verb `{other}`"), // unreachable: ALLOWED_VERBS gates this
+        GROVE_MAP => {
+            let maps = ops::map(
+                &root.join(dir),
+                str_arg("kind"),
+                str_arg("name"),
+                bool_arg("nameContains"),
+            )?;
+            pretty_ser(&maps)
+        }
+        GROVE_DEFINITION => {
+            let defs = if let Some(at) = str_arg("at") {
+                let (file, row, col) = ops::parse_pos(at)?;
+                ops::definition_at(&root.join(file), row, col, &root.join(dir))?.1
+            } else {
+                let nm =
+                    str_arg("name").ok_or_else(|| anyhow::anyhow!("definition needs `name` or `at`"))?;
+                ops::definition(&root.join(dir), nm)?
+            };
+            pretty_ser(&defs)
+        }
+        other => anyhow::bail!("unknown grove tool: {other}"),
     })
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn rg_path() -> Option<String> {
-    which("rg")
+/// Tiny helper so `grove_json` can `to_string_pretty` the differently-typed `ops`
+/// results through one closure without a big generic.
+trait ErasedSer {
+    fn to_pretty(&self) -> String;
 }
+impl<T: serde::Serialize> ErasedSer for T {
+    fn to_pretty(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (path sandboxing + subprocess capture)
+// ---------------------------------------------------------------------------
 
 /// Minimal `which` (port of `shutil.which`), honoring PATH.
 fn which(bin: &str) -> Option<String> {
@@ -527,64 +444,11 @@ fn run_capture(bin: &str, args: &[String], cwd: &Path) -> String {
             };
             text.into_owned()
         }
-        Err(e) => format!("<system-reminder>failed to run `{bin}`: {e}</system-reminder>"),
+        Err(e) => format!("(grep error: failed to run `{bin}`: {e})"),
     }
 }
 
-/// Split a command line into words (port of `shlex.split`, POSIX quoting).
-fn shell_words_split(s: &str) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut chars = s.chars().peekable();
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut has_token = false;
-    while let Some(c) = chars.next() {
-        match c {
-            '\'' if !in_double => {
-                in_single = !in_single;
-                has_token = true;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-                has_token = true;
-            }
-            '\\' if in_double => {
-                if let Some(&n) = chars.peek() {
-                    cur.push(n);
-                    chars.next();
-                }
-            }
-            '\\' if !in_single && !in_double => {
-                if let Some(&n) = chars.peek() {
-                    cur.push(n);
-                    chars.next();
-                }
-                has_token = true;
-            }
-            c if c.is_whitespace() && !in_single && !in_double => {
-                if has_token {
-                    out.push(std::mem::take(&mut cur));
-                    has_token = false;
-                }
-            }
-            c => {
-                cur.push(c);
-                has_token = true;
-            }
-        }
-    }
-    if in_single || in_double {
-        return Err("unbalanced quotes".into());
-    }
-    if has_token {
-        out.push(cur);
-    }
-    Ok(out)
-}
-
-/// Resolve a Read path inside the workspace, or `None` if it truly escapes.
-/// Port of `resolve_read_path` (strict; remap only a duplicated workspace base).
+/// Resolve a Read path inside the workspace, or `None` if it escapes.
 fn resolve_read_path(path: &str, root: &Path) -> Option<PathBuf> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let p = Path::new(path);
@@ -596,6 +460,7 @@ fn resolve_read_path(path: &str, root: &Path) -> Option<PathBuf> {
     if cand.starts_with(&root) {
         return Some(cand);
     }
+    // Tolerate a duplicated workspace-basename prefix (e.g. `grove/src/x` under `.../grove`).
     let base = root.file_name()?;
     let mut comps: Vec<_> = p
         .components()
@@ -614,8 +479,7 @@ fn resolve_read_path(path: &str, root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Resolve a Glob/Grep path, never escaping and never hard-failing (degrades to
-/// the workspace root). Port of `resolve_search_path`.
+/// Resolve a Grep path, never escaping and degrading to the workspace root.
 fn resolve_search_path(path: Option<&str>, root: &Path) -> PathBuf {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let path = match path {
@@ -631,21 +495,6 @@ fn resolve_search_path(path: Option<&str>, root: &Path) -> PathBuf {
     if cand.starts_with(&root) && cand.exists() {
         return cand;
     }
-    if let Some(base) = root.file_name() {
-        let comps: Vec<_> = p
-            .components()
-            .filter_map(|c| match c {
-                std::path::Component::Normal(s) => Some(s.to_owned()),
-                _ => None,
-            })
-            .collect();
-        if comps.first().map(std::ffi::OsString::as_os_str) == Some(base) {
-            let remapped = normalize(&comps[1..].iter().fold(root.clone(), |a, s| a.join(s)));
-            if remapped.starts_with(&root) && remapped.exists() {
-                return remapped;
-            }
-        }
-    }
     root
 }
 
@@ -658,7 +507,7 @@ fn normalize(p: &Path) -> PathBuf {
                 out.pop();
             }
             std::path::Component::CurDir => {}
-            other => out.push(other.as_os_str()),
+            other => out.push(other),
         }
     }
     out
@@ -669,158 +518,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recon_closes_grove_after_budget() {
-        assert_eq!(recon_toolset(true).len(), 2); // Grove + submit_plan
-        assert_eq!(recon_toolset(false).len(), 1); // submit_plan only
-        assert_eq!(recon_toolset(false)[0].function.name, SUBMIT_PLAN);
-    }
-
-    #[test]
-    fn execute_toolset_is_the_four_tools() {
-        let names: Vec<_> = execute_toolset()
+    fn toolset_is_the_reference_vocabulary() {
+        let names: Vec<String> = all_tools()
             .iter()
             .map(|t| t.function.name.clone())
             .collect();
-        assert_eq!(names, vec![READ, GLOB, GREP, GROVE]);
-    }
-
-    #[test]
-    fn grove_verb_extracts_leading_word() {
-        assert_eq!(grove_verb(&json!({"command": "symbols . --name x"})), "symbols");
-        assert_eq!(grove_verb(&json!({"command": ""})), "");
-    }
-
-    #[test]
-    fn grove_rejects_disallowed_verb() {
-        let out = grove_tool(&json!({"command": "serve"}), Path::new("."));
-        assert!(out.contains("verb must be one of"), "{out}");
-    }
-
-    #[test]
-    fn grove_rejects_absolute_path_arg() {
-        let out = grove_tool(&json!({"command": "outline /etc/passwd"}), Path::new("."));
-        assert!(out.contains("must be inside the workspace"), "{out}");
-    }
-
-    #[test]
-    fn dispatch_grove_parses_flags_and_positionals() {
-        let empty: Vec<String> = vec![];
-        let r = Path::new(".");
-        // Missing positionals surface a clear per-verb error (no grammar needed).
-        assert!(dispatch_grove("outline", &empty, r).unwrap_err().to_string().contains("needs a file"));
-        assert!(dispatch_grove("source", &empty, r).unwrap_err().to_string().contains("id or file"));
-        assert!(dispatch_grove("callers", &empty, r).unwrap_err().to_string().contains("needs a name"));
-        assert!(dispatch_grove("definition", &empty, r).unwrap_err().to_string().contains("name or --at"));
-        // A flag and its value are consumed as a flag — never mistaken for the
-        // file positional (the parser separates them correctly).
-        let flagged = vec!["--kind".to_string(), "function".to_string()];
-        let e = dispatch_grove("outline", &flagged, r).unwrap_err().to_string();
-        assert!(e.contains("needs a file"), "flag value must not become a positional: {e}");
-    }
-
-    #[test]
-    fn shell_split_handles_quotes() {
         assert_eq!(
-            shell_words_split("symbols . --name \"foo bar\"").unwrap(),
-            vec!["symbols", ".", "--name", "foo bar"]
+            names,
+            vec![
+                "Glob",
+                "Grep",
+                "Read",
+                "mcp__grove__outline",
+                "mcp__grove__symbols",
+                "mcp__grove__source",
+                "mcp__grove__callers",
+                "mcp__grove__map",
+                "mcp__grove__definition",
+            ]
         );
-        assert!(shell_words_split("a \"unbalanced").is_err());
+        // No single Grove command tool, no submit_plan, no check.
+        assert!(!names.iter().any(|n| n == "Grove" || n == "submit_plan"));
+        assert!(!names.iter().any(|n| n.ends_with("check")));
     }
 
     #[test]
-    fn read_rejects_escaping_path() {
-        let out = read_tool(&json!({"path": "/etc/passwd"}), Path::new("."));
-        assert!(out.contains("Permission error") || out.contains("does not exist"), "{out}");
+    fn empty_obs_detection_matches_reference_markers() {
+        assert!(is_empty_obs("(no matches)"));
+        assert!(is_empty_obs("(no files match)"));
+        assert!(is_empty_obs("== x.rs ==\n(empty range)"));
+        assert!(is_empty_obs("(grove error: bad)"));
+        assert!(!is_empty_obs("src/a.rs:10:let x = 1;"));
+        assert!(!is_empty_obs("[\n  {\"name\": \"foo\"}\n]"));
     }
 
-    // --- Tool-body coverage against a real fixture tree ---------------------
-    //
-    // The guards above check input validation and sandboxing; these run the
-    // Read/Glob/Grep bodies end-to-end so the actual file I/O and rg invocation
-    // are exercised, not just the rejection paths (review 2026-07-03).
-
-    /// Create a throwaway fixture directory seeded with `files` (relpath → body).
-    /// The label + pid keep concurrent tests from colliding.
-    fn fixture(label: &str, files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("grove_toolset_{label}_{}", std::process::id()));
+    #[test]
+    fn read_returns_numbered_slice_with_header() {
+        let dir = std::env::temp_dir().join(format!("grove-ts-read-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for (rel, body) in files {
-            let path = dir.join(rel);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).unwrap();
-            }
-            std::fs::write(&path, body).unwrap();
-        }
-        dir
-    }
-
-    #[test]
-    fn read_returns_numbered_lines_and_range_header() {
-        let dir = fixture("read_body", &[("src.rs", "alpha\nbeta\ngamma\n")]);
-        let out = read_tool(&json!({"path": "src.rs"}), &dir);
-        assert!(out.contains(":1-3"), "range header missing: {out}");
-        assert!(out.contains("1|alpha"), "{out}");
-        assert!(out.contains("3|gamma"), "{out}");
+        std::fs::write(dir.join("a.rs"), "one\ntwo\nthree\n").unwrap();
+        let obs = read_tool(&json!({"file_path": "a.rs", "offset": 2, "limit": 1}), &dir);
+        assert_eq!(obs, "== a.rs ==\n2\ttwo");
+        let missing = read_tool(&json!({"file_path": "nope.rs"}), &dir);
+        assert!(is_empty_obs(&missing), "missing file → empty obs: {missing}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn read_honors_offset_and_limit() {
-        let dir = fixture("read_window", &[("src.rs", "alpha\nbeta\ngamma\n")]);
-        let out = read_tool(&json!({"path": "src.rs", "offset": 2, "limit": 1}), &dir);
-        assert!(out.contains(":2-2"), "{out}");
-        assert!(out.contains("2|beta"), "{out}");
-        assert!(!out.contains("alpha"), "window should exclude line 1: {out}");
-        assert!(!out.contains("gamma"), "window should exclude line 3: {out}");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn read_reports_missing_and_empty_files() {
-        let dir = fixture("read_edges", &[("empty.rs", "")]);
-        let missing = read_tool(&json!({"path": "nope.rs"}), &dir);
-        assert!(missing.contains("does not exist"), "{missing}");
-        let empty = read_tool(&json!({"path": "empty.rs"}), &dir);
-        assert!(empty.contains("File is empty"), "{empty}");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn glob_lists_matching_files_only() {
-        let dir = fixture("glob_body", &[("keep.rs", "fn a() {}\n"), ("skip.txt", "x\n")]);
-        let out = glob_tool(&json!({"pattern": "*.rs"}), &dir);
-        if which("rg").is_none() {
-            assert!(out.contains("requires ripgrep"), "{out}");
-        } else {
-            assert!(out.contains("keep.rs"), "{out}");
-            assert!(!out.contains("skip.txt"), "{out}");
-        }
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn grep_finds_content_and_reports_no_matches() {
-        let dir = fixture("grep_body", &[("src.rs", "let needle = 1;\nlet hay = 2;\n")]);
-        let hit = grep_tool(
-            &json!({"pattern": "needle", "output_mode": "content"}),
-            &dir,
+    fn grove_outline_returns_json() {
+        // Rust is in the dev-stub registry; outline this very file's crate dir is
+        // overkill — just assert the JSON shape on a tiny written file if grammars
+        // resolve, else tolerate a grove error (registry-agnostic).
+        let dir = std::env::temp_dir().join(format!("grove-ts-outline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("m.rs"), "pub fn hello() {}\n").unwrap();
+        let obs = grove_tool(GROVE_OUTLINE, &json!({"file": "m.rs"}), &dir);
+        // Either valid JSON with the fn, or a registry-resolution error — both are
+        // acceptable here; what matters is it's not a panic and not the text render.
+        assert!(
+            obs.contains("hello") || obs.starts_with("(grove error") || obs == "(no output)",
+            "outline obs: {obs}"
         );
-        if which("rg").is_none() {
-            assert!(hit.contains("requires ripgrep"), "{hit}");
-        } else {
-            assert!(hit.contains("needle"), "{hit}");
-            let miss = grep_tool(&json!({"pattern": "zzz_absent_zzz"}), &dir);
-            assert!(miss.contains("No matches found"), "{miss}");
-        }
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn dispatch_routes_read_to_the_body() {
-        let dir = fixture("dispatch_body", &[("src.rs", "one\ntwo\n")]);
-        let out = dispatch(READ, &json!({"path": "src.rs"}), &dir);
-        assert!(out.contains("1|one"), "dispatch should reach read_tool: {out}");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -790,7 +790,18 @@ fn explore_checks(cfg: Option<&ExploreConfig>) -> Vec<Check> {
     // ── allowed_tools_known (Ok / Warn) ──────────────────────────────────────
     {
         use crate::explore::toolset;
-        let known = [toolset::READ, toolset::GLOB, toolset::GREP, toolset::GROVE];
+        // The inner explorer's base tool names plus the config's tool-family
+        // tokens (`allowed_tools` is advisory — grove is exposed as six
+        // `mcp__grove__*` tools, not a single `Grove` command tool).
+        let known = [
+            toolset::READ,
+            toolset::GLOB,
+            toolset::GREP,
+            "grove",
+            "rg",
+            "grep",
+            "find",
+        ];
         let unknown: Vec<_> = cfg
             .allowed_tools
             .iter()
