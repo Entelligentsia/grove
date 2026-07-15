@@ -393,15 +393,20 @@ pub fn load_sessions(root: &Path) -> Vec<Session> {
 }
 
 /// Parse a single trace file into a [`Session`] (folding its event stream).
-/// Returns `None` if the file has no `session` header.
+/// Returns `None` only when neither a `session` header nor the filename yields
+/// usable session identity. A torn or interleaved header (e.g. two servers that
+/// collided on one file) does *not* discard the session: it is seeded from the
+/// filename so its calls still render.
 pub fn parse_session(path: &Path) -> Option<Session> {
     let body = std::fs::read_to_string(path).ok()?;
-    let mut session: Option<Session> = None;
+    // Seed from the filename first, so calls survive even if the header line is
+    // unparseable. A valid `session` header below enriches this in place.
+    let mut session: Option<Session> = session_from_filename(path);
 
     for line in body.lines() {
         let ev: Value = match serde_json::from_str(line) {
             Ok(v) => v,
-            Err(_) => continue, // tolerate a torn final line
+            Err(_) => continue, // tolerate a torn/interleaved line
         };
         match ev.get("t").and_then(Value::as_str) {
             Some("session") => {
@@ -420,7 +425,7 @@ pub fn parse_session(path: &Path) -> Option<Session> {
                 } else {
                     format!("{client_name} {client_ver}")
                 };
-                session = Some(Session {
+                let header = Session {
                     id: str_field(&ev, "session_id"),
                     started_at: ev.get("started_at").and_then(Value::as_u64).unwrap_or(0),
                     client,
@@ -430,7 +435,18 @@ pub fn parse_session(path: &Path) -> Option<Session> {
                     base_url: str_field(&ev, "base_url"),
                     calls: Vec::new(),
                     live: false,
-                });
+                };
+                // Adopt the real header's metadata but keep any calls already
+                // folded in (the header is line 1 in practice, so this is empty
+                // then — it only matters for a header that arrived out of order).
+                match session.as_mut() {
+                    Some(s) => {
+                        let calls = std::mem::take(&mut s.calls);
+                        *s = header;
+                        s.calls = calls;
+                    }
+                    None => session = Some(header),
+                }
             }
             Some("call_start") => {
                 if let Some(s) = session.as_mut() {
@@ -481,6 +497,28 @@ pub fn parse_session(path: &Path) -> Option<Session> {
     let mut session = session?;
     session.live = is_live(path);
     Some(session)
+}
+
+/// Reconstruct a bare [`Session`] from a trace filename
+/// (`<epoch_secs>-<client-slug>[-<pid>].jsonl`), used as a fallback when the
+/// header line is torn or interleaved. Recovers the start time and client slug;
+/// model/mode/provider stay blank until (if ever) a valid header is folded in.
+/// Returns `None` if the stem has no leading epoch prefix.
+fn session_from_filename(path: &Path) -> Option<Session> {
+    let stem = path.file_stem()?.to_str()?;
+    let (epoch, rest) = stem.split_once('-')?;
+    let started_at = epoch.parse::<u64>().ok()?;
+    Some(Session {
+        id: stem.to_string(),
+        started_at,
+        client: rest.to_string(),
+        model: String::new(),
+        mode: String::new(),
+        provider: String::new(),
+        base_url: String::new(),
+        calls: Vec::new(),
+        live: false,
+    })
 }
 
 /// A session is "live" when its file was written very recently (a running
@@ -578,6 +616,41 @@ mod tests {
         let s = parse_session(&path).expect("still parses despite torn line");
         assert_eq!(s.calls.len(), 1);
         assert!(!s.calls[0].ended, "call never ended");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_recovers_calls_when_header_is_torn() {
+        use serde_json::json;
+        let dir = std::env::temp_dir().join(format!("grove_tracetui_torn_hdr_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Header line is garbage (two servers colliding interleaved their writes),
+        // but the call events below it are intact.
+        let path = dir.join("1784091750-claude-code-42.jsonl");
+        std::fs::write(
+            &path,
+            format!(
+                "{{\"base_url\":\"http{{\"garbled\": interleaved}}\n{}\n{}\n{}\n",
+                json!({"t":"call_start","call_id":1,"query":"where is auth"}),
+                json!({"t":"turn","call_id":1,"turn":1,"request":{"messages":[]},
+                    "response":{"choices":[]},"usage":{"prompt":5,"completion":1,"total":6},"wall_ms":20}),
+                json!({"t":"call_end","call_id":1,"turns":1,
+                    "tokens":{"prompt":5,"completion":1,"total":6},"wall_ms":30,
+                    "answer":"js:auth.js#login@10","truncated":false}),
+            ),
+        )
+        .unwrap();
+        let s = parse_session(&path).expect("session recovered from filename");
+        // Identity comes from the filename, not the unparseable header.
+        assert_eq!(s.started_at, 1784091750);
+        assert_eq!(s.client, "claude-code-42");
+        // The real work survives instead of the whole session vanishing.
+        assert_eq!(s.calls.len(), 1, "call is not lost to the torn header");
+        assert_eq!(s.calls[0].query, "where is auth");
+        assert_eq!(s.calls[0].turn_blocks.len(), 1);
+        assert!(s.calls[0].ended);
+        assert_eq!(s.total_tokens(), 6);
         std::fs::remove_dir_all(&dir).ok();
     }
 

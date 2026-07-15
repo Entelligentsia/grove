@@ -29,7 +29,9 @@ pub fn traces_dir(root: &Path) -> PathBuf {
 /// Immutable header describing one `grove serve` trace session.
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
-    /// Filename-safe id: `<epoch_secs>-<client-slug>`.
+    /// Filename-safe id: `<epoch_secs>-<client-slug>-<pid>`. The pid keeps two
+    /// `grove serve` processes that start in the same second under the same
+    /// client from colliding on one file (which would interleave their writes).
     pub session_id: String,
     /// Session start, epoch seconds (UTC).
     pub started_at: u64,
@@ -64,7 +66,7 @@ impl SessionMeta {
         } else {
             client_name
         };
-        let session_id = format!("{started_at}-{}", slug(name));
+        let session_id = format!("{started_at}-{}-{}", slug(name), std::process::id());
         SessionMeta {
             session_id,
             started_at,
@@ -530,6 +532,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let meta = SessionMeta::new(
             "qwen3.5:4b", "standard", "ollama", "http://x/v1", "Claude Code", "1.2",
+        );
+        // The id carries the pid so concurrent same-second servers never collide.
+        assert!(
+            meta.session_id.ends_with(&format!("-{}", std::process::id())),
+            "session_id ends with pid: {}",
+            meta.session_id
         );
         let w = TraceWriter::open(&root, &meta, 50).expect("writer opens");
         let call = w.call_start("where is main");
