@@ -19,7 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use super::client::Usage;
+use super::wire::Usage;
 
 /// The directory holding per-session trace files for a project rooted at `root`.
 pub fn traces_dir(root: &Path) -> PathBuf {

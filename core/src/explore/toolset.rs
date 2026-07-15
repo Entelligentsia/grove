@@ -20,7 +20,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-use super::client::Tool;
+use super::wire::Tool;
 
 // Base tool names (Claude arg schemas) — exact, case-sensitive strings the model calls.
 pub const READ: &str = "Read";

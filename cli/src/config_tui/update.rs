@@ -4,7 +4,7 @@
 //! transition in place, and returns an optional `Action` when the event loop
 //! should perform a side-effect (save, quit, or fetch the model list).
 
-use crate::config_tui::model::{Action, App, Msg, LLAMACPP_DEFAULT_URL, OLLAMA_DEFAULT_URL};
+use crate::config_tui::model::{Action, App, Msg};
 
 /// Apply `msg` to `app`; return `Some(Action)` if the loop should act.
 pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
@@ -20,17 +20,18 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
 
-        // ── Provider ────────────────────────────────────────────────────────
-        Msg::ProviderUp => {
+        // ── Engine picker ────────────────────────────────────────────────────
+        Msg::EngineUp => {
             if !app.explore_active { return None; }
-            app.provider = app.provider.saturating_sub(1);
-            apply_provider_default(app);
+            app.engine_cursor = app.engine_cursor.saturating_sub(1);
+            apply_selected_engine(app);
             None
         }
-        Msg::ProviderDown => {
+        Msg::EngineDown => {
             if !app.explore_active { return None; }
-            app.provider = (app.provider + 1).min(1);
-            apply_provider_default(app);
+            let last = app.engines.len().saturating_sub(1);
+            app.engine_cursor = (app.engine_cursor + 1).min(last);
+            apply_selected_engine(app);
             None
         }
 
@@ -38,13 +39,11 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
         Msg::UrlChar(c) => {
             if !app.explore_active { return None; }
             app.base_url.push(c);
-            app.dirty_url = true;
             None
         }
         Msg::UrlBackspace => {
             if !app.explore_active { return None; }
             app.base_url.pop();
-            app.dirty_url = true;
             None
         }
 
@@ -163,16 +162,20 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
     }
 }
 
-/// When the provider changes and the user has NOT manually edited the URL,
-/// auto-fill the default endpoint for the new provider.
-fn apply_provider_default(app: &mut App) {
-    if app.dirty_url {
+/// Selecting an engine fills the endpoint URL from that engine and preloads its
+/// model list (so the Model dropdown is instant for a detected engine). This is
+/// an explicit choice, so it always overwrites the URL buffer — a custom
+/// endpoint is entered by editing the URL field, not by moving this cursor.
+fn apply_selected_engine(app: &mut App) {
+    let Some((base_url, models)) = app
+        .current_engine()
+        .map(|e| (e.base_url.clone(), e.models.clone()))
+    else {
         return;
-    }
-    app.base_url = match app.provider {
-        0 => OLLAMA_DEFAULT_URL.to_string(),
-        _ => LLAMACPP_DEFAULT_URL.to_string(),
     };
+    app.base_url = base_url;
+    app.model_list = models;
+    app.model_cursor = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,7 +197,7 @@ mod tests {
     #[test]
     fn tab_navigation_forward_wraps() {
         let mut app = fresh();
-        assert_eq!(app.focus, Field::Provider);
+        assert_eq!(app.focus, Field::Engine);
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Url);
         update(&mut app, Msg::TabNext);
@@ -204,13 +207,13 @@ mod tests {
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Tools);
         update(&mut app, Msg::TabNext);
-        assert_eq!(app.focus, Field::Provider); // wrapped
+        assert_eq!(app.focus, Field::Engine); // wrapped
     }
 
     #[test]
     fn tab_navigation_backward_wraps() {
         let mut app = fresh();
-        assert_eq!(app.focus, Field::Provider);
+        assert_eq!(app.focus, Field::Engine);
         update(&mut app, Msg::TabPrev);
         assert_eq!(app.focus, Field::Tools); // wrapped
     }
@@ -225,34 +228,43 @@ mod tests {
         assert!(!app.tap, "tap flips off");
     }
 
-    // 2. Provider selection drives URL default (unless URL is dirty).
+    // 2. Engine selection fills the endpoint URL and preloads models.
     #[test]
-    fn provider_switch_sets_url_default() {
+    fn engine_switch_fills_url_from_candidate() {
         let mut app = fresh();
-        // The shipped default is LlamaCpp; force Ollama first so this test is
-        // independent of the default provider.
-        update(&mut app, Msg::ProviderUp); // clamp to Ollama (index 0)
-        assert_eq!(app.provider, 0); // Ollama
-        assert_eq!(app.base_url, OLLAMA_DEFAULT_URL);
+        // Row 0 is ollama (11434), row 1 llama.cpp (8080) — see ENGINE_CANDIDATES.
+        update(&mut app, Msg::EngineUp); // clamp to row 0 (ollama)
+        assert_eq!(app.engine_cursor, 0);
+        assert!(app.base_url.contains("11434"), "ollama URL: {}", app.base_url);
 
-        update(&mut app, Msg::ProviderDown); // → LlamaCpp
-        assert_eq!(app.provider, 1);
-        assert_eq!(app.base_url, LLAMACPP_DEFAULT_URL);
-
-        update(&mut app, Msg::ProviderUp); // → Ollama
-        assert_eq!(app.provider, 0);
-        assert_eq!(app.base_url, OLLAMA_DEFAULT_URL);
+        update(&mut app, Msg::EngineDown); // → llama.cpp
+        assert_eq!(app.engine_cursor, 1);
+        assert!(app.base_url.contains("8080"), "llama.cpp URL: {}", app.base_url);
     }
 
     #[test]
-    fn dirty_url_not_clobbered_on_provider_switch() {
+    fn engine_select_preloads_models() {
         let mut app = fresh();
-        // Manually edit URL → dirty_url = true
-        update(&mut app, Msg::UrlChar('x'));
-        let before = app.base_url.clone();
-        // Switch provider
-        update(&mut app, Msg::ProviderDown);
-        assert_eq!(app.base_url, before, "dirty URL must not be overwritten");
+        // Simulate a live probe result on row 0.
+        app.engines[0].alive = true;
+        app.engines[0].models = vec!["qwen3.5:4b".into(), "llama3.2".into()];
+        update(&mut app, Msg::EngineUp); // select row 0
+        assert_eq!(app.engine_cursor, 0);
+        assert_eq!(app.model_list, vec!["qwen3.5:4b".to_string(), "llama3.2".to_string()]);
+        assert_eq!(app.base_url, app.engines[0].base_url);
+    }
+
+    #[test]
+    fn custom_url_edit_survives_until_engine_reselected() {
+        let mut app = fresh();
+        // Hand-type a custom endpoint — editing the URL does not touch the engine.
+        for c in "http://box:9000/v1".chars() {
+            update(&mut app, Msg::UrlChar(c));
+        }
+        assert!(app.base_url.ends_with("9000/v1"));
+        // Re-selecting an engine is an explicit choice and overwrites it.
+        update(&mut app, Msg::EngineDown);
+        assert_eq!(app.base_url, app.engines[app.engine_cursor].base_url);
     }
 
     // 4. Tool toggle.
@@ -376,8 +388,8 @@ mod tests {
 
         // All explore-edit messages must return None and leave state unchanged.
         let msgs = vec![
-            Msg::ProviderUp,
-            Msg::ProviderDown,
+            Msg::EngineUp,
+            Msg::EngineDown,
             Msg::UrlChar('x'),
             Msg::ModelChar('x'),
             Msg::TapToggle,
@@ -388,8 +400,8 @@ mod tests {
             let result = update(&mut app, msg.clone());
             assert_eq!(result, None, "expected None for {msg:?} when inactive");
         }
-        // Provider, base_url, model, tap, tools, add_tool_buf must be unchanged.
-        assert_eq!(app.provider, before.provider);
+        // Engine cursor, base_url, model, tap, tools, add_tool_buf must be unchanged.
+        assert_eq!(app.engine_cursor, before.engine_cursor);
         assert_eq!(app.base_url, before.base_url);
         assert_eq!(app.model, before.model);
         assert_eq!(app.tap, before.tap);
@@ -445,14 +457,15 @@ mod tests {
             trace_retain: 25,
         };
         let app = App::from_config(cfg.clone());
-        assert_eq!(app.provider, 1, "LlamaCpp should map to index 1");
+        // 8080 is the llama.cpp candidate → engine cursor aligns to row 1.
+        assert_eq!(app.engine_cursor, 1, "llama.cpp candidate is row 1");
         assert_eq!(app.base_url, "http://localhost:8080/v1");
         assert_eq!(app.model, "llama3");
         assert_eq!(app.tools, vec![("grove".to_string(), true)]);
         assert_eq!(app.trace_retain, 25, "retention carried through unchanged");
-        assert!(app.dirty_url, "loaded config must set dirty_url=true");
 
-        // Round-trip back — steering is always persisted as the default now.
+        // Round-trip back — provider is derived from the URL (8080 → LlamaCpp),
+        // steering is always persisted as the default now.
         let back = app.to_config().unwrap();
         assert_eq!(back, cfg);
     }

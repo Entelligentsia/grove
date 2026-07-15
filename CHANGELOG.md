@@ -4,6 +4,32 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — `grove config` auto-detects local inference engines
+
+The config TUI's provider row is now a **discovery-driven engine picker**. On
+launch it concurrently probes the well-known local inference servers — Ollama
+(11434), llama.cpp (8080), LM Studio (1234), vLLM (8000) — via each one's
+OpenAI-compatible `/models` listing (a short deadline; dead ports return
+instantly). Each is shown live (●, with its model count) or not-detected (○).
+
+- **Running-process detection (Linux):** discovery also scans `/proc` for a
+  `llama-server` / `llama serve` (the unified router) / `ollama` / `vllm` / LM
+  Studio process and probes the port it is *actually* bound to (from `--port`,
+  or `OLLAMA_HOST`), so an engine on a non-default port (e.g.
+  `llama serve --port 8081`) is found where a fixed-port probe would miss it.
+
+- Selecting an engine **auto-fills the endpoint URL and preloads its model list**,
+  so the Model dropdown is instant for a detected engine. A custom endpoint is
+  still entered by editing the URL field directly.
+- The `provider` config field (Ollama / LlamaCpp) is now **derived from the chosen
+  endpoint** rather than picked — it is a cosmetic label (grove speaks
+  OpenAI-compat to both and never branches on it at request time), retained for
+  on-disk back-compat and the trace header.
+- New engine-discovery API in `grove-cst`: `discover_engines()` →
+  `Vec<DiscoveredEngine>`, plus the `ENGINE_CANDIDATES` probe table.
+
 ## [0.4.0] - 2026-07-15
 
 ### Changed — mcp-llm inner harness rewritten to the `base-q4-v2-hf` reference

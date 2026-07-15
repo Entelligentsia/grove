@@ -1,12 +1,13 @@
 //! Pure data types for the config TUI (Elm-style Model layer).
 
+use grove_core::explore::{DiscoveredEngine, ENGINE_CANDIDATES};
 use grove_core::{config::GroveConfig, ExploreConfig, Provider, Steering};
 use grove_core::config::Mode;
 
 /// Which field currently holds focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
-    Provider,
+    Engine,
     Url,
     Model,
     Tap,
@@ -17,19 +18,19 @@ impl Field {
     /// Advance focus to the next field (wraps around).
     pub fn next(self) -> Self {
         match self {
-            Field::Provider => Field::Url,
+            Field::Engine => Field::Url,
             Field::Url => Field::Model,
             Field::Model => Field::Tap,
             Field::Tap => Field::Tools,
-            Field::Tools => Field::Provider,
+            Field::Tools => Field::Engine,
         }
     }
 
     /// Retreat focus to the previous field (wraps around).
     pub fn prev(self) -> Self {
         match self {
-            Field::Provider => Field::Tools,
-            Field::Url => Field::Provider,
+            Field::Engine => Field::Tools,
+            Field::Url => Field::Engine,
             Field::Model => Field::Url,
             Field::Tap => Field::Model,
             Field::Tools => Field::Tap,
@@ -57,10 +58,10 @@ pub enum Msg {
     TabNext,
     /// Focus moves backward.
     TabPrev,
-    /// Provider list — up/prev.
-    ProviderUp,
-    /// Provider list — down/next.
-    ProviderDown,
+    /// Engine list — move the highlight up (prev).
+    EngineUp,
+    /// Engine list — move the highlight down (next).
+    EngineDown,
     /// URL field — a printable character was typed.
     UrlChar(char),
     /// URL field — backspace.
@@ -102,9 +103,32 @@ pub enum Msg {
     Quit,
 }
 
-/// Default base URLs for each provider.
-pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434/v1";
-pub const LLAMACPP_DEFAULT_URL: &str = "http://localhost:8080/v1";
+/// The candidate engines rendered before (or without) a live probe: the built-in
+/// table, every entry marked not-yet-detected. `mod::run` replaces this with the
+/// real [`grove_core::explore::discover_engines`] result at TUI startup.
+pub fn unprobed_engines() -> Vec<DiscoveredEngine> {
+    ENGINE_CANDIDATES
+        .iter()
+        .map(|c| DiscoveredEngine {
+            label: c.label.to_string(),
+            base_url: c.base_url.to_string(),
+            alive: false,
+            models: Vec::new(),
+        })
+        .collect()
+}
+
+/// The (cosmetic) provider enum grove persists, derived from an endpoint URL.
+/// Ollama's default port keys `Ollama`; everything else records `LlamaCpp`.
+/// grove never branches on this at request time (both are OpenAI-compatible) —
+/// it only labels the trace header and seeds a default URL.
+fn provider_for_url(url: &str) -> Provider {
+    if url.contains("11434") {
+        Provider::Ollama
+    } else {
+        Provider::LlamaCpp
+    }
+}
 
 /// The full TUI state.
 #[derive(Debug, Clone)]
@@ -113,8 +137,11 @@ pub struct App {
     pub grove_mode: Mode,
     /// `true` when `grove_mode == Mode::McpLlm`; explore fields are editable only then.
     pub explore_active: bool,
-    /// Index into `Provider::LEGAL`.
-    pub provider: usize,
+    /// Locally-detected inference engines (built-in candidates, annotated with
+    /// liveness + model lists by the startup probe).
+    pub engines: Vec<DiscoveredEngine>,
+    /// Highlighted row in `engines`.
+    pub engine_cursor: usize,
     /// The base URL currently in the text buffer.
     pub base_url: String,
     /// The model currently in the text buffer.
@@ -139,9 +166,6 @@ pub struct App {
     pub model_cursor: usize,
     /// Transient dropdown status (fetching / error / empty), shown in the list.
     pub model_status: Option<String>,
-    /// `true` after the user has manually edited `base_url`, preventing
-    /// provider-switch from clobbering a custom endpoint.
-    pub dirty_url: bool,
     /// Last validation error to display in the status bar.
     pub last_error: Option<String>,
 }
@@ -152,7 +176,6 @@ impl Default for App {
             mode: Mode::McpLlm,
             ..Default::default()
         })
-        .reset_dirty()
     }
 }
 
@@ -173,41 +196,57 @@ impl App {
 
     /// Pre-populate TUI state from an existing [`ExploreConfig`].
     ///
-    /// `dirty_url` is set to `true` so that a provider switch does **not**
-    /// clobber a custom endpoint the user previously saved.
+    /// The engine list starts unprobed; the cursor is aligned to the loaded
+    /// endpoint (matching a candidate URL, else falling back to the recorded
+    /// provider) so the highlighted engine reflects the saved config.
     pub fn from_config(cfg: ExploreConfig) -> Self {
-        let provider = match cfg.provider {
-            Provider::Ollama => 0,
-            Provider::LlamaCpp => 1,
-        };
+        let engines = unprobed_engines();
+        let engine_cursor = engine_index_for(&engines, &cfg.base_url, cfg.provider);
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
         Self {
             grove_mode: Mode::McpLlm,
             explore_active: true,
-            provider,
+            engines,
+            engine_cursor,
             base_url: cfg.base_url,
             model: cfg.model,
             tools,
             tool_cursor: 0,
             add_tool_buf: String::new(),
-            focus: Field::Provider,
+            focus: Field::Engine,
             tap: cfg.tap,
             trace_retain: cfg.trace_retain,
             model_dropdown: false,
             model_list: Vec::new(),
             model_cursor: 0,
             model_status: None,
-            dirty_url: true, // loaded URL is custom; don't clobber on provider switch
             last_error: None,
         }
     }
 
-    /// The default-construction path: same as `from_config(default)` but with
-    /// `dirty_url` cleared so provider switches refresh the URL default.
-    fn reset_dirty(mut self) -> Self {
-        self.dirty_url = false;
-        self
+    /// The engine currently highlighted, if any.
+    pub fn current_engine(&self) -> Option<&DiscoveredEngine> {
+        self.engines.get(self.engine_cursor)
+    }
+
+    /// Replace the engine list with probed results, re-aligning the cursor to
+    /// the row matching the current endpoint URL. This matters for a saved
+    /// non-default endpoint (e.g. `:8081`): it exists only as a *detected* row,
+    /// so the cursor computed against the default-only list would otherwise
+    /// keep highlighting the wrong (dead) default row. Ignores an empty probe
+    /// result; keeps the current row (clamped) when nothing matches.
+    pub fn set_engines(&mut self, engines: Vec<DiscoveredEngine>) {
+        if engines.is_empty() {
+            return;
+        }
+        self.engines = engines;
+        let want = self.base_url.trim_end_matches('/');
+        self.engine_cursor = self
+            .engines
+            .iter()
+            .position(|e| e.base_url.trim_end_matches('/') == want)
+            .unwrap_or_else(|| self.engine_cursor.min(self.engines.len() - 1));
     }
 
     /// The dropdown entries matching the current model buffer (case-insensitive
@@ -223,10 +262,9 @@ impl App {
 
     /// Convert TUI state back to a validated [`ExploreConfig`].
     pub fn to_config(&self) -> anyhow::Result<ExploreConfig> {
-        let provider = match self.provider {
-            0 => Provider::Ollama,
-            _ => Provider::LlamaCpp,
-        };
+        // `provider` is a cosmetic label; derive it from the endpoint actually
+        // configured (the engine picker or a hand-typed custom URL).
+        let provider = provider_for_url(&self.base_url);
         // `steering` no longer selects a prompt arm (the inner harness is the
         // single flat v2 prompt); it is persisted only for on-disk back-compat.
         let steering = Steering::Standard;
@@ -247,5 +285,90 @@ impl App {
         };
         cfg.validate()?;
         Ok(cfg)
+    }
+}
+
+/// Pick the engine row that best matches a loaded config: the candidate whose
+/// `base_url` equals the saved URL (ignoring a trailing slash), else the first
+/// candidate consistent with the recorded provider (ollama's port for
+/// `Ollama`), else row 0. Keeps the highlighted engine aligned with the config.
+fn engine_index_for(engines: &[DiscoveredEngine], base_url: &str, provider: Provider) -> usize {
+    let want = base_url.trim_end_matches('/');
+    if let Some(i) = engines.iter().position(|e| e.base_url.trim_end_matches('/') == want) {
+        return i;
+    }
+    let ollama = matches!(provider, Provider::Ollama);
+    engines
+        .iter()
+        .position(|e| e.base_url.contains("11434") == ollama)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_derived_from_endpoint_port() {
+        assert_eq!(provider_for_url("http://localhost:11434/v1"), Provider::Ollama);
+        assert_eq!(provider_for_url("http://localhost:8080/v1"), Provider::LlamaCpp);
+        // Any non-ollama endpoint (lm-studio, vllm, custom) records LlamaCpp —
+        // the label is cosmetic; grove never branches on it.
+        assert_eq!(provider_for_url("http://localhost:1234/v1"), Provider::LlamaCpp);
+        assert_eq!(provider_for_url("http://box:9000/v1"), Provider::LlamaCpp);
+    }
+
+    #[test]
+    fn engine_index_matches_url_then_falls_back_to_provider() {
+        let engines = unprobed_engines();
+        // Exact URL match wins (llama.cpp candidate).
+        assert_eq!(
+            engine_index_for(&engines, "http://localhost:8080/v1/", Provider::Ollama),
+            1,
+            "trailing-slash-tolerant URL match beats the provider hint"
+        );
+        // No URL match → fall back to the provider hint (ollama → 11434 row).
+        assert_eq!(
+            engine_index_for(&engines, "http://custom:9999/v1", Provider::Ollama),
+            engines.iter().position(|e| e.base_url.contains("11434")).unwrap(),
+        );
+    }
+
+    #[test]
+    fn unprobed_engines_cover_the_candidate_table() {
+        let engines = unprobed_engines();
+        assert_eq!(engines.len(), ENGINE_CANDIDATES.len());
+        assert!(engines.iter().all(|e| !e.alive && e.models.is_empty()));
+    }
+
+    #[test]
+    fn set_engines_realigns_cursor_to_saved_nondefault_endpoint() {
+        // A config saved with a detected (non-default) endpoint: at load time
+        // the default-only list has no :8081 row, so the cursor falls back —
+        // but once the probe returns the detected row, it must be highlighted.
+        let mut app = App::from_config(ExploreConfig {
+            base_url: "http://localhost:8081/v1".to_string(),
+            ..ExploreConfig::default()
+        });
+        assert_ne!(app.current_engine().map(|e| e.base_url.as_str()),
+            Some("http://localhost:8081/v1"), "pre-probe: row not present yet");
+
+        let mut probed = unprobed_engines();
+        probed.push(DiscoveredEngine {
+            label: "llama.cpp".into(),
+            base_url: "http://localhost:8081/v1".into(),
+            alive: true,
+            models: vec!["grove-explore-base".into()],
+        });
+        app.set_engines(probed);
+        let cur = app.current_engine().expect("cursor on a row");
+        assert_eq!(cur.base_url, "http://localhost:8081/v1", "cursor follows the saved endpoint");
+        assert!(cur.alive);
+
+        // An empty probe result is ignored (list + cursor untouched).
+        let before = app.engine_cursor;
+        app.set_engines(Vec::new());
+        assert_eq!(app.engine_cursor, before);
+        assert!(!app.engines.is_empty());
     }
 }

@@ -31,7 +31,8 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use super::client::{ChatClient, ChatRequest, ClientError, Message, Usage};
+use super::client::{ChatClient, ClientError};
+use super::wire::{ChatRequest, Message, Usage};
 use super::config::ExploreConfig;
 use super::trace::TraceWriter;
 use super::{grounding, steering, toolset};
@@ -340,7 +341,7 @@ fn compact_args(args: &Value) -> String {
 
 /// A short human-facing summary of a turn's tool activity, for the next progress
 /// tick (e.g. "grove symbols, Read query.py").
-fn summarize_activity(calls: &[super::client::ToolCall]) -> String {
+fn summarize_activity(calls: &[super::wire::ToolCall]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for c in calls {
         let part = match c.name.as_str() {
@@ -386,7 +387,7 @@ fn basename_arg(args: &Value, key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::explore::client::{ChatResponse, Choice, Role, ToolCall};
+    use crate::explore::wire::{ChatResponse, Choice, Role, ToolCall};
     use crate::explore::config::{Provider, Steering};
     use std::cell::RefCell;
 
