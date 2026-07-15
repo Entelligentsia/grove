@@ -39,8 +39,11 @@ core/src/explore/      inner explorer engine (mcp-llm mode — opt-in, stable as
   mod.rs               re-exports; public surface is run_explore[_reporting]()
   config.rs            ExploreConfig — .grove/explore.json serde + atomic save (tap, trace_retain);
                        defaults to the llama.cpp reference rig (provider=llamacpp, qwen3.5-4b)
-  client.rs            ChatClient trait + OpenAiCompatClient + health_probe() + list_models() + Usage;
-                       with_explore_sampling() = temp/max_tokens/enable_thinking, nothing else
+  wire.rs              OpenAI chat wire model (Message/ToolCall/ChatRequest/ChatResponse/Usage) +
+                       tool-call arg normalization; with_explore_sampling() = temp/max_tokens/enable_thinking
+  client.rs            ChatClient transport trait + OpenAiCompatClient + ClientError (thin: transport only)
+  health.rs            health_probe() + list_models() + fetch_models_at() — the {base_url}/models layer
+  discovery.rs         discover_engines() — local engine auto-detect (default ports + /proc process scan)
   agent.rs             the base-q4-v2-hf reference loop (run_eval.py::run_question): single-phase,
                        ≤ 12 turns, thrash/token/time backstops, nudge + forced-answer (H1/H2),
                        retry-on-leak, think ON + progress + trace
