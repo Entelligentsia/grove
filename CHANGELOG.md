@@ -4,6 +4,43 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-15
+
+### Changed — mcp-llm inner harness rewritten to the `base-q4-v2-hf` reference
+
+The opt-in mcp-llm `explore` mode's inner loop is now the **`base-q4-v2-hf`
+reference combination** (interim winner in the explore-model experiments; 80.6 on
+the 347-case holdout, served on llama.cpp):
+
+- The single flat **v2 system prompt** whose output contract is **bare location
+  lines** (`lang:path#symbol@line`, or `path:line` when a point has no enclosing
+  symbol) — no prose, numbering, or tags.
+- The reference tool vocabulary — base `Glob`/`Grep`/`Read` (Claude schemas) plus
+  the six `mcp__grove__{outline,symbols,source,callers,map,definition}` tools.
+- The `run_eval.py` harness discipline: single phase, ≤ 12 turns, thrash/token/
+  time backstops, nudge + forced-answer (H1/H2), and retry-on-leak.
+
+The `Steering` config field is **retained for back-compat** but no longer selects
+a prompt arm (the merit/plan-first/strict arms are gone). The default CLI and the
+7-tool `grove serve` structural surface are unchanged. Accordingly, the now-inert
+**steering selector was removed from the `grove config` TUI**.
+
+### Fixed
+
+- **Trace files no longer corrupt under concurrent `grove serve` processes.** Two
+  servers starting in the same second under the same MCP client derived an
+  identical `session_id` (`<epoch>-<client-slug>`) and interleaved their writes
+  into one file; the torn header then made `grove tap` drop the whole session
+  (rendering real work as "0 calls"). The `session_id` now carries the pid
+  (`<epoch>-<client-slug>-<pid>`), and the `grove tap` parser recovers a session
+  from its filename when the header line is torn — so its calls still render.
+
+### Documentation
+
+- Overhauled the README with an updated architecture overview, an SVG flow
+  diagram (replacing the ASCII art), a symbol-id syntax diagram, and a header
+  favicon.
+
 ## [0.3.1] - 2026-07-05
 
 ### Added — Multi-harness `grove init` (Cursor, Codex, Gemini, Windsurf, VS Code)
