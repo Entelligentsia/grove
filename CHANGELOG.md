@@ -4,7 +4,7 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] - 2026-07-15
 
 ### Added — `grove config` auto-detects local inference engines
 
@@ -19,16 +19,30 @@ instantly). Each is shown live (●, with its model count) or not-detected (○)
   Studio process and probes the port it is *actually* bound to (from `--port`,
   or `OLLAMA_HOST`), so an engine on a non-default port (e.g.
   `llama serve --port 8081`) is found where a fixed-port probe would miss it.
-
+  Internal worker processes are suppressed (a matched process whose parent
+  matches the same engine — e.g. the `llama serve` router's re-spawned worker,
+  or ollama's `runner` subcommand — is not reported, since its port is
+  ephemeral); a shell whose command text merely mentions an engine name (e.g.
+  a `grep vllm` invocation) is never matched.
 - Selecting an engine **auto-fills the endpoint URL and preloads its model list**,
   so the Model dropdown is instant for a detected engine. A custom endpoint is
-  still entered by editing the URL field directly.
+  still entered by editing the URL field directly. Re-opening `grove config`
+  re-aligns the cursor onto whichever row matches the saved endpoint, including
+  a previously-detected non-default port.
 - The `provider` config field (Ollama / LlamaCpp) is now **derived from the chosen
   endpoint** rather than picked — it is a cosmetic label (grove speaks
   OpenAI-compat to both and never branches on it at request time), retained for
   on-disk back-compat and the trace header.
 - New engine-discovery API in `grove-cst`: `discover_engines()` →
   `Vec<DiscoveredEngine>`, plus the `ENGINE_CANDIDATES` probe table.
+
+### Changed
+
+- `core/src/explore/client.rs` (~1240 lines, four concerns) is split into
+  `wire.rs` (OpenAI chat serde model), `client.rs` (transport trait +
+  `OpenAiCompatClient`), `health.rs` (`/models` probe + listing), and
+  `discovery.rs` (engine auto-detection). Pure internal refactor — the
+  `explore::` public surface is unchanged.
 
 ## [0.4.0] - 2026-07-15
 
