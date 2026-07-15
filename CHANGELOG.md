@@ -15,10 +15,10 @@ OpenAI-compatible `/models` listing (a short deadline; dead ports return
 instantly). Each is shown live (●, with its model count) or not-detected (○).
 
 - **Running-process detection (Linux):** discovery also scans `/proc` for a
-  `llama-server` / `ollama` / `vllm` / LM Studio process and probes the port it
-  is *actually* bound to (from `--port`, or `OLLAMA_HOST`), so an engine on a
-  non-default port (e.g. `llama-server --port 8081`) is found where a fixed-port
-  probe would miss it.
+  `llama-server` / `llama serve` (the unified router) / `ollama` / `vllm` / LM
+  Studio process and probes the port it is *actually* bound to (from `--port`,
+  or `OLLAMA_HOST`), so an engine on a non-default port (e.g.
+  `llama serve --port 8081`) is found where a fixed-port probe would miss it.
 
 - Selecting an engine **auto-fills the endpoint URL and preloads its model list**,
   so the Model dropdown is instant for a detected engine. A custom endpoint is
