@@ -756,18 +756,36 @@ pub struct DiscoveredEngine {
     pub models: Vec<String>,
 }
 
-/// Probe every [`ENGINE_CANDIDATES`] endpoint **concurrently** (short deadline)
-/// and report which answered. The result preserves candidate order, so callers
-/// get a stable list of `{ollama, llama.cpp, lm-studio, vllm}` annotated with
-/// liveness + model lists. Never blocks beyond one probe timeout: dead ports
-/// (connection refused) return instantly and the slowest live probe bounds the
-/// wall time. This is the discovery backing the `grove config` engine picker.
+/// Probe local inference endpoints **concurrently** (short deadline) and report
+/// which answered. Two sources are merged:
+///
+/// 1. The [`ENGINE_CANDIDATES`] default ports — always present, always first, so
+///    the result begins with the stable `{ollama, llama.cpp, lm-studio, vllm}`
+///    rows the config TUI renders.
+/// 2. **Running-process detection** ([`detect_engine_ports`]) — a `llama-server`
+///    / `ollama` / `vllm` / LM Studio process bound to a *non-default* port
+///    contributes an extra endpoint, so an engine on e.g. `:8081` is found where
+///    a fixed-port probe would miss it. (Linux only; a no-op elsewhere.)
+///
+/// Endpoints are deduped by URL (defaults win order). Never blocks beyond one
+/// probe timeout: dead ports (connection refused) return instantly and the
+/// slowest live probe bounds the wall time.
 pub fn discover_engines() -> Vec<DiscoveredEngine> {
-    let handles: Vec<_> = ENGINE_CANDIDATES
+    let mut candidates: Vec<(String, String)> = ENGINE_CANDIDATES
         .iter()
-        .map(|c| {
-            let label = c.label.to_string();
-            let base_url = c.base_url.to_string();
+        .map(|c| (c.label.to_string(), c.base_url.to_string()))
+        .collect();
+    for (label, port) in detect_engine_ports() {
+        candidates.push((label.to_string(), format!("http://localhost:{port}/v1")));
+    }
+    // Dedup by base_url, preserving order (the default candidates come first, so
+    // a detected endpoint on a default port collapses into its default row).
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|(_, url)| seen.insert(url.clone()));
+
+    let handles: Vec<_> = candidates
+        .into_iter()
+        .map(|(label, base_url)| {
             std::thread::spawn(move || {
                 match fetch_models_at(&base_url, DISCOVER_CONNECT_TIMEOUT, DISCOVER_PROBE_TIMEOUT) {
                     Ok(models) => DiscoveredEngine { label, base_url, alive: true, models },
@@ -777,6 +795,120 @@ pub fn discover_engines() -> Vec<DiscoveredEngine> {
         })
         .collect();
     handles.into_iter().filter_map(|h| h.join().ok()).collect()
+}
+
+/// One engine's process-detection signature: how to recognize the server in a
+/// process command line, and the port to assume when it advertises none.
+#[cfg(target_os = "linux")]
+struct ProcSig {
+    label: &'static str,
+    /// Lowercase substrings identifying the server in its (joined) command line.
+    markers: &'static [&'static str],
+    default_port: u16,
+}
+
+#[cfg(target_os = "linux")]
+const PROC_SIGS: &[ProcSig] = &[
+    // `llama-server` is checked before `ollama` would ever matter; the markers
+    // are specific enough not to cross-match (llama-server ∌ "ollama").
+    ProcSig { label: "llama.cpp", markers: &["llama-server"], default_port: 8080 },
+    ProcSig { label: "ollama", markers: &["ollama"], default_port: 11434 },
+    ProcSig { label: "lm-studio", markers: &["lm-studio", "lmstudio", "lm studio"], default_port: 1234 },
+    ProcSig { label: "vllm", markers: &["vllm"], default_port: 8000 },
+];
+
+/// Match a (lowercased) process command line against the engine signatures.
+#[cfg(target_os = "linux")]
+fn match_engine(cmdline_lower: &str) -> Option<&'static ProcSig> {
+    PROC_SIGS
+        .iter()
+        .find(|sig| sig.markers.iter().any(|m| cmdline_lower.contains(m)))
+}
+
+/// Extract an explicit `--port N` / `--port=N` from a process's argv (the flag
+/// `llama-server`, `vllm serve`, and friends use to bind a non-default port).
+#[cfg(target_os = "linux")]
+fn port_from_argv(args: &[String]) -> Option<u16> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if let Some(rest) = a.strip_prefix("--port=") {
+            if let Ok(p) = rest.parse() {
+                return Some(p);
+            }
+        } else if a == "--port" {
+            if let Some(p) = it.next().and_then(|v| v.parse().ok()) {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Detect running local inference servers and the ports they're bound to, by
+/// scanning `/proc/<pid>/cmdline`. Port precedence: an explicit `--port`, then
+/// (for ollama) `OLLAMA_HOST` from the process environment, then the engine's
+/// default. Best-effort — unreadable entries (other users' processes) are
+/// skipped. Returns `(label, port)` pairs, deduped.
+#[cfg(target_os = "linux")]
+fn detect_engine_ports() -> Vec<(&'static str, u16)> {
+    let mut found: Vec<(&'static str, u16)> = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        // Only numeric /proc/<pid> directories.
+        if !name.to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
+            continue;
+        }
+        let Ok(raw) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        // cmdline is NUL-separated argv.
+        let args: Vec<String> = raw
+            .split(|&b| b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        if args.is_empty() {
+            continue;
+        }
+        let Some(sig) = match_engine(&args.join(" ").to_lowercase()) else {
+            continue;
+        };
+        let port = port_from_argv(&args)
+            .or_else(|| {
+                if sig.label == "ollama" {
+                    ollama_host_port(&entry.path())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(sig.default_port);
+        found.push((sig.label, port));
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+/// Read `OLLAMA_HOST` from a process's environment and return its port. Handles
+/// `host:port`, `:port`, and `http://host:port` spellings.
+#[cfg(target_os = "linux")]
+fn ollama_host_port(proc_dir: &Path) -> Option<u16> {
+    let raw = std::fs::read(proc_dir.join("environ")).ok()?;
+    raw.split(|&b| b == 0).find_map(|kv| {
+        let kv = String::from_utf8_lossy(kv);
+        let val = kv.strip_prefix("OLLAMA_HOST=")?;
+        val.rsplit(':').next()?.parse().ok()
+    })
+}
+
+/// Process detection is Linux-only (reads `/proc`); elsewhere discovery falls
+/// back to the default-port candidates.
+#[cfg(not(target_os = "linux"))]
+fn detect_engine_ports() -> Vec<(&'static str, u16)> {
+    Vec::new()
 }
 
 /// Best-effort tolerant model matching.
@@ -823,20 +955,46 @@ mod tests {
     }
 
     #[test]
-    fn discover_engines_returns_every_candidate_in_order() {
-        // Probes localhost ports; whatever is (not) running, the result mirrors
-        // the candidate table one-for-one, in order — that stable shape is what
-        // the config TUI renders. Dead ports come back `alive: false`.
+    fn discover_engines_starts_with_every_default_candidate_in_order() {
+        // The result always begins with the default-port candidates, in order —
+        // that stable prefix is what the config TUI renders. Process detection
+        // may append extra endpoints (an engine on a non-default port), so the
+        // list can be longer, but never shorter or reordered.
         let found = discover_engines();
-        assert_eq!(found.len(), ENGINE_CANDIDATES.len());
+        assert!(found.len() >= ENGINE_CANDIDATES.len());
         for (got, want) in found.iter().zip(ENGINE_CANDIDATES) {
             assert_eq!(got.label, want.label);
             assert_eq!(got.base_url, want.base_url);
-            // A dead endpoint never reports models.
-            if !got.alive {
-                assert!(got.models.is_empty(), "dead engine must list no models");
+        }
+        // A dead endpoint never reports models.
+        for e in &found {
+            if !e.alive {
+                assert!(e.models.is_empty(), "dead engine must list no models");
             }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn match_engine_identifies_servers_without_cross_matching() {
+        // llama-server is llama.cpp, not ollama (no "ollama" substring).
+        let sig = match_engine("/usr/bin/llama-server --port 8081 --model x.gguf").unwrap();
+        assert_eq!(sig.label, "llama.cpp");
+        assert_eq!(match_engine("/usr/local/bin/ollama serve").unwrap().label, "ollama");
+        assert_eq!(match_engine("python -m vllm.entrypoints.openai.api_server").unwrap().label, "vllm");
+        // A plain editor session is not an engine.
+        assert!(match_engine("vim src/main.rs").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn port_from_argv_reads_both_spellings() {
+        let split = ["llama-server".into(), "--port".into(), "8081".into()];
+        assert_eq!(port_from_argv(&split), Some(8081));
+        let eq = ["llama-server".into(), "--port=9000".into()];
+        assert_eq!(port_from_argv(&eq), Some(9000));
+        let none: [String; 1] = ["llama-server".into()];
+        assert_eq!(port_from_argv(&none), None);
     }
 
     #[test]
