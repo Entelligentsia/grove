@@ -797,48 +797,70 @@ pub fn discover_engines() -> Vec<DiscoveredEngine> {
     handles.into_iter().filter_map(|h| h.join().ok()).collect()
 }
 
-/// One engine's process-detection signature: how to recognize the server in a
-/// process command line, and the port to assume when it advertises none.
+/// The default port an engine binds when its command line advertises none.
 #[cfg(target_os = "linux")]
-struct ProcSig {
-    label: &'static str,
-    /// Lowercase substrings identifying the server in its (joined) command line.
-    markers: &'static [&'static str],
-    default_port: u16,
+fn default_port(label: &str) -> u16 {
+    match label {
+        "ollama" => 11434,
+        "llama.cpp" => 8080,
+        "lm-studio" => 1234,
+        "vllm" => 8000,
+        _ => 0,
+    }
 }
 
+/// Identify a local inference server from its argv, returning the engine label.
+///
+/// Matching is **argv-aware**, not a flat substring scan, because `llama` and
+/// `ollama` would otherwise cross-match: the router binary runs `llama serve`
+/// and ollama runs `ollama serve`, and `"ollama serve"` contains `"llama
+/// serve"`. So the executables are matched on their basename, and the newer
+/// unified `llama serve` router is disambiguated by its `serve` subcommand.
 #[cfg(target_os = "linux")]
-const PROC_SIGS: &[ProcSig] = &[
-    // `llama-server` is checked before `ollama` would ever matter; the markers
-    // are specific enough not to cross-match (llama-server ∌ "ollama").
-    ProcSig { label: "llama.cpp", markers: &["llama-server"], default_port: 8080 },
-    ProcSig { label: "ollama", markers: &["ollama"], default_port: 11434 },
-    ProcSig { label: "lm-studio", markers: &["lm-studio", "lmstudio", "lm studio"], default_port: 1234 },
-    ProcSig { label: "vllm", markers: &["vllm"], default_port: 8000 },
-];
-
-/// Match a (lowercased) process command line against the engine signatures.
-#[cfg(target_os = "linux")]
-fn match_engine(cmdline_lower: &str) -> Option<&'static ProcSig> {
-    PROC_SIGS
-        .iter()
-        .find(|sig| sig.markers.iter().any(|m| cmdline_lower.contains(m)))
+fn match_engine(args: &[String]) -> Option<&'static str> {
+    let exe = args
+        .first()
+        .map(|a| a.rsplit('/').next().unwrap_or(a).to_ascii_lowercase())
+        .unwrap_or_default();
+    if exe == "ollama" {
+        return Some("ollama");
+    }
+    // `llama-server` (classic) or the unified `llama serve` router.
+    if exe == "llama-server" {
+        return Some("llama.cpp");
+    }
+    if exe == "llama" && args.iter().any(|a| a == "serve") {
+        return Some("llama.cpp");
+    }
+    // vLLM / LM Studio run under an interpreter or helper, so match anywhere in
+    // the command line — the tokens are distinctive enough not to cross-match.
+    let joined = args.join(" ").to_ascii_lowercase();
+    if joined.contains("vllm") {
+        return Some("vllm");
+    }
+    if joined.contains("lm-studio") || joined.contains("lmstudio") {
+        return Some("lm-studio");
+    }
+    None
 }
 
 /// Extract an explicit `--port N` / `--port=N` from a process's argv (the flag
-/// `llama-server`, `vllm serve`, and friends use to bind a non-default port).
+/// `llama-server`, `llama serve`, `vllm serve`, and friends use to bind a
+/// non-default port). Port `0` (auto-assign, used by router-spawned workers) is
+/// treated as "unspecified" so it falls back to the default rather than probing
+/// `:0`.
 #[cfg(target_os = "linux")]
 fn port_from_argv(args: &[String]) -> Option<u16> {
     let mut it = args.iter();
+    let mut parsed = None;
     while let Some(a) = it.next() {
         if let Some(rest) = a.strip_prefix("--port=") {
-            if let Ok(p) = rest.parse() {
-                return Some(p);
-            }
+            parsed = rest.parse().ok();
         } else if a == "--port" {
-            if let Some(p) = it.next().and_then(|v| v.parse().ok()) {
-                return Some(p);
-            }
+            parsed = it.next().and_then(|v| v.parse().ok());
+        }
+        if let Some(p) = parsed {
+            return if p == 0 { None } else { Some(p) };
         }
     }
     None
@@ -870,22 +892,13 @@ fn detect_engine_ports() -> Vec<(&'static str, u16)> {
             .filter(|s| !s.is_empty())
             .map(|s| String::from_utf8_lossy(s).into_owned())
             .collect();
-        if args.is_empty() {
-            continue;
-        }
-        let Some(sig) = match_engine(&args.join(" ").to_lowercase()) else {
+        let Some(label) = match_engine(&args) else {
             continue;
         };
         let port = port_from_argv(&args)
-            .or_else(|| {
-                if sig.label == "ollama" {
-                    ollama_host_port(&entry.path())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(sig.default_port);
-        found.push((sig.label, port));
+            .or_else(|| (label == "ollama").then(|| ollama_host_port(&entry.path())).flatten())
+            .unwrap_or_else(|| default_port(label));
+        found.push((label, port));
     }
     found.sort_unstable();
     found.dedup();
@@ -977,24 +990,34 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn match_engine_identifies_servers_without_cross_matching() {
-        // llama-server is llama.cpp, not ollama (no "ollama" substring).
-        let sig = match_engine("/usr/bin/llama-server --port 8081 --model x.gguf").unwrap();
-        assert_eq!(sig.label, "llama.cpp");
-        assert_eq!(match_engine("/usr/local/bin/ollama serve").unwrap().label, "ollama");
-        assert_eq!(match_engine("python -m vllm.entrypoints.openai.api_server").unwrap().label, "vllm");
+        let argv = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        // Classic llama-server binary.
+        assert_eq!(match_engine(&argv("/usr/bin/llama-server --port 8081 --model x.gguf")), Some("llama.cpp"));
+        // The unified `llama serve` router — the real-world 8081 case. Its argv
+        // starts with the `llama` binary and a `serve` subcommand.
+        assert_eq!(match_engine(&argv("llama serve --alias grove --port 8081")), Some("llama.cpp"));
+        // Critical: `ollama serve` must NOT read as llama.cpp even though
+        // "ollama serve" contains "llama serve".
+        assert_eq!(match_engine(&argv("/usr/local/bin/ollama serve")), Some("ollama"));
+        // A bare `llama` with no `serve` subcommand is not the router.
+        assert_eq!(match_engine(&argv("llama --help")), None);
+        assert_eq!(match_engine(&argv("python -m vllm.entrypoints.openai.api_server")), Some("vllm"));
         // A plain editor session is not an engine.
-        assert!(match_engine("vim src/main.rs").is_none());
+        assert_eq!(match_engine(&argv("vim src/main.rs")), None);
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn port_from_argv_reads_both_spellings() {
+    fn port_from_argv_reads_both_spellings_and_ignores_zero() {
         let split = ["llama-server".into(), "--port".into(), "8081".into()];
         assert_eq!(port_from_argv(&split), Some(8081));
         let eq = ["llama-server".into(), "--port=9000".into()];
         assert_eq!(port_from_argv(&eq), Some(9000));
         let none: [String; 1] = ["llama-server".into()];
         assert_eq!(port_from_argv(&none), None);
+        // `--port 0` (router-spawned worker, auto-assign) → treated as unset.
+        let zero = ["llama".into(), "serve".into(), "--port".into(), "0".into()];
+        assert_eq!(port_from_argv(&zero), None);
     }
 
     #[test]
