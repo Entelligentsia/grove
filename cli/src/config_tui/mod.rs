@@ -51,10 +51,9 @@ pub fn run(root: &Path, grove_cfg: Option<GroveConfig>) -> Result<()> {
     // Detect local inference engines before entering the alternate screen — a
     // short concurrent probe (dead ports return instantly). The engine picker
     // then shows which of ollama / llama.cpp / lm-studio / vllm are live.
-    let detected = grove_core::explore::discover_engines();
-    if !detected.is_empty() {
-        app.engines = detected;
-    }
+    // set_engines re-aligns the cursor onto the row matching the saved endpoint
+    // (which may be a detected non-default port, absent from the default list).
+    app.set_engines(grove_core::explore::discover_engines());
 
     // ── Set up terminal ──────────────────────────────────────────────────────
     enable_raw_mode()?;

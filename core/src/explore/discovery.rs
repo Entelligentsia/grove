@@ -123,6 +123,12 @@ fn match_engine(args: &[String]) -> Option<&'static str> {
         .map(|a| a.rsplit('/').next().unwrap_or(a).to_ascii_lowercase())
         .unwrap_or_default();
     if exe == "ollama" {
+        // The `runner` subcommand is ollama's internal per-model worker; its
+        // `--port` is an ephemeral internal API, not the OpenAI surface — a
+        // false detection would add a dead row per loaded model.
+        if args.get(1).is_some_and(|a| a == "runner") {
+            return None;
+        }
         return Some("ollama");
     }
     // `llama-server` (classic) or the unified `llama serve` router.
@@ -131,6 +137,12 @@ fn match_engine(args: &[String]) -> Option<&'static str> {
     }
     if exe == "llama" && args.iter().any(|a| a == "serve") {
         return Some("llama.cpp");
+    }
+    // A shell is never the inference server itself (servers exec their binary),
+    // but a shell's `-c` string routinely QUOTES engine names — grep/log/build
+    // commands about vllm would otherwise match the substring scan below.
+    if matches!(exe.as_str(), "bash" | "sh" | "zsh" | "fish" | "dash" | "ksh") {
+        return None;
     }
     // vLLM / LM Studio run under an interpreter or helper, so match anywhere in
     // the command line — the tokens are distinctive enough not to cross-match.
@@ -171,19 +183,30 @@ fn port_from_argv(args: &[String]) -> Option<u16> {
 /// scanning `/proc/<pid>/cmdline`. Port precedence: an explicit `--port`, then
 /// (for ollama) `OLLAMA_HOST` from the process environment, then the engine's
 /// default. Best-effort — unreadable entries (other users' processes) are
-/// skipped. Returns `(label, port)` pairs, deduped.
+/// skipped.
+///
+/// **Worker suppression:** a matched process whose *parent* matches the same
+/// engine is an internal worker (the `llama serve` router re-spawns itself on
+/// an ephemeral port; vLLM forks workers). Only the tree root — the stable,
+/// user-facing endpoint — is reported; saving a worker's ephemeral port would
+/// break on the next model reload. Returns `(label, port)` pairs, deduped.
 #[cfg(target_os = "linux")]
 fn detect_engine_ports() -> Vec<(&'static str, u16)> {
-    let mut found: Vec<(&'static str, u16)> = Vec::new();
+    struct Hit {
+        pid: u32,
+        ppid: Option<u32>,
+        label: &'static str,
+        port: u16,
+    }
+    let mut hits: Vec<Hit> = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc") else {
-        return found;
+        return Vec::new();
     };
     for entry in entries.flatten() {
-        let name = entry.file_name();
         // Only numeric /proc/<pid> directories.
-        if !name.to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
+        let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
             continue;
-        }
+        };
         let Ok(raw) = std::fs::read(entry.path().join("cmdline")) else {
             continue;
         };
@@ -199,11 +222,30 @@ fn detect_engine_ports() -> Vec<(&'static str, u16)> {
         let port = port_from_argv(&args)
             .or_else(|| (label == "ollama").then(|| ollama_host_port(&entry.path())).flatten())
             .unwrap_or_else(|| default_port(label));
-        found.push((label, port));
+        hits.push(Hit { pid, ppid: ppid_of(&entry.path()), label, port });
     }
+
+    // Drop workers: any hit whose parent is itself a hit with the same label.
+    let roots: std::collections::HashMap<u32, &'static str> =
+        hits.iter().map(|h| (h.pid, h.label)).collect();
+    let mut found: Vec<(&'static str, u16)> = hits
+        .iter()
+        .filter(|h| h.ppid.and_then(|p| roots.get(&p)) != Some(&h.label))
+        .map(|h| (h.label, h.port))
+        .collect();
     found.sort_unstable();
     found.dedup();
     found
+}
+
+/// The parent pid from `/proc/<pid>/stat` (field 4). The comm field (2) may
+/// contain spaces or parens, so parsing starts after the *last* `)`.
+#[cfg(target_os = "linux")]
+fn ppid_of(proc_dir: &Path) -> Option<u32> {
+    let stat = std::fs::read_to_string(proc_dir.join("stat")).ok()?;
+    let rest = stat.rsplit_once(')')?.1;
+    // After the comm: state, ppid, …
+    rest.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// Read `OLLAMA_HOST` from a process's environment and return its port. Handles
@@ -266,6 +308,19 @@ mod tests {
         assert_eq!(match_engine(&argv("python -m vllm.entrypoints.openai.api_server")), Some("vllm"));
         // A plain editor session is not an engine.
         assert_eq!(match_engine(&argv("vim src/main.rs")), None);
+        // ollama's internal per-model worker is NOT the OpenAI surface — its
+        // --port is an ephemeral internal API; matching it would add a dead row.
+        assert_eq!(
+            match_engine(&argv("/usr/local/bin/ollama runner --model m.gguf --port 34371")),
+            None
+        );
+        // A shell whose -c string merely QUOTES an engine name (grep/log/build
+        // commands about vllm) must not match — observed live: the shell running
+        // a discovery probe matched its own command text.
+        assert_eq!(
+            match_engine(&["/bin/bash".into(), "-c".into(), "grep vllm notes.md --port 9000".into()]),
+            None
+        );
     }
 
     #[cfg(target_os = "linux")]

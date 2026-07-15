@@ -230,6 +230,25 @@ impl App {
         self.engines.get(self.engine_cursor)
     }
 
+    /// Replace the engine list with probed results, re-aligning the cursor to
+    /// the row matching the current endpoint URL. This matters for a saved
+    /// non-default endpoint (e.g. `:8081`): it exists only as a *detected* row,
+    /// so the cursor computed against the default-only list would otherwise
+    /// keep highlighting the wrong (dead) default row. Ignores an empty probe
+    /// result; keeps the current row (clamped) when nothing matches.
+    pub fn set_engines(&mut self, engines: Vec<DiscoveredEngine>) {
+        if engines.is_empty() {
+            return;
+        }
+        self.engines = engines;
+        let want = self.base_url.trim_end_matches('/');
+        self.engine_cursor = self
+            .engines
+            .iter()
+            .position(|e| e.base_url.trim_end_matches('/') == want)
+            .unwrap_or_else(|| self.engine_cursor.min(self.engines.len() - 1));
+    }
+
     /// The dropdown entries matching the current model buffer (case-insensitive
     /// substring). An empty buffer shows the full list.
     pub fn model_filtered(&self) -> Vec<String> {
@@ -320,5 +339,36 @@ mod tests {
         let engines = unprobed_engines();
         assert_eq!(engines.len(), ENGINE_CANDIDATES.len());
         assert!(engines.iter().all(|e| !e.alive && e.models.is_empty()));
+    }
+
+    #[test]
+    fn set_engines_realigns_cursor_to_saved_nondefault_endpoint() {
+        // A config saved with a detected (non-default) endpoint: at load time
+        // the default-only list has no :8081 row, so the cursor falls back —
+        // but once the probe returns the detected row, it must be highlighted.
+        let mut app = App::from_config(ExploreConfig {
+            base_url: "http://localhost:8081/v1".to_string(),
+            ..ExploreConfig::default()
+        });
+        assert_ne!(app.current_engine().map(|e| e.base_url.as_str()),
+            Some("http://localhost:8081/v1"), "pre-probe: row not present yet");
+
+        let mut probed = unprobed_engines();
+        probed.push(DiscoveredEngine {
+            label: "llama.cpp".into(),
+            base_url: "http://localhost:8081/v1".into(),
+            alive: true,
+            models: vec!["grove-explore-base".into()],
+        });
+        app.set_engines(probed);
+        let cur = app.current_engine().expect("cursor on a row");
+        assert_eq!(cur.base_url, "http://localhost:8081/v1", "cursor follows the saved endpoint");
+        assert!(cur.alive);
+
+        // An empty probe result is ignored (list + cursor untouched).
+        let before = app.engine_cursor;
+        app.set_engines(Vec::new());
+        assert_eq!(app.engine_cursor, before);
+        assert!(!app.engines.is_empty());
     }
 }
