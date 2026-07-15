@@ -19,7 +19,11 @@ pub use agent::{
     run_explore, run_explore_reporting, ExploreAnswer, ExploreError, NoopReporter, ProgressReporter,
 };
 pub use client::{
-    health_probe, list_models, ChatClient, ChatRequest, ChatResponse, ClientError, HealthError,
+    discover_engines, health_probe, list_models, DiscoveredEngine, EngineCandidate,
+    ENGINE_CANDIDATES,
+};
+pub use client::{
+    ChatClient, ChatRequest, ChatResponse, ClientError, HealthError,
     Message, OpenAiCompatClient, Role, Tool, ToolCall, Usage,
 };
 pub use config::{ExploreConfig, Provider, Steering};

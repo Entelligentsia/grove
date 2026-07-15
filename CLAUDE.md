@@ -29,7 +29,8 @@ cli/src/init.rs        `grove init [--as …] [--agents …]` — file-writing h
 core/src/harness.rs    harness adapters — HarnessId {claude-code,cursor,codex,gemini,windsurf,
                        vscode}: per-agent MCP config path/format/scope + detection; the shared
                        source of truth for init (writer) and doctor (verifier)
-cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — incl. model-list dropdown
+cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — engine
+                       auto-discovery picker + model-list dropdown
 cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
 cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
 skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
@@ -132,7 +133,7 @@ grove serve                         # MCP server over stdio
 # setup / registry
 grove init [path] [--as mcp|skill|both|mcp-llm] [--agents auto|all|<csv>] [--dry-run]  # provision grammars + chosen harness glue
                    # --agents selects which coding agents to wire (claude-code,cursor,codex,gemini,windsurf,vscode)
-grove config [path]                 # open the explore config TUI (requires TTY); Tap toggle + model dropdown
+grove config [path]                 # open the explore config TUI (requires TTY); engine discovery + Tap toggle + model dropdown
 grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
 grove tap [path] [--no-enable]      # enable session tracing (.grove/traces/) + browse it in a TUI
 grove fetch [langs...] [--force]    # install grammars into the OS cache

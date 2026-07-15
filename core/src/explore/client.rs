@@ -686,12 +686,20 @@ pub fn health_probe(cfg: &ExploreConfig) -> Result<(), HealthError> {
 /// error so the caller can fall back to free-text entry without blocking on a
 /// hard dependency (the local server may simply not be running yet).
 pub fn list_models(cfg: &ExploreConfig) -> Result<Vec<String>, String> {
-    let base = cfg.base_url.trim_end_matches('/');
+    fetch_models_at(&cfg.base_url, CONNECT_TIMEOUT, PROBE_TIMEOUT)
+}
+
+/// GET `{base_url}/models` with explicit timeouts, returning the served model
+/// ids. Shared by [`list_models`] (inference-grade deadline) and
+/// [`discover_engines`] (a short deadline so a dead local port can't stall the
+/// caller). Any transport / parse failure yields a `String` error.
+fn fetch_models_at(base_url: &str, connect: Duration, overall: Duration) -> Result<Vec<String>, String> {
+    let base = base_url.trim_end_matches('/');
     let url = format!("{base}/models");
 
     let agent = ureq::AgentBuilder::new()
-        .timeout_connect(CONNECT_TIMEOUT)
-        .timeout(PROBE_TIMEOUT)
+        .timeout_connect(connect)
+        .timeout(overall)
         .build();
 
     let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
@@ -704,6 +712,71 @@ pub fn list_models(cfg: &ExploreConfig) -> Result<Vec<String>, String> {
         .map(|m| m.id)
         .filter(|id| !id.is_empty())
         .collect())
+}
+
+/// Connect deadline for a discovery probe — short, so the common case (nothing
+/// listening on that port → connection refused) returns effectively instantly
+/// and a filtered/hung port is capped rather than stalling the config TUI.
+const DISCOVER_CONNECT_TIMEOUT: Duration = Duration::from_millis(600);
+/// Overall discovery-probe deadline. Long enough for a live local server to
+/// answer `/models` (instant on loopback), short enough to stay snappy.
+const DISCOVER_PROBE_TIMEOUT: Duration = Duration::from_millis(1200);
+
+/// A well-known local inference server the config TUI probes for auto-detection.
+/// Both faces speak the same OpenAI-compatible wire protocol, so the `label` is
+/// only a human hint; `base_url` is the server's conventional local default.
+#[derive(Debug, Clone)]
+pub struct EngineCandidate {
+    /// Human label (e.g. `"ollama"`, `"llama.cpp"`).
+    pub label: &'static str,
+    /// Conventional local OpenAI-compatible base URL for this server.
+    pub base_url: &'static str,
+}
+
+/// The built-in probe table: the local inference servers grove auto-detects, in
+/// display order. Every entry exposes the standard `{base_url}/models` listing.
+pub const ENGINE_CANDIDATES: &[EngineCandidate] = &[
+    EngineCandidate { label: "ollama", base_url: "http://localhost:11434/v1" },
+    EngineCandidate { label: "llama.cpp", base_url: "http://localhost:8080/v1" },
+    EngineCandidate { label: "lm-studio", base_url: "http://localhost:1234/v1" },
+    EngineCandidate { label: "vllm", base_url: "http://localhost:8000/v1" },
+];
+
+/// A probed local inference endpoint: whether it answered `/models`, and the
+/// models it serves (empty when it answered with none, or wasn't reachable).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredEngine {
+    /// Human label carried from the [`EngineCandidate`].
+    pub label: String,
+    /// The OpenAI-compatible base URL probed.
+    pub base_url: String,
+    /// `true` when `{base_url}/models` answered.
+    pub alive: bool,
+    /// The served model ids (empty unless `alive` and the server reported some).
+    pub models: Vec<String>,
+}
+
+/// Probe every [`ENGINE_CANDIDATES`] endpoint **concurrently** (short deadline)
+/// and report which answered. The result preserves candidate order, so callers
+/// get a stable list of `{ollama, llama.cpp, lm-studio, vllm}` annotated with
+/// liveness + model lists. Never blocks beyond one probe timeout: dead ports
+/// (connection refused) return instantly and the slowest live probe bounds the
+/// wall time. This is the discovery backing the `grove config` engine picker.
+pub fn discover_engines() -> Vec<DiscoveredEngine> {
+    let handles: Vec<_> = ENGINE_CANDIDATES
+        .iter()
+        .map(|c| {
+            let label = c.label.to_string();
+            let base_url = c.base_url.to_string();
+            std::thread::spawn(move || {
+                match fetch_models_at(&base_url, DISCOVER_CONNECT_TIMEOUT, DISCOVER_PROBE_TIMEOUT) {
+                    Ok(models) => DiscoveredEngine { label, base_url, alive: true, models },
+                    Err(_) => DiscoveredEngine { label, base_url, alive: false, models: Vec::new() },
+                }
+            })
+        })
+        .collect();
+    handles.into_iter().filter_map(|h| h.join().ok()).collect()
 }
 
 /// Best-effort tolerant model matching.
@@ -746,6 +819,23 @@ mod tests {
             base_url: "http://127.0.0.1:1/v1".to_string(),
             model: "test-model".to_string(),
             ..ExploreConfig::default()
+        }
+    }
+
+    #[test]
+    fn discover_engines_returns_every_candidate_in_order() {
+        // Probes localhost ports; whatever is (not) running, the result mirrors
+        // the candidate table one-for-one, in order — that stable shape is what
+        // the config TUI renders. Dead ports come back `alive: false`.
+        let found = discover_engines();
+        assert_eq!(found.len(), ENGINE_CANDIDATES.len());
+        for (got, want) in found.iter().zip(ENGINE_CANDIDATES) {
+            assert_eq!(got.label, want.label);
+            assert_eq!(got.base_url, want.base_url);
+            // A dead endpoint never reports models.
+            if !got.alive {
+                assert!(got.models.is_empty(), "dead engine must list no models");
+            }
         }
     }
 

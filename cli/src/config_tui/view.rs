@@ -42,7 +42,7 @@ pub fn view(app: &App, frame: &mut Frame) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // [0] explore notice (blank when active)
-            Constraint::Length(3), // [1] Provider
+            Constraint::Length(6), // [1] Engine picker (4 candidates + borders)
             Constraint::Length(3), // [2] Endpoint URL
             Constraint::Length(3), // [3] Model
             Constraint::Length(3), // [4] Tap
@@ -53,7 +53,7 @@ pub fn view(app: &App, frame: &mut Frame) {
         .split(inner);
 
     render_explore_notice(app, frame, rows[0]);
-    render_provider(app, frame, rows[1]);
+    render_engine(app, frame, rows[1]);
     render_url(app, frame, rows[2]);
     render_model(app, frame, rows[3]);
     render_tap(app, frame, rows[4]);
@@ -109,23 +109,36 @@ fn render_tap(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(para, area);
 }
 
-// ── Provider ─────────────────────────────────────────────────────────────────
+// ── Engine picker ────────────────────────────────────────────────────────────
 
-fn render_provider(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.explore_active && app.focus == Field::Provider;
+fn render_engine(app: &App, frame: &mut Frame, area: Rect) {
+    let focused = app.explore_active && app.focus == Field::Engine;
     let border_style = border_style(focused);
 
-    let labels = &["Ollama", "Llama.cpp"];
-    let items: Vec<ListItem> = labels
+    let items: Vec<ListItem> = app
+        .engines
         .iter()
         .enumerate()
-        .map(|(i, label)| {
-            let style = if i == app.provider {
-                Style::default().fg(SELECTED).add_modifier(Modifier::BOLD)
+        .map(|(i, e)| {
+            // ● live (with model count) · ○ not detected. Strip the scheme so the
+            // host:port reads cleanly.
+            let hostport = e.base_url.trim_start_matches("http://").trim_start_matches("https://");
+            let (marker, detail) = if e.alive {
+                let n = e.models.len();
+                let models = if n == 1 { "1 model".to_string() } else { format!("{n} models") };
+                ("●", models)
             } else {
-                Style::default().fg(NORMAL)
+                ("○", "not detected".to_string())
             };
-            ListItem::new(Line::from(Span::styled(*label, style)))
+            let text = format!("{marker} {:<11} {:<22} {detail}", e.label, hostport);
+            let style = if i == app.engine_cursor {
+                Style::default().fg(SELECTED).add_modifier(Modifier::BOLD)
+            } else if e.alive {
+                Style::default().fg(NORMAL)
+            } else {
+                Style::default().fg(DIM)
+            };
+            ListItem::new(Line::from(Span::styled(text, style)))
         })
         .collect();
 
@@ -134,12 +147,12 @@ fn render_provider(app: &App, frame: &mut Frame, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(border_style)
-                .title(" Provider (↑↓ to select) "),
+                .title(" Inference engine — detected locally (↑↓ to select) "),
         )
         .highlight_style(Style::default().fg(FOCUSED).add_modifier(Modifier::BOLD));
 
     let mut state = ListState::default();
-    state.select(Some(app.provider));
+    state.select(Some(app.engine_cursor));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
@@ -294,9 +307,10 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     let text = if let Some(ref err) = app.last_error {
         Span::styled(format!("✗ {err}"), Style::default().fg(Color::Red))
     } else {
-        let hint = match app.provider {
-            0 => "Provider: Ollama  ·  default http://localhost:11434/v1".to_string(),
-            _ => "Provider: Llama.cpp  ·  default http://localhost:8080/v1".to_string(),
+        let hint = match app.current_engine() {
+            Some(e) if e.alive => format!("Engine: {}  ·  {}  ·  {} models", e.label, e.base_url, e.models.len()),
+            Some(e) => format!("Engine: {}  ·  {}  ·  not detected (start it, or edit the URL)", e.label, e.base_url),
+            None => "No engines listed".to_string(),
         };
         Span::styled(hint, Style::default().fg(DIM))
     };
@@ -311,7 +325,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         "explore settings inactive — Esc to cancel"
     } else {
         match app.focus {
-            Field::Provider => "↑↓ select provider",
+            Field::Engine => "↑↓ select engine (fills URL + models)",
             Field::Url => "type to edit URL",
             Field::Model if app.model_dropdown => "↑↓ pick · type filter · Enter select · Esc close",
             Field::Model => "type model · ↓ browse provider models",

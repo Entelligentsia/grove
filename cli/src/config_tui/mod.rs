@@ -48,6 +48,14 @@ pub fn run(root: &Path, grove_cfg: Option<GroveConfig>) -> Result<()> {
         None => App::default(), // McpLlm-active default; used by init first-run
     };
 
+    // Detect local inference engines before entering the alternate screen — a
+    // short concurrent probe (dead ports return instantly). The engine picker
+    // then shows which of ollama / llama.cpp / lm-studio / vllm are live.
+    let detected = grove_core::explore::discover_engines();
+    if !detected.is_empty() {
+        app.engines = detected;
+    }
+
     // ── Set up terminal ──────────────────────────────────────────────────────
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -181,9 +189,9 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
 
     // Field-specific bindings.
     match app.focus {
-        Field::Provider => match code {
-            KeyCode::Up | KeyCode::Char('k') => Some(Msg::ProviderUp),
-            KeyCode::Down | KeyCode::Char('j') => Some(Msg::ProviderDown),
+        Field::Engine => match code {
+            KeyCode::Up | KeyCode::Char('k') => Some(Msg::EngineUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(Msg::EngineDown),
             _ => None,
         },
         Field::Url => match code {
