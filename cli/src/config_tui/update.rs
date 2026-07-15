@@ -104,18 +104,6 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
 
-        // ── Mode ─────────────────────────────────────────────────────────────
-        Msg::ModeUp => {
-            if !app.explore_active { return None; }
-            app.mode = app.mode.saturating_sub(1);
-            None
-        }
-        Msg::ModeDown => {
-            if !app.explore_active { return None; }
-            app.mode = (app.mode + 1).min(2);
-            None
-        }
-
         // ── Tools ─────────────────────────────────────────────────────────────
         Msg::ToolsUp => {
             app.tool_cursor = app.tool_cursor.saturating_sub(1);
@@ -212,8 +200,6 @@ mod tests {
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Model);
         update(&mut app, Msg::TabNext);
-        assert_eq!(app.focus, Field::Mode);
-        update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Tap);
         update(&mut app, Msg::TabNext);
         assert_eq!(app.focus, Field::Tools);
@@ -267,21 +253,6 @@ mod tests {
         // Switch provider
         update(&mut app, Msg::ProviderDown);
         assert_eq!(app.base_url, before, "dirty URL must not be overwritten");
-    }
-
-    // 3. Mode cycling.
-    #[test]
-    fn mode_cycling() {
-        let mut app = fresh();
-        assert_eq!(app.mode, 0); // Standard
-        update(&mut app, Msg::ModeDown);
-        assert_eq!(app.mode, 1); // Balanced
-        update(&mut app, Msg::ModeDown);
-        assert_eq!(app.mode, 2); // Strict
-        update(&mut app, Msg::ModeDown); // already max
-        assert_eq!(app.mode, 2);
-        update(&mut app, Msg::ModeUp);
-        assert_eq!(app.mode, 1);
     }
 
     // 4. Tool toggle.
@@ -409,7 +380,6 @@ mod tests {
             Msg::ProviderDown,
             Msg::UrlChar('x'),
             Msg::ModelChar('x'),
-            Msg::ModeDown,
             Msg::TapToggle,
             Msg::ToolsToggle,
             Msg::ToolsAddChar('x'),
@@ -418,11 +388,10 @@ mod tests {
             let result = update(&mut app, msg.clone());
             assert_eq!(result, None, "expected None for {msg:?} when inactive");
         }
-        // Provider, base_url, model, mode, tap, tools, add_tool_buf must be unchanged.
+        // Provider, base_url, model, tap, tools, add_tool_buf must be unchanged.
         assert_eq!(app.provider, before.provider);
         assert_eq!(app.base_url, before.base_url);
         assert_eq!(app.model, before.model);
-        assert_eq!(app.mode, before.mode);
         assert_eq!(app.tap, before.tap);
         assert_eq!(app.tools, before.tools);
         assert_eq!(app.add_tool_buf, before.add_tool_buf);
@@ -470,7 +439,7 @@ mod tests {
             provider: grove_core::Provider::LlamaCpp,
             base_url: "http://localhost:8080/v1".to_string(),
             model: "llama3".to_string(),
-            steering: grove_core::Steering::Strict,
+            steering: grove_core::Steering::Standard,
             allowed_tools: vec!["grove".to_string()],
             tap: true,
             trace_retain: 25,
@@ -479,12 +448,11 @@ mod tests {
         assert_eq!(app.provider, 1, "LlamaCpp should map to index 1");
         assert_eq!(app.base_url, "http://localhost:8080/v1");
         assert_eq!(app.model, "llama3");
-        assert_eq!(app.mode, 2, "Strict should map to index 2");
         assert_eq!(app.tools, vec![("grove".to_string(), true)]);
         assert_eq!(app.trace_retain, 25, "retention carried through unchanged");
         assert!(app.dirty_url, "loaded config must set dirty_url=true");
 
-        // Round-trip back
+        // Round-trip back — steering is always persisted as the default now.
         let back = app.to_config().unwrap();
         assert_eq!(back, cfg);
     }

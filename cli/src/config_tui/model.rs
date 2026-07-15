@@ -9,7 +9,6 @@ pub enum Field {
     Provider,
     Url,
     Model,
-    Mode,
     Tap,
     Tools,
 }
@@ -20,8 +19,7 @@ impl Field {
         match self {
             Field::Provider => Field::Url,
             Field::Url => Field::Model,
-            Field::Model => Field::Mode,
-            Field::Mode => Field::Tap,
+            Field::Model => Field::Tap,
             Field::Tap => Field::Tools,
             Field::Tools => Field::Provider,
         }
@@ -33,8 +31,7 @@ impl Field {
             Field::Provider => Field::Tools,
             Field::Url => Field::Provider,
             Field::Model => Field::Url,
-            Field::Mode => Field::Model,
-            Field::Tap => Field::Mode,
+            Field::Tap => Field::Model,
             Field::Tools => Field::Tap,
         }
     }
@@ -85,10 +82,6 @@ pub enum Msg {
     ModelListFetched(Vec<String>),
     /// Model dropdown — the fetch failed (message shown, free-text still works).
     ModelFetchError(String),
-    /// Mode list — up/prev.
-    ModeUp,
-    /// Mode list — down/next.
-    ModeDown,
     /// Tools list — cursor up.
     ToolsUp,
     /// Tools list — cursor down.
@@ -126,8 +119,6 @@ pub struct App {
     pub base_url: String,
     /// The model currently in the text buffer.
     pub model: String,
-    /// Index into `Mode::LEGAL`.
-    pub mode: usize,
     /// `(name, selected)` pairs.
     pub tools: Vec<(String, bool)>,
     /// Cursor position in the tools list.
@@ -189,11 +180,6 @@ impl App {
             Provider::Ollama => 0,
             Provider::LlamaCpp => 1,
         };
-        let mode = match cfg.steering {
-            Steering::Standard => 0,
-            Steering::Balanced => 1,
-            Steering::Strict => 2,
-        };
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
         Self {
@@ -202,7 +188,6 @@ impl App {
             provider,
             base_url: cfg.base_url,
             model: cfg.model,
-            mode,
             tools,
             tool_cursor: 0,
             add_tool_buf: String::new(),
@@ -242,11 +227,9 @@ impl App {
             0 => Provider::Ollama,
             _ => Provider::LlamaCpp,
         };
-        let steering = match self.mode {
-            0 => Steering::Standard,
-            1 => Steering::Balanced,
-            _ => Steering::Strict,
-        };
+        // `steering` no longer selects a prompt arm (the inner harness is the
+        // single flat v2 prompt); it is persisted only for on-disk back-compat.
+        let steering = Steering::Standard;
         let allowed_tools = self
             .tools
             .iter()

@@ -18,13 +18,6 @@ const NORMAL: Color = Color::White;
 const SELECTED: Color = Color::Green;
 const DIM: Color = Color::DarkGray;
 
-/// Mode descriptions shown alongside each mode entry.
-const MODE_DESCS: &[&str] = &[
-    "Standard — merit-based, least intrusive",
-    "Balanced — plan-first steering",
-    "Strict   — mandatory grove-first steering",
-];
-
 /// Render the full TUI frame.
 pub fn view(app: &App, frame: &mut Frame) {
     let area = frame.area();
@@ -52,11 +45,10 @@ pub fn view(app: &App, frame: &mut Frame) {
             Constraint::Length(3), // [1] Provider
             Constraint::Length(3), // [2] Endpoint URL
             Constraint::Length(3), // [3] Model
-            Constraint::Length(5), // [4] Mode (3 items + borders)
-            Constraint::Length(3), // [5] Tap
-            Constraint::Min(4),    // [6] Allowed Tools
-            Constraint::Length(1), // [7] Status bar
-            Constraint::Length(1), // [8] Footer shortcuts
+            Constraint::Length(3), // [4] Tap
+            Constraint::Min(4),    // [5] Allowed Tools
+            Constraint::Length(1), // [6] Status bar
+            Constraint::Length(1), // [7] Footer shortcuts
         ])
         .split(inner);
 
@@ -64,11 +56,10 @@ pub fn view(app: &App, frame: &mut Frame) {
     render_provider(app, frame, rows[1]);
     render_url(app, frame, rows[2]);
     render_model(app, frame, rows[3]);
-    render_mode(app, frame, rows[4]);
-    render_tap(app, frame, rows[5]);
-    render_tools(app, frame, rows[6]);
-    render_status(app, frame, rows[7]);
-    render_footer(app, frame, rows[8]);
+    render_tap(app, frame, rows[4]);
+    render_tools(app, frame, rows[5]);
+    render_status(app, frame, rows[6]);
+    render_footer(app, frame, rows[7]);
 
     // The model dropdown floats over the lower rows when open.
     if app.focus == Field::Model && app.model_dropdown {
@@ -239,37 +230,6 @@ fn render_model_dropdown(app: &App, frame: &mut Frame, model_area: Rect) {
     frame.render_stateful_widget(list, popup, &mut state);
 }
 
-// ── Mode ──────────────────────────────────────────────────────────────────────
-
-fn render_mode(app: &App, frame: &mut Frame, area: Rect) {
-    let focused = app.explore_active && app.focus == Field::Mode;
-    let items: Vec<ListItem> = MODE_DESCS
-        .iter()
-        .enumerate()
-        .map(|(i, desc)| {
-            let style = if i == app.mode {
-                Style::default().fg(SELECTED).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(NORMAL)
-            };
-            ListItem::new(Line::from(Span::styled(*desc, style)))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(border_style(focused))
-                .title(" Mode (↑↓ to select) "),
-        )
-        .highlight_style(Style::default().fg(FOCUSED).add_modifier(Modifier::BOLD));
-
-    let mut state = ListState::default();
-    state.select(Some(app.mode));
-    frame.render_stateful_widget(list, area, &mut state);
-}
-
 // ── Allowed Tools ─────────────────────────────────────────────────────────────
 
 fn render_tools(app: &App, frame: &mut Frame, area: Rect) {
@@ -355,7 +315,6 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             Field::Url => "type to edit URL",
             Field::Model if app.model_dropdown => "↑↓ pick · type filter · Enter select · Esc close",
             Field::Model => "type model · ↓ browse provider models",
-            Field::Mode => "↑↓ select mode",
             Field::Tap => "Space toggle tracing",
             Field::Tools => "↑↓ move · Space toggle · type+Enter add",
         }

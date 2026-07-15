@@ -198,11 +198,6 @@ fn translate_event(app: &App, event: Event) -> Option<Msg> {
             KeyCode::Backspace => Some(Msg::ModelBackspace),
             _ => None,
         },
-        Field::Mode => match code {
-            KeyCode::Up | KeyCode::Char('k') => Some(Msg::ModeUp),
-            KeyCode::Down | KeyCode::Char('j') => Some(Msg::ModeDown),
-            _ => None,
-        },
         Field::Tap => match code {
             KeyCode::Char(' ') | KeyCode::Enter => Some(Msg::TapToggle),
             _ => None,
