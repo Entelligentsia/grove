@@ -1,0 +1,24 @@
+{
+  "objective": "Create the grove-explore binary: a dedicated stdio MCP server exposing only the explore tool, with a hard startup health gate that exits non-zero before the loop if config load, explore-section deserialization, or the provider health probe fails.",
+  "key_changes": [
+    "cli/src/bin/grove_explore.rs (NEW ~260 LOC): self-contained MCP binary with clap Args, startup health gate (3 hard-fail steps), stdio JSON-RPC 2.0 loop, explore-only dispatch",
+    "SERVER_NAME = 'grove-explore' — separate identity from the grove binary",
+    "No Surface enum: the binary is always in explore mode by design",
+    "Hard startup gate: GroveConfig::load → explore deser → health_probe; each step exits(1) on failure, never falls back",
+    "Trace support: TraceWriter opened on initialize when cfg.tap is set (identical to grove serve explore path)",
+    "Mid-session ProviderDown → isError:true tool result (AC3 preserved, identical to mcp.rs)",
+    "run_explore_reporting called directly in-process (AC4, no MCP hop)",
+    "cli/Cargo.toml: [[bin]] name='grove-explore' path='src/bin/grove_explore.rs' added",
+    "cli/tests/cli.rs: grove_explore_single_tool_surface_and_identity — fake /models HTTP server on port 0, smoke test asserts serverInfo.name='grove-explore' and single explore tool",
+    "cli/tests/cli.rs: grove_explore_startup_fails_on_unhealthy_provider — port-1 config, asserts non-zero exit + HealthError hint on stderr + empty stdout",
+    "All 35 integration tests + 301 total workspace tests pass; clippy -D warnings clean"
+  ],
+  "files_changed": [
+    "cli/src/bin/grove_explore.rs",
+    "cli/Cargo.toml",
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-07-15T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

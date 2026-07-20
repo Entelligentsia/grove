@@ -1181,3 +1181,227 @@ fn naming_guard_no_fastcontext_in_source() {
         violations.join("\n")
     );
 }
+
+// ── grove-explore integration tests ─────────────────────────────────────────
+
+/// GROVE-S04-T02 (AC1 + AC2 + AC6): `grove-explore` smoke test.
+///
+/// Starts a minimal fake `/models` HTTP server (TcpListener on port 0 so the OS
+/// picks an available port) that returns the configured model name. This lets
+/// `health_probe` pass so the server enters the stdio loop. We then send
+/// `initialize` and `tools/list` and verify:
+/// - `serverInfo.name == "grove-explore"`
+/// - exactly one tool returned by `tools/list`, named `"explore"`.
+#[test]
+fn grove_explore_single_tool_surface_and_identity() {
+    use std::io::{Read, Write as _};
+    use std::net::TcpListener;
+    use std::process::Stdio;
+
+    // Bind on an OS-assigned port so this test never conflicts with another.
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake model server");
+    let port = listener.local_addr().unwrap().port();
+    let model_name = "test-model";
+
+    // Spawn a thread to serve exactly one HTTP /models request.
+    let model_name_owned = model_name.to_string();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            // Drain the request headers (we don't need to parse them).
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            // Respond with a minimal OpenAI-compatible /models JSON.
+            let body = format!(
+                r#"{{"object":"list","data":[{{"id":"{model}"}}]}}"#,
+                model = model_name_owned
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    // Write .grove/config.json with mode=mcp-llm and explore section pointing at
+    // our fake server.
+    let dir = std::env::temp_dir().join(format!(
+        "grove_explore_cli_{}_smoke",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+    let config = serde_json::json!({
+        "version": 1,
+        "mode": "mcp-llm",
+        "explore": {
+            "provider": "ollama",
+            "base_url": format!("http://127.0.0.1:{port}/v1"),
+            "model": model_name,
+            "steering": "standard",
+            "allowed_tools": []
+        }
+    });
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    // Spawn grove-explore with piped stdio.
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove-explore"))
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove-explore");
+
+    let mut stdin = child.stdin.take().unwrap();
+    // initialize (id=1)
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "protocolVersion": "2025-06-18" }
+        })
+    )
+    .unwrap();
+    // tools/list (id=2)
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        })
+    )
+    .unwrap();
+    drop(stdin); // close stdin → server exits at EOF
+
+    let output = child.wait_with_output().expect("grove-explore to finish");
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stderr_str = String::from_utf8_lossy(&output.stderr);
+
+    // The process must have exited successfully (health probe passed, ran to EOF).
+    assert!(
+        output.status.success(),
+        "grove-explore must exit 0 when provider is healthy; stderr: {stderr_str}"
+    );
+
+    // Parse the two JSON-RPC responses from stdout.
+    let mut responses: Vec<serde_json::Value> = stdout_str
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    responses.sort_by_key(|v| v["id"].as_i64().unwrap_or(i64::MAX));
+
+    // initialize response: serverInfo.name must be "grove-explore".
+    let init_resp = responses
+        .iter()
+        .find(|v| v["id"] == serde_json::json!(1))
+        .unwrap_or_else(|| panic!("initialize response (id=1) missing; stdout:\n{stdout_str}"));
+    assert_eq!(
+        init_resp["result"]["serverInfo"]["name"],
+        serde_json::json!("grove-explore"),
+        "serverInfo.name must be 'grove-explore', got: {init_resp}"
+    );
+
+    // tools/list response: exactly one tool named "explore".
+    let list_resp = responses
+        .iter()
+        .find(|v| v["id"] == serde_json::json!(2))
+        .unwrap_or_else(|| panic!("tools/list response (id=2) missing; stdout:\n{stdout_str}"));
+    let tools = list_resp["result"]["tools"]
+        .as_array()
+        .expect("result.tools must be an array");
+    assert_eq!(
+        tools.len(),
+        1,
+        "grove-explore must expose exactly one tool, got: {tools:?}"
+    );
+    assert_eq!(
+        tools[0]["name"],
+        serde_json::json!("explore"),
+        "the single tool must be named 'explore', got: {}",
+        tools[0]["name"]
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GROVE-S04-T02 (AC2 + AC6): `grove-explore` exits non-zero when the provider
+/// is unreachable — the startup health gate must fire before the MCP loop.
+///
+/// Port 1 is IANA-reserved and guaranteed to refuse connections immediately.
+#[test]
+fn grove_explore_startup_fails_on_unhealthy_provider() {
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_explore_cli_{}_startup_fail",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // Point at port 1 — guaranteed connection-refused.
+    let config = serde_json::json!({
+        "version": 1,
+        "mode": "mcp-llm",
+        "explore": {
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:1/v1",
+            "model": "nomodel",
+            "steering": "standard",
+            "allowed_tools": []
+        }
+    });
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    // Start grove-explore — it must fail during the health gate, before the loop.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_grove-explore"))
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .output()
+        .expect("grove-explore to run");
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stderr_str = String::from_utf8_lossy(&output.stderr);
+
+    // Must exit non-zero.
+    assert!(
+        !output.status.success(),
+        "grove-explore must exit non-zero when provider is unreachable; \
+         exit={:?}; stderr={stderr_str}",
+        output.status.code()
+    );
+
+    // Stderr must contain a HealthError fix hint.
+    assert!(
+        stderr_str.contains("is the server running")
+            || stderr_str.contains("base_url")
+            || stderr_str.contains("provider unhealthy"),
+        "stderr must contain a fix hint; got: {stderr_str}"
+    );
+
+    // Stdout must be empty — the server never entered the loop.
+    assert!(
+        stdout_str.trim().is_empty(),
+        "stdout must be empty when startup fails; got: {stdout_str}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}

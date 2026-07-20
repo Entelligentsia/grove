@@ -1,0 +1,20 @@
+{
+  "objective": "Create a grove-explore binary (second [[bin]] in cli/) exposing a single-tool MCP server (explore only, stdio JSON-RPC 2.0) with a hard startup health gate — unhealthy provider exits non-zero before the loop begins, never falls back.",
+  "key_changes": [
+    "cli/Cargo.toml: add [[bin]] name='grove-explore' path='src/bin/grove_explore.rs'",
+    "cli/src/bin/grove_explore.rs (NEW): self-contained MCP server — clap args, GroveConfig load, health gate (exit 1 on failure), stdio loop, explore-only dispatch",
+    "SERVER_NAME = 'grove-explore'; initialize response serverInfo.name = 'grove-explore'; same protocol versions as grove serve",
+    "Startup health gate sequence: GroveConfig::load -> ExploreConfig deserialization -> health_probe -> enter loop; each step is exit(1) on failure, not fallback",
+    "tools/list always returns [explore_tool_spec()]; no Surface enum needed (surface is fixed)",
+    "tools/call dispatches to run_explore_reporting in-process (no MCP hop); mid-session ProviderDown -> isError:true tool result (preserved)",
+    "Tap/trace support preserved: TraceWriter opened on initialize when cfg.tap is set",
+    "Config source: GroveConfig::load(root) -> grove_cfg.explore deserialized as ExploreConfig (ADR 0002 placement, no file move)",
+    "Integration test 1: fake /models HTTP server (TcpListener port 0) -> smoke test asserting serverInfo.name='grove-explore' and single explore tool",
+    "Integration test 2: port-1 unreachable provider -> assert non-zero exit and stderr contains fix hint",
+    "No version bump; no registration changes (T04/T06); no config file move (Stage 3); grove binary behaviour unchanged",
+    "Workspace green: cargo test --release --locked + cargo clippy --all-targets --workspace --locked -- -D warnings"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-07-20T12:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

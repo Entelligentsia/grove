@@ -1,0 +1,16 @@
+{
+  "objective": "Validate that the grove-explore binary satisfies AC1-AC7: own MCP server identity, single explore tool, hard startup health gate, in-process explorer call, correct config source, integration test coverage, and workspace green.",
+  "key_changes": [
+    "AC1 PASS: [[bin]] grove-explore present in Cargo.toml; binary built; SUPPORTED_PROTOCOLS identical to mcp.rs; tools/list returns exactly one 'explore' tool; name/schema/result-contract match.",
+    "AC1 NOTE: explore_tool_spec description is a trimmed copy of mcp.rs (code-review advisory, T03 reconcile); name, schema, and result contract are the AC1 contract elements — satisfied.",
+    "AC2 PASS: main() gate fires 4 hard-fail steps (config load, explore presence, deser, health_probe) each exit(1); startup-failure integration test asserts non-zero exit + empty stdout + stderr hint.",
+    "AC3 PASS: call_explore_tool ProviderDown -> Outcome::Ok(tool_text(...,true)) identical structure to mcp.rs; message updated to 'restart grove-explore to reconnect' (deliberate, no fallback surface).",
+    "AC4 PASS: run_explore_reporting called directly in call_explore_tool; no subprocess, no MCP hop.",
+    "AC5 PASS: GroveConfig::load -> grove_cfg.explore -> ExploreConfig deser; ADR 0002 placement preserved, no config file move.",
+    "AC6 PASS: both integration tests pass (smoke: serverInfo.name='grove-explore', 1 tool; startup-fail: non-zero exit + empty stdout + stderr hint).",
+    "AC7 PASS: 337 workspace tests pass, 0 failed; clippy -D warnings clean; all modified files end with newline."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-20T17:30:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

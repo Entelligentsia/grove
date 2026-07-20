@@ -1,0 +1,19 @@
+{
+  "objective": "Independently verify the grove-explore binary implementation against PLAN.md and AC1-AC7: own MCP server identity, single explore tool, hard startup health gate.",
+  "key_changes": [
+    "AC1 met: [[bin]] grove-explore; stdio JSON-RPC 2.0 with same SUPPORTED_PROTOCOLS as grove serve; tools/list returns one explore tool; name/schema/result-contract match today's surface.",
+    "AC2 met: main() gate GroveConfig::load -> explore deser -> health_probe, each exit(1) before serve_explore; startup-fail test asserts non-zero exit + stderr hint + empty stdout.",
+    "AC3 met: call_explore_tool ProviderDown -> tool_text(..., true) isError result preserved from mcp.rs.",
+    "AC4 met: run_explore_reporting called directly in-process, no MCP hop or subprocess.",
+    "AC5 met: GroveConfig::load + grove_cfg.explore -> ExploreConfig; no config-file move.",
+    "AC6 met: both integration tests present and pass under my own run.",
+    "AC7 met: I ran build (clean), cargo test --test cli grove_explore (2 passed), clippy --all-targets --workspace --locked -D warnings (clean), newline OK.",
+    "Advisory: ProviderDown message correctly re-pointed to 'restart grove-explore to reconnect' (no structural fallback) — deliberate, not a defect.",
+    "Advisory: explore_tool_spec description is a trimmed copy of mcp.rs; AC1 invariants still satisfied — reconcile in T03 dedup.",
+    "Advisory: Step-2 config error hard-codes 'mode is mcp-llm' without verifying mode; low-impact diagnostic nit for T03.",
+    "No concurrency risk: single-threaded loop; StdoutProgress writes whole lines during run_explore_reporting, before the response line is written."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-12T00:00:00Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

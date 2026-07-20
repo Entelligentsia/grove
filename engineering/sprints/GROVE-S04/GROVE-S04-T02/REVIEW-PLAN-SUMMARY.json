@@ -1,0 +1,17 @@
+{
+  "objective": "Assess the grove-explore binary plan for feasibility, AC coverage, and grounding against actual code before implementation.",
+  "key_changes": [
+    "All grove_explore_core APIs the bin relies on are confirmed exported (run_explore_reporting, health_probe, HealthError, ExploreConfig, OpenAiCompatClient, TraceWriter, ProgressReporter).",
+    "AC2 correct: plan replaces determine_surface's three fallback arms (config-load, explore-deser, health_probe) with process::exit(1).",
+    "AC3 preserved: call_explore_tool's ProviderDown -> isError:true path replicated verbatim, run_explore_reporting untouched.",
+    "AC5 config shape verified: GroveConfig { mode: mcp-llm, explore: Option<Value> } matches Test 1's direct config.json write (existing fixture at config.rs:607).",
+    "Test 2 grounded: mirrors existing port-1 fallback test; HealthError Display emits 'is the server running / base_url' fix hints for the stderr assertion.",
+    "Placement sound: cli/ has one [[bin]] and no [lib]; a second self-contained [[bin]] inheriting package deps is valid Cargo; CARGO_BIN_EXE_grove-explore resolves.",
+    "Advisory: ~130 lines duplicated from mcp.rs, cleared by T03 — keep T02->T03 ordering tight.",
+    "Advisory: mode gate intentionally skipped (bin is always explore); suggest a one-line comment in main() signalling deliberate omission.",
+    "Advisory: Test 1 fake /models server must serve the configured model name before health_probe's connect timeout."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-12T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

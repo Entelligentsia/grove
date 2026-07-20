@@ -1,0 +1,15 @@
+{
+  "objective": "Architectural sign-off on the grove-explore binary: a dedicated single-tool stdio MCP server with a hard startup health gate that exits non-zero before the loop rather than falling back.",
+  "key_changes": [
+    "Fits the stack unchanged: second [[bin]] reuses the hand-rolled stdio JSON-RPC 2.0 surface, same SUPPORTED_PROTOCOLS, clap/serde, no new deps.",
+    "Startup health gate (config load -> explore deser -> health_probe, each process::exit(1) before serve_explore) enforces 'never fall back'; test asserts non-zero exit + empty stdout.",
+    "Config source respects ADR 0002: GroveConfig::load -> grove_cfg.explore -> ExploreConfig with no config-file move (Stage 3 deferred by design).",
+    "In-process explorer call (run_explore_reporting) with no MCP hop; mid-session ProviderDown returns isError:true identical to mcp.rs; grove binary behaviour unchanged.",
+    "Independent code-review and validation both green: 337 workspace tests pass, clippy --all-targets --workspace --locked -D warnings clean; AC1-AC7 all met.",
+    "Deployment: grove now emits a SECOND release artifact. npm/Homebrew/install-script/GH-Releases ship one binary; grove-explore packaging is T04/T06 but MUST land before any user-facing release.",
+    "Follow-up: T03 dedup clears ~130 LOC copied from mcp.rs (explore_tool_spec, protocol consts, ProviderDown arm); keep T02->T03 ordering tight."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-30T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}
