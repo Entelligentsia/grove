@@ -1,0 +1,23 @@
+{
+  "objective": "Reviewed the revision that makes the degrade-path integration test deterministic by controlling the child PATH so grove-explore is provably absent.",
+  "key_changes": [
+    "grove_mcp_llm_with_path now REPLACES child PATH (not prepend) when Some(p) supplied; absent_degrades test uses an empty temp dir as sole PATH entry so grove-explore is provably absent.",
+    "present_non_tty_fails_fast test uses the built-binary dir as sole PATH entry so grove-explore is provably present.",
+    "grove_mcp_llm delegates with None to inherit parent PATH, preserving behavior for all other callers; no regressions.",
+    "Runtime source cli/src/init.rs unchanged this iteration; prior PATH-probe + explore_command_value fallback + degrade logic already correct.",
+    "All 9 ACs satisfied and 341 tests pass; clippy warning-free; both modified files end with a newline."
+  ],
+  "findings": [
+    "REQUIRED FIX resolved: grove_mcp_llm_with_path now REPLACES child PATH (not prepend) when Some(p) supplied; absent_degrades test uses an empty temp dir as sole PATH entry.",
+    "present_non_tty_fails_fast test uses the built-binary dir as sole PATH entry, so grove-explore is provably present.",
+    "grove_mcp_llm delegates with None → inherits parent PATH, preserving behavior for all other callers; no regressions.",
+    "Runtime source (cli/src/init.rs) unchanged this iteration; prior PATH-probe + explore_command_value fallback + degrade logic already correct.",
+    "All 9 ACs satisfied: both-server registration, PATH+TTY shell-out, PATH+non-TTY fail-fast, absent-PATH degrade (exit 0 + setup hint), dry-run isolation, non-McpLlm unchanged.",
+    "341 tests pass (136+65+43+42+54+1); clippy --all-targets --workspace --locked -- -D warnings warning-free — both re-run independently.",
+    "Both modified files end with a newline (0a).",
+    "Advisory: interactive-terminal bail message duplicated verbatim between top guard and defensive re-check — a const would prevent drift.",
+    "Advisory: which::which invoked up to 4x per init run — not a correctness issue for a one-shot CLI."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "CODE_REVIEW.md"
+}

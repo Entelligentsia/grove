@@ -1,0 +1,15 @@
+{
+  "objective": "Wire `grove init --as mcp-llm` to shell out to `grove-explore config`, falling back to a graceful PATH-absent degrade that still registers both servers and exits 0.",
+  "key_changes": [
+    "Replace the sibling-directory lookup in `cli/src/init.rs` with a PATH probe via `which::which(\"grove-explore\")`.",
+    "Introduce a command-value fallback that writes the bare string `grove-explore` into MCP registrations when the sibling is absent.",
+    "Restructure the first-run TUI block so the non-TTY fast-fail is conditional on the sibling being on PATH.",
+    "When `grove-explore` is absent from PATH, degrade: complete harness reconciliation, print setup message, exit 0.",
+    "Update `write_json_mcp_explore_server` and `write_toml_mcp_explore_server` to use the fallback command value.",
+    "Add PATH-controlled integration tests for the degrade path and the non-TTY fail-fast path in `cli/tests/cli.rs`.",
+    "Leave `--dry-run`, non-mcp-llm targets, and the existing transition-matrix semantics unchanged.",
+    "Workspace green: `cargo test --release --locked` and clippy with warnings-as-errors."
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PLAN.md"
+}

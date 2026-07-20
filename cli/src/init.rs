@@ -93,16 +93,18 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
         harnesses.iter().map(|h| h.display_name()).collect::<Vec<_>>().join(", ")
     );
 
-    // Non-TTY guard for McpLlm first-run: the TUI requires an interactive terminal
-    // to collect the explore backend configuration. Re-runs (when config.json
-    // already exists with mcp-llm mode or explore.json exists) and --dry-run
-    // bypass this guard so CI re-runs are never blocked after the first
-    // interactive session.
+    // PATH-aware first-run guard for McpLlm: the TUI is delegated to
+    // `grove-explore config`, which requires both the sibling binary on PATH
+    // and an interactive terminal. Re-runs (config.json already has mcp-llm
+    // mode or explore.json exists) and --dry-run bypass this guard so CI
+    // re-runs are never blocked after the first interactive session.
     let already_configured = old_mode == Some(Mode::McpLlm)
         || root.join(".grove").join("explore.json").exists();
+    let explore_on_path = explore_binary_on_path().is_some();
     if target == Target::McpLlm
         && !dry_run
         && !already_configured
+        && explore_on_path
         && !std::io::stdout().is_terminal()
     {
         anyhow::bail!(
@@ -111,6 +113,8 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
              `.grove/explore.json` to skip the TUI on subsequent runs."
         );
     }
+    // When grove-explore is absent from PATH we degrade: continue to
+    // register both servers and print a setup hint at the end.
 
     // Provision grammars + the lock (clap-free core). An empty return is the
     // contract for "nothing provisioned" — a dry-run / no-files / no-cached-
@@ -130,19 +134,31 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
         return Ok(());
     }
 
-    // First-run TUI: exec grove-explore config to set up .grove/config.json when
-    // the explore section is not yet configured. Skipped on re-runs (explore.json
-    // presence is kept as the guard sentinel for backward-compat).
-    if target == Target::McpLlm && !root.join(".grove").join("explore.json").exists() {
-        let bin = find_explore_binary()
-            .context("locating grove-explore for first-run config setup")?;
-        let status = std::process::Command::new(&bin)
-            .arg("config")
-            .arg(root)
-            .status()
-            .with_context(|| format!("launching {} config", bin.display()))?;
-        if !status.success() {
-            anyhow::bail!("grove-explore config exited with status {:?}", status.code());
+    // First-run TUI: delegate to `grove-explore config` when the sibling is on
+    // PATH and stdout is a TTY. If it is absent from PATH, degrade gracefully:
+    // reconcile the harness registrations and tell the user how to finish setup.
+    let mut explore_missing_degrade = false;
+    if target == Target::McpLlm && !dry_run && !root.join(".grove").join("explore.json").exists() {
+        if let Some(bin) = explore_binary_on_path() {
+            if !std::io::stdout().is_terminal() {
+                // Defensive: the guard above already catches this for full
+                // installs, but re-checking keeps the matrix explicit.
+                anyhow::bail!(
+                    "`grove init --as mcp-llm` requires an interactive terminal for the \
+                     first-run configuration. Run it in a real terminal, or pre-create \
+                     `.grove/explore.json` to skip the TUI on subsequent runs."
+                );
+            }
+            let status = std::process::Command::new(&bin)
+                .arg("config")
+                .arg(root)
+                .status()
+                .with_context(|| format!("launching {} config", bin.display()))?;
+            if !status.success() {
+                anyhow::bail!("grove-explore config exited with status {:?}", status.code());
+            }
+        } else {
+            explore_missing_degrade = true;
         }
     }
 
@@ -179,6 +195,9 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
         println!("             mcp__grove__*          — 7 structural tools (byte-precise, token-cheap)");
         println!("             mcp__grove-explore__explore — LLM-backed code locator (file:line citations)");
         println!("\n             Use explore for broad 'where is X' questions, then grove for precision.");
+        if explore_missing_degrade {
+            println!("\n  setup      run `grove-explore config` to finish setup");
+        }
     } else if target.writes_mcp() {
         println!("\n  ready      your agent now has grove's tools across its loop:");
         println!("             outline · symbols · source · callers · map · definition · check");
@@ -602,18 +621,22 @@ fn strip_toml_mcp(path: &Path, table: &str) -> Result<()> {
     Ok(())
 }
 
-/// Locate the `grove-explore` binary as a sibling of the running `grove` binary.
-/// Unix-only scope for T04: no `.exe` suffix is added.
-fn find_explore_binary() -> Result<std::path::PathBuf> {
-    let grove = std::env::current_exe().context("locating grove binary")?;
-    let dir = grove.parent().context("grove binary has no parent dir")?;
-    Ok(dir.join("grove-explore"))
+/// Probe PATH for the `grove-explore` binary.
+fn explore_binary_on_path() -> Option<std::path::PathBuf> {
+    which::which("grove-explore").ok()
+}
+
+/// Value to use as the MCP registration `command` for `grove-explore`: the
+/// absolute PATH-resolved binary when available, or the bare name as a graceful
+/// fallback for PATH-only installs.
+fn explore_command_value() -> std::path::PathBuf {
+    explore_binary_on_path().unwrap_or_else(|| std::path::PathBuf::from("grove-explore"))
 }
 
 /// Add (or refresh) the `grove-explore` server entry in a JSON MCP config at
-/// `path`, under `root_key`/[`EXPLORE_SERVER_KEY`]. The binary is located via
-/// [`find_explore_binary`] and takes no args. Preserves any other servers. Creates
-/// parent directories. When `needs_type_stdio`, adds `"type": "stdio"`.
+/// `path`, under `root_key`/[`EXPLORE_SERVER_KEY`]. The command value is derived
+/// via [`explore_command_value`] and takes no args. Preserves any other servers.
+/// Creates parent directories. When `needs_type_stdio`, adds `"type": "stdio"`.
 fn write_json_mcp_explore_server(
     path: &Path,
     root_key: &str,
@@ -627,7 +650,7 @@ fn write_json_mcp_explore_server(
     if !doc.is_object() {
         doc = json!({});
     }
-    let exe = find_explore_binary()?;
+    let exe = explore_command_value();
     let mut entry = json!({ "command": exe.to_string_lossy(), "args": [] });
     if needs_type_stdio {
         entry["type"] = json!("stdio");
@@ -666,8 +689,8 @@ fn strip_json_mcp_explore_server(path: &Path, root_key: &str) -> Result<()> {
 }
 
 /// Add (or refresh) the `grove-explore` server table in a TOML MCP config at
-/// `path`, under `[<table>.grove-explore]`. The binary is located via
-/// [`find_explore_binary`] and takes no args. Preserves every other table.
+/// `path`, under `[<table>.grove-explore]`. The command value is derived via
+/// [`explore_command_value`] and takes no args. Preserves every other table.
 fn write_toml_mcp_explore_server(path: &Path, table: &str) -> Result<()> {
     use toml_edit::{Array, DocumentMut, Item, Table};
     let mut doc: DocumentMut = match std::fs::read_to_string(path) {
@@ -676,7 +699,7 @@ fn write_toml_mcp_explore_server(path: &Path, table: &str) -> Result<()> {
             .with_context(|| format!("{} is not valid TOML", path.display()))?,
         Err(_) => DocumentMut::new(),
     };
-    let exe = find_explore_binary()?;
+    let exe = explore_command_value();
     if doc.get(table).and_then(|i| i.as_table()).is_none() {
         let mut t = Table::new();
         t.set_implicit(true);

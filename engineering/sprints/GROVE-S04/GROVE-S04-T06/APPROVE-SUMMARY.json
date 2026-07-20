@@ -1,0 +1,20 @@
+{
+  "objective": "Architectural sign-off on the mcp-llm init funnel: PATH-aware shell-out to grove-explore config with a graceful degrade when the sibling is absent.",
+  "key_changes": [
+    "4-cell decision matrix (PATH x TTY) in run() is the correct factoring; presence and interactivity are probed independently.",
+    "explore_binary_on_path() (guard) vs explore_command_value() (always-succeeds writer) split is the load-bearing invariant that makes graceful degrade work.",
+    "Both write_json_mcp_explore_server and write_toml_mcp_explore_server consume explore_command_value(), so reconcile_harness_for completes during degrade instead of erroring.",
+    "Non-mcp-llm init modes are byte-identical to T04; all gating is on target == McpLlm. 43 existing cli integration tests pass unchanged.",
+    "No schema changes; GroveConfig persistence unchanged; .forge/store and .forge/config.json untouched.",
+    "Dry-run isolation preserved: --dry-run returns before the first-run block and before reconcile; no shell-out, no writes.",
+    "main.rs retains its own find_explore_binary for deprecated config/tap shims (T05); init.rs copy removed — consistent with plan.",
+    "Independent verification: cargo test --release --locked = 341 passed, 0 failed; clippy -D warnings warning-free.",
+    "Both PATH-controlled integration tests are deterministic: absent-path test uses an empty temp dir as the child's entire PATH.",
+    "Advisory (non-blocking): interactive-terminal bail message duplicated between top guard and defensive re-check — a const would prevent drift.",
+    "Advisory (non-blocking): which::which invoked up to 4x per init run; caching the probe in run() would be cleaner for a one-shot CLI.",
+    "Distribution: ships on next release train; full installs get grove-explore config UX, minimal installs degrade gracefully — the intended funnel improvement."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-11-19T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

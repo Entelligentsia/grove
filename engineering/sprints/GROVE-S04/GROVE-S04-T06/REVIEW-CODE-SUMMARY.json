@@ -1,0 +1,16 @@
+{
+  "objective": "Reviewed the implementation wiring grove init --as mcp-llm to shell out to grove-explore config with a PATH-aware 4-cell decision matrix and graceful degrade when the sibling is absent.",
+  "key_changes": [
+    "Spec compliance verified independently via git diff + cargo test --release --locked (341 passed) + clippy -D warnings clean.",
+    "All 9 ACs satisfied: both-server registration, PATH+TTY shell-out, PATH+non-TTY fail-fast, absent-PATH degrade (exit 0 + setup hint), dry-run isolation, non-McpLlm unchanged, workspace green.",
+    "explore_binary_on_path() (Option) cleanly separates presence from explore_command_value() (always-succeeds PathBuf) — correct split for guard vs writers.",
+    "write_json/toml_mcp_explore_server now use explore_command_value(), so reconcile_harness_for completes during degrade instead of erroring.",
+    "Old find_explore_binary removed from init.rs; main.rs retains its own copy for deprecated shims — consistent with plan.",
+    "Both new integration tests (absent_degrades + present_non_tty_fails_fast) verified green; grove_mcp_llm_with_extra_path cleanly extends the existing helper.",
+    "Advisory: which::which invoked up to 4x per init run (guard + first-run block + 2 writers) — not a correctness issue for a one-shot CLI.",
+    "Advisory: degrade test inherits parent PATH rather than actively excluding grove-explore; robust in CI, could flake on a dev box with a global install.",
+    "Advisory: interactive-terminal bail message duplicated verbatim between top guard and defensive re-check — a const would prevent drift."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "CODE_REVIEW.md"
+}

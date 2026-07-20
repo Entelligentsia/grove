@@ -1,0 +1,18 @@
+{
+  "objective": "Validated that `grove init --as mcp-llm` shells out to `grove-explore config`, degrades gracefully when the sibling is absent, and leaves other modes and the workspace green.",
+  "key_changes": [
+    "PASS: Both `grove` and `grove-explore` server registrations are written for `mcp-llm`, and steering/AGENTS.md converge as in T04.",
+    "PASS: PATH+TTY branch calls `grove-explore config <root>` via `std::process::Command`; branch ordering matches the 4-cell matrix.",
+    "PASS: PATH+non-TTY branch fails fast with the interactive-terminal message; integration test passes.",
+    "PASS: PATH-absent degrade branch now has a deterministic PATH-controlled test using an empty temp directory as the child's entire PATH.",
+    "PASS: Degrade path exits 0, registers both servers, writes bare `grove-explore` command fallback, and prints the setup hint.",
+    "PASS: `--dry-run` returns before shell-out/reconcile and writes no files while previewing planned outputs.",
+    "PASS: Non-`mcp-llm` init modes are unchanged; existing `tests/cli.rs` assertions pass.",
+    "PASS: `cargo test --release --locked` passes (341 tests).",
+    "PASS: `cargo clippy --all-targets --workspace --locked -- -D warnings` is warning-free.",
+    "PASS: Modified source files `cli/src/init.rs` and `cli/tests/cli.rs` end with a newline."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T17:49:02Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

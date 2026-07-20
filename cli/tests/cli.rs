@@ -820,16 +820,31 @@ fn mcp_llm_setup(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::pat
     (base, cache, proj)
 }
 
-fn grove_mcp_llm(proj: &Path, cache: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_grove"))
-        .args(args)
+fn grove_mcp_llm(proj: &Path, cache: &Path, args: &[&str]) -> Output {
+    grove_mcp_llm_with_path(proj, cache, None, args)
+}
+
+/// Run `grove init --as mcp-llm` in a subprocess with an optional, exact PATH.
+/// When `path` is `Some`, the child sees *only* that directory on PATH, which
+/// lets tests deterministically control whether `grove-explore` is discoverable.
+/// When `path` is `None`, the child inherits the parent PATH unchanged.
+fn grove_mcp_llm_with_path(
+    proj: &Path,
+    cache: &Path,
+    path: Option<&Path>,
+    args: &[&str],
+) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_grove"));
+    cmd.args(args)
         .current_dir(proj)
         .env("GROVE_REGISTRY", DEV_REGISTRY)
         .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
         .env("XDG_CACHE_HOME", cache)
-        .env("HOME", cache)
-        .output()
-        .expect("running grove init --as mcp-llm")
+        .env("HOME", cache);
+    if let Some(p) = path {
+        cmd.env("PATH", p.as_os_str());
+    }
+    cmd.output().expect("running grove init --as mcp-llm")
 }
 
 /// AC5: dry-run prints the planned harness files and exits 0 (non-TTY, no explore.json).
@@ -1797,38 +1812,78 @@ fn grove_explore_tap_enables_tracing_in_config_json() {
 /// `grove-explore` is absent from the sibling location fails with a clear
 /// error mentioning grove-explore. This tests the error path added in Step 8a.
 ///
-/// Note: in a standard build environment grove-explore IS present as a sibling,
-/// so we must prevent the guard from reaching the TUI by pre-seeding explore.json
-/// (the bypass sentinel). The test therefore validates the sentinel bypass
-/// (TUI not launched) rather than the absence path — the absence test would
-/// require manipulating PATH/exec environment in ways that are fragile.
-///
-/// For the intent: the non-TTY guard in init.rs fires *before* the TUI call when
-/// no TTY is present and no explore.json pre-seed exists. This test verifies that
-/// the pre-seed bypass (idempotency guard) continues to work after Step 8a.
+/// PATH-controlled degrade path: when `grove-explore` is absent from PATH,
+/// `grove init --as mcp-llm` still registers both servers, exits 0, and tells
+/// the user how to finish setup.
 #[test]
-fn init_first_run_grove_explore_absent() {
-    // Non-TTY + no explore.json → init must fail with a clear error about
-    // the interactive terminal requirement (the guard above the TUI exec).
-    let (base, cache, proj) = mcp_llm_setup("explore_absent");
-    // Do NOT pre-seed explore.json — force the first-run guard.
-    let out = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
-    // Non-TTY + first-run: must fail (non-TTY guard or grove-explore not found).
+fn init_first_run_grove_explore_absent_degrades() {
+    let (base, cache, proj) = mcp_llm_setup("explore_absent_degrade");
+    // Use a deterministic PATH that cannot contain `grove-explore` so the
+    // degrade path is exercised regardless of the parent environment.
+    let empty_path = base.join("empty_path");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    // Do NOT pre-seed explore.json — force the first-run path.
+    let out = grove_mcp_llm_with_path(
+        &proj,
+        &cache,
+        Some(&empty_path),
+        &["init", "--as", "mcp-llm"],
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        !out.status.success(),
-        "grove init --as mcp-llm must exit non-zero in non-TTY without explore.json; \
-         stdout: {}; stderr: {}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
+        out.status.success(),
+        "grove init --as mcp-llm must exit 0 in degrade path; stdout: {stdout}; stderr: {stderr}",
+    );
+
+    let mcp_json_path = proj.join(".mcp.json");
+    assert!(mcp_json_path.exists(), ".mcp.json must exist after degrade init");
+    let mcp: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&mcp_json_path).unwrap(),
+    )
+    .expect(".mcp.json must be valid JSON");
+    assert_eq!(
+        mcp["mcpServers"]["grove"]["args"],
+        serde_json::json!(["serve"]),
+        "grove entry must have args [serve]"
+    );
+    assert!(
+        !mcp["mcpServers"]["grove-explore"].is_null(),
+        "grove-explore entry must be present after degrade init"
+    );
+    assert_eq!(
+        mcp["mcpServers"]["grove-explore"]["command"].as_str(),
+        Some("grove-explore"),
+        "grove-explore command must be the bare fallback name"
+    );
+    assert!(
+        stdout.contains("grove-explore config") && stdout.contains("finish setup"),
+        "stdout must tell the user to run `grove-explore config`; got: {stdout}",
+    );
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// PATH-controlled non-TTY fail-fast: when `grove-explore` is on PATH but
+/// stdout is not a TTY, `grove init --as mcp-llm` must fail fast with the
+/// interactive-terminal diagnostic.
+#[test]
+fn init_first_run_grove_explore_present_non_tty_fails_fast() {
+    let (base, cache, proj) = mcp_llm_setup("explore_present_non_tty");
+    let bin_dir = grove_explore_bin().parent().unwrap().to_path_buf();
+    let out = grove_mcp_llm_with_path(
+        &proj,
+        &cache,
+        Some(&bin_dir),
+        &["init", "--as", "mcp-llm"],
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    // Either the non-TTY guard fires or grove-explore binary not found — both
-    // acceptable failure modes; both must name the terminal or binary in stderr.
     assert!(
-        stderr.contains("interactive terminal")
-            || stderr.contains("grove-explore")
-            || stderr.contains("TTY"),
-        "stderr must mention interactive terminal or grove-explore; got: {stderr}"
+        !out.status.success(),
+        "expected non-zero exit when grove-explore is on PATH but stdout is not a TTY; stderr: {stderr}",
+    );
+    assert!(
+        stderr.contains("interactive terminal"),
+        "stderr should mention 'interactive terminal', got: {stderr}"
     );
     std::fs::remove_dir_all(&base).ok();
 }

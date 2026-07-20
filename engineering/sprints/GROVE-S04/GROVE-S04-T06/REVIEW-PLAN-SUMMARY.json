@@ -1,0 +1,15 @@
+{
+  "objective": "Reviewed the revised plan for wiring grove init --as mcp-llm to shell out to grove-explore config with a graceful PATH-absent degrade, verifying both prior critical findings are resolved.",
+  "key_changes": [
+    "Finding #1 resolved: Approach §1+§3 add a command-value fallback helper and update the two explore-server write functions to use bare-name fallback instead of erroring.",
+    "Finding #2 resolved: Approach §2 states PATH probe happens before TTY decision, with a complete 4-cell decision matrix (PATH x TTY).",
+    "Verified: find_explore_binary (init.rs:607) returns sibling path with no existence check; which::which already used at init.rs:284; which=7 in Cargo.toml.",
+    "Verified: reconcile_harness_for dispatches to the two write functions via write_explore_harness_registration — the exact degrade path that must complete.",
+    "Verified: main.rs find_explore_binary already falls back to bare 'grove-explore' — plan's mirror claim is accurate.",
+    "Testing strategy covers both CI-testable paths (degrade + non-TTY fail-fast); TTY shell-out limitation correctly acknowledged.",
+    "Advisory: already_configured and dry_run bypasses must be preserved in the restructured guard.",
+    "Advisory: two-block restructure requires storing PATH probe result for later use or merging the blocks."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

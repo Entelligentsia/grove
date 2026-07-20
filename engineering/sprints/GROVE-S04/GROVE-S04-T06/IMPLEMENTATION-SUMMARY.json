@@ -1,0 +1,15 @@
+{
+  "objective": "Make the degrade-path integration test for `grove init --as mcp-llm` deterministic by controlling the child PATH so `grove-explore` is provably absent.",
+  "key_changes": [
+    "Renamed `grove_mcp_llm_with_extra_path` to `grove_mcp_llm_with_path` and changed semantics so a supplied path becomes the child's entire PATH, not a prepend to the parent PATH.",
+    "Updated `init_first_run_grove_explore_absent_degrades` to run with an empty temporary directory as the only PATH entry, deterministically excluding `grove-explore`.",
+    "Updated `init_first_run_grove_explore_present_non_tty_fails_fast` to run with only the build-artifacts directory on PATH, deterministically including `grove-explore`.",
+    "No runtime source changes in `cli/src/init.rs`; the PATH probe, shell-out, fail-fast, and degrade behavior were already correct."
+  ],
+  "files_changed": [
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-01-26T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}
