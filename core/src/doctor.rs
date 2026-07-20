@@ -9,7 +9,6 @@ use std::path::Path;
 
 use crate::{
     config::{active_mode, default_harnesses, GroveConfig, Mode, ModeChoice},
-    explore::{health_probe, ExploreConfig, HealthError},
     harness::{self, HarnessId, McpFormat},
     registry::{self, LockVerifyStatus},
 };
@@ -685,10 +684,13 @@ fn check_harness_serve_surface(mode: Mode, has_explore_cfg: bool) -> Check {
 // Explore-mode checks
 // ---------------------------------------------------------------------------
 
-fn explore_checks(cfg: Option<&ExploreConfig>) -> Vec<Check> {
+fn explore_checks(cfg: Option<&serde_json::Value>) -> Vec<Check> {
     let mut checks = Vec::new();
 
     // ── explore_config_valid ─────────────────────────────────────────────────
+    // Config-based checks only (HTTP health probe removed — health_probe lives
+    // in grove-explore-core which grove-cst cannot depend on; probe still fires
+    // at `grove serve` startup via determine_surface in cli/src/mcp.rs).
     let cfg = match cfg {
         None => {
             checks.push(Check {
@@ -700,112 +702,55 @@ fn explore_checks(cfg: Option<&ExploreConfig>) -> Vec<Check> {
             });
             return checks;
         }
-        Some(c) => match c.validate() {
-            Ok(()) => {
-                checks.push(Check {
-                    group: "explore",
-                    name: "explore_config_valid",
-                    status: Status::Ok,
-                    detail: format!("base_url={} model={}", c.base_url, c.model),
-                    hint: None,
-                });
-                c
-            }
-            Err(e) => {
+        Some(v) => {
+            // Validate that the required non-empty string fields are present.
+            let base_url = v.get("base_url").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            let model = v.get("model").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            if base_url.is_empty() {
                 checks.push(Check {
                     group: "explore",
                     name: "explore_config_valid",
                     status: Status::Fail,
-                    detail: format!("invalid explore config: {e}"),
+                    detail: "`base_url` must not be empty".to_string(),
                     hint: Some("grove config".to_string()),
                 });
                 return checks;
             }
-        },
+            if model.is_empty() {
+                checks.push(Check {
+                    group: "explore",
+                    name: "explore_config_valid",
+                    status: Status::Fail,
+                    detail: "`model` must not be empty".to_string(),
+                    hint: Some("grove config".to_string()),
+                });
+                return checks;
+            }
+            checks.push(Check {
+                group: "explore",
+                name: "explore_config_valid",
+                status: Status::Ok,
+                detail: format!("base_url={base_url} model={model}"),
+                hint: None,
+            });
+            v
+        }
     };
-
-    // ── provider_reachable / model_served ────────────────────────────────────
-    match health_probe(cfg) {
-        Ok(()) => {
-            checks.push(Check {
-                group: "explore",
-                name: "provider_reachable",
-                status: Status::Ok,
-                detail: format!("reachable: {}", cfg.base_url),
-                hint: None,
-            });
-            checks.push(Check {
-                group: "explore",
-                name: "model_served",
-                status: Status::Ok,
-                detail: format!("model {} is served", cfg.model),
-                hint: None,
-            });
-        }
-        Err(HealthError::Unreachable { url, detail }) => {
-            checks.push(Check {
-                group: "explore",
-                name: "provider_reachable",
-                status: Status::Fail,
-                detail: format!("unreachable: {url} ({detail})"),
-                hint: Some("start your local model provider and retry".to_string()),
-            });
-            checks.push(Check {
-                group: "explore",
-                name: "model_served",
-                status: Status::Info,
-                detail: "skipped — provider unreachable".to_string(),
-                hint: None,
-            });
-        }
-        Err(HealthError::ModelMissing {
-            model,
-            url,
-            available,
-        }) => {
-            checks.push(Check {
-                group: "explore",
-                name: "provider_reachable",
-                status: Status::Ok,
-                detail: format!("reachable: {url}"),
-                hint: None,
-            });
-            let avail_str = if available.is_empty() {
-                "none".to_string()
-            } else {
-                available.join(", ")
-            };
-            checks.push(Check {
-                group: "explore",
-                name: "model_served",
-                status: Status::Fail,
-                detail: format!("model {model} not found at {url}; available: {avail_str}"),
-                hint: Some(format!(
-                    "pull {model} or set a different model in `grove config`"
-                )),
-            });
-        }
-    }
 
     // ── allowed_tools_known (Ok / Warn) ──────────────────────────────────────
     {
-        use crate::explore::toolset;
         // The inner explorer's base tool names plus the config's tool-family
         // tokens (`allowed_tools` is advisory — grove is exposed as six
         // `mcp__grove__*` tools, not a single `Grove` command tool).
-        let known = [
-            toolset::READ,
-            toolset::GLOB,
-            toolset::GREP,
-            "grove",
-            "rg",
-            "grep",
-            "find",
-        ];
-        let unknown: Vec<_> = cfg
-            .allowed_tools
+        const KNOWN: &[&str] = &["Read", "Glob", "Grep", "grove", "rg", "grep", "find"];
+        let allowed_tools: Vec<String> = cfg
+            .get("allowed_tools")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let unknown: Vec<_> = allowed_tools
             .iter()
-            .filter(|t| !known.contains(&t.as_str()))
+            .filter(|t| !KNOWN.contains(&t.as_str()))
             .cloned()
             .collect();
         if unknown.is_empty() {
@@ -813,7 +758,7 @@ fn explore_checks(cfg: Option<&ExploreConfig>) -> Vec<Check> {
                 group: "explore",
                 name: "allowed_tools_known",
                 status: Status::Ok,
-                detail: format!("tools: {}", cfg.allowed_tools.join(", ")),
+                detail: format!("tools: {}", allowed_tools.join(", ")),
                 hint: None,
             });
         } else {
@@ -828,11 +773,13 @@ fn explore_checks(cfg: Option<&ExploreConfig>) -> Vec<Check> {
     }
 
     // ── tap_config (Info) ────────────────────────────────────────────────────
+    let tap = cfg.get("tap").and_then(|v| v.as_bool()).unwrap_or(false);
+    let trace_retain = cfg.get("trace_retain").and_then(|v| v.as_u64()).unwrap_or(50);
     checks.push(Check {
         group: "explore",
         name: "tap_config",
         status: Status::Info,
-        detail: format!("tap={} trace_retain={}", cfg.tap, cfg.trace_retain),
+        detail: format!("tap={tap} trace_retain={trace_retain}"),
         hint: None,
     });
 
@@ -1177,40 +1124,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn provider_unreachable_is_fail() {
-        let dir = tmp("explore_unreachable");
-        // Write a full mcp-llm config with a dead base_url
-        let grove = dir.join(".grove");
-        fs::create_dir_all(&grove).unwrap();
-        let cfg_json = r#"{
-            "version": 1,
-            "mode": "mcp-llm",
-            "explore": {
-                "provider": "ollama",
-                "base_url": "http://127.0.0.1:19999/v1",
-                "model": "nonexistent",
-                "steering": "standard",
-                "allowed_tools": ["grove"],
-                "tap": false
-            }
-        }"#;
-        fs::write(grove.join("config.json"), cfg_json).unwrap();
-        write_mcp_json(&dir, &["serve", "--explore"]);
-        write_claude_md(&dir, "mcp__grove__explore");
-        write_agents_md(&dir);
-
-        let report = diagnose(&dir, ModeChoice::None);
-        let chk = report
-            .checks
-            .iter()
-            .find(|c| c.name == "provider_reachable")
-            .unwrap();
-        assert!(
-            matches!(chk.status, Status::Fail),
-            "expected Fail for unreachable provider, got {:?}: {}",
-            chk.status,
-            chk.detail
-        );
-    }
+    // provider_reachable / model_served checks were removed from grove doctor
+    // (health_probe lives in grove-explore-core which grove-cst cannot depend on;
+    // the probe still fires at `grove serve` startup). No test needed here.
 }

@@ -1,0 +1,19 @@
+{
+  "objective": "Adversarially reviewed the plan to move core/src/explore/ into a new grove-explore-core crate and make GroveConfig.explore an opaque serde_json::Value.",
+  "key_changes": [
+    "APPROVED: architecturally sound — opaque Option<serde_json::Value> for GroveConfig.explore correctly avoids a circular grove-cst <-> grove-explore-core dep.",
+    "Verified toolset::READ/GLOB/GREP = 'Read'/'Glob'/'Grep'; the plan's inlined doctor.rs literals match exactly (no behavior change).",
+    "Verified version pin: workspace is 0.4.1; proposed grove-explore-core = { version = '=0.4.1' } mirrors the existing grove-cst pin.",
+    "Verified include_str!('prompts/explore_v2.system.md') is source-relative and stays valid after the move (plan agrees, no change needed).",
+    "Verified GroveConfig::validate() only checks version==1, so the opaque explore section removes no validate()-time coverage.",
+    "Verified new crate's mod.rs public surface already re-exports every symbol the CLI imports; mirroring into explore/src/lib.rs covers all consumers.",
+    "ADVISORY 1: CLI inventory incomplete — config_tui/mod.rs, config_tui/update.rs, model.rs L4 also import grove_core explore/ExploreConfig/Provider/Steering; absent from plan's table, must repoint.",
+    "ADVISORY 2: mcp.rs uses NoopReporter (L374) beyond the L15-16 block; repointed use must also cover run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient, health_probe.",
+    "ADVISORY 3: JSON key-rename in migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; malformed legacy files migrate silently — minor AC3 delta, note in PROGRESS.",
+    "ADVISORY 4: AC4 byte-identity diff summary in PROGRESS.md should show toolset.rs's crate::ops->grove_core::ops as the sole non-path delta and path-only for the rest.",
+    "Testing strategy is adequate: workspace build/test/clippy, cargo tree -p grove-cst | grep explore empty, byte-identity diffs, legacy-migration smoke test, --release --locked build."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-15T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

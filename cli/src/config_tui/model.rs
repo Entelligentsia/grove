@@ -1,8 +1,7 @@
 //! Pure data types for the config TUI (Elm-style Model layer).
 
-use grove_core::explore::{DiscoveredEngine, ENGINE_CANDIDATES};
-use grove_core::{config::GroveConfig, ExploreConfig, Provider, Steering};
-use grove_core::config::Mode;
+use grove_core::config::{GroveConfig, Mode};
+use grove_explore_core::{DiscoveredEngine, ENGINE_CANDIDATES, ExploreConfig, Provider, Steering};
 
 /// Which field currently holds focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,7 +186,11 @@ impl App {
     pub fn from_grove_config(cfg: GroveConfig) -> Self {
         let explore_active = cfg.mode == Mode::McpLlm;
         let grove_mode = cfg.mode;
-        let explore_cfg = cfg.explore.unwrap_or_default();
+        // GroveConfig.explore is an opaque Value; deserialize into ExploreConfig,
+        // falling back to defaults if absent or if deserialization fails.
+        let explore_cfg: ExploreConfig = cfg.explore
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         let mut app = App::from_config(explore_cfg);
         app.grove_mode = grove_mode;
         app.explore_active = explore_active;

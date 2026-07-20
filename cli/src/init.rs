@@ -19,7 +19,7 @@ use grove_core::harness::{
 };
 use grove_core::init::provision_project;
 use grove_core::registry;
-use grove_core::ExploreConfig;
+use grove_explore_core::ExploreConfig;
 
 /// Which integration `grove init` wires up. Grammar provisioning (fetch +
 /// `grove.lock`) happens for every target; this only selects the harness glue.
@@ -143,10 +143,14 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
 
     // Save the new config.json so active_mode reflects the chosen target.
     let explore = if target == Target::McpLlm {
-        // Prefer config.json (TUI writes here); fall back to legacy explore.json,
-        // then to the explore section of the pre-run config.
+        // Prefer config.json (TUI writes here, already a Value); fall back to
+        // legacy explore.json (convert the typed ExploreConfig to Value), then
+        // to the explore section of the pre-run config.
         GroveConfig::load(root).ok().and_then(|c| c.explore)
-            .or_else(|| ExploreConfig::load(root).ok())
+            .or_else(|| {
+                ExploreConfig::load(root).ok()
+                    .and_then(|ec| serde_json::to_value(ec).ok())
+            })
             .or_else(|| old_cfg.as_ref().and_then(|c| c.explore.clone()))
     } else {
         // Preserve existing explore config across mode switches.

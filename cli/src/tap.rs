@@ -10,7 +10,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use grove_core::ExploreConfig;
+use grove_explore_core::ExploreConfig;
 
 use crate::trace_tui;
 

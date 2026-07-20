@@ -1,0 +1,16 @@
+{
+  "objective": "Validate that core/src/explore/ was correctly extracted into grove-explore-core workspace crate, with GroveConfig.explore as opaque serde_json::Value and all 6 acceptance criteria satisfied.",
+  "key_changes": [
+    "AC1 PASS: explore/ crate has all 11 modules + prompt; lib.rs re-exports full public surface mirroring old mod.rs boundary; crate named grove-explore-core.",
+    "AC2 PASS: core/src/explore/ directory absent; core/src/lib.rs has no pub mod explore; cargo tree -p grove-cst | grep explore returns empty.",
+    "AC3 PASS: GroveConfig.explore is Option<serde_json::Value> in config.rs:93; no ExploreConfig/Provider/Steering imports in core; migrate_from_legacy_explore is pure JSON key-rename.",
+    "AC4 PASS: grounding.rs, steering.rs, wire.rs, prompts/explore_v2.system.md byte-identical; toolset.rs has 1 non-path change (crate::ops -> grove_core::ops); agent.rs has 2 test use-path adjustments.",
+    "AC5 PASS: CLI import repointing verified in all 7 files: mcp.rs, init.rs, tap.rs, config_tui/{mod.rs,model.rs,update.rs}, trace_tui/model.rs; serde_json from_value/to_value at the 4 Value boundaries.",
+    "AC6 PASS: 54 explore unit tests pass; full workspace 335 passed 0 failed; clippy -D warnings clean; cargo build --release --locked passes; all 12 explore src files end with trailing newline.",
+    "ADVISORY (non-blocking): Stale intra-doc link at cli/src/config_tui/model.rs:107 — grove_core::explore::discover_engines should be grove_explore_core; build/clippy don't fail.",
+    "ADVISORY (non-blocking): migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; documented trade-off."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-16T12:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

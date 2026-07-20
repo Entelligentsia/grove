@@ -1,0 +1,17 @@
+{
+  "objective": "Architectural sign-off on Stage-1 extraction of core/src/explore/ into a new grove-explore-core workspace crate with an opaque serde_json::Value seam for GroveConfig.explore.",
+  "key_changes": [
+    "Opaque Option<serde_json::Value> for GroveConfig.explore correctly breaks the circular grove-cst <-> grove-explore-core dependency, per the ADR Stage-1 design.",
+    "cargo tree -p grove-cst carries no explore-only deps; new crate lib.rs re-export surface mirrors old mod.rs boundary exactly.",
+    "Behavior-bearing modules moved byte-identical apart from mechanical import edits; toolset.rs crate::ops -> grove_core::ops is the sole non-path change.",
+    "In-process grove ops calls preserved (no MCP hop, no subprocess).",
+    "335 tests pass, clippy -D warnings clean, cargo build --release --locked passes; all 6 acceptance criteria validated PASS.",
+    "Deployment: no crates.io publish this sprint (D3), no user-facing behavior change, config load/save/legacy-migration behavior unchanged.",
+    "Follow-up (non-blocking): stale intra-doc link cli/src/config_tui/model.rs:107 grove_core::explore -> grove_explore_core; cargo doc warns.",
+    "Follow-up (non-blocking): migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; malformed legacy files migrate silently.",
+    "Follow-up: CLI call sites consuming grove-explore-core are the intended temporary bridge; T02/T03/T05 relocate them."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-02-14T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

@@ -12,11 +12,11 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use grove_core::config::{active_mode, GroveConfig, Mode, ModeChoice};
-use grove_core::explore::{
+use grove_core::{ops, registry};
+use grove_explore_core::{
     health_probe, run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient,
     ProgressReporter, SessionMeta, TraceWriter,
 };
-use grove_core::{ops, registry};
 
 const SERVER_NAME: &str = "grove";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -76,7 +76,13 @@ fn determine_surface(root: &Path, force_explore: bool, force_standard: bool) -> 
     };
 
     let cfg = match grove_cfg.explore {
-        Some(c) => c,
+        Some(v) => match serde_json::from_value::<ExploreConfig>(v) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("grove serve: invalid explore config ({e}); falling back to standard structural surface");
+                return Surface::Standard;
+            }
+        },
         None => {
             eprintln!("grove serve: mode is mcp-llm but no explore section found in config; falling back to standard structural surface");
             return Surface::Standard;
@@ -371,7 +377,7 @@ fn call_explore_tool(
     };
     let client = OpenAiCompatClient::new(cfg);
     let reporter = progress_token(params).map(|token| StdoutProgress { token });
-    let noop = grove_core::explore::NoopReporter;
+    let noop = grove_explore_core::NoopReporter;
     let sink: &dyn ProgressReporter = match &reporter {
         Some(r) => r,
         None => &noop,

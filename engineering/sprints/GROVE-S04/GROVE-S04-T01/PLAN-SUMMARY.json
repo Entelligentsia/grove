@@ -1,0 +1,20 @@
+{
+  "objective": "Extract core/src/explore/ (11 modules + embedded prompt, ~3,900 lines) into a new workspace crate grove-explore-core, making grove-cst a pure structural library by storing the explore section of GroveConfig as an opaque serde_json::Value.",
+  "key_changes": [
+    "Create explore/ workspace crate with Cargo.toml (lib, name=grove_explore_core, deps: grove-cst, ureq, serde, serde_json, anyhow, dirs)",
+    "Move all 11 modules + prompts/ from core/src/explore/ to explore/src/ byte-identical except mechanical import changes",
+    "toolset.rs: change `use crate::ops` → `use grove_core::ops` (only non-trivial import change)",
+    "Remove core/src/explore/ entirely; remove pub mod explore from core/src/lib.rs and its re-exports",
+    "Change GroveConfig.explore: Option<ExploreConfig> → Option<serde_json::Value> (opaque to core)",
+    "Rewrite migrate_from_legacy_explore in core/src/config.rs to pure JSON key-rename (mode→steering) without typed parse",
+    "Drop Eq derive from GroveConfig (serde_json::Value is not Eq); adapt config round-trip tests to Value assertions",
+    "Adapt core/src/doctor.rs: remove health_probe/HealthError/toolset imports; inline tool constants; drop HTTP health-probe checks; adapt explore_checks to Option<&serde_json::Value>",
+    "Add explore to Cargo.toml workspace.members",
+    "Add grove-explore-core dep to cli/Cargo.toml",
+    "cli/src/mcp.rs: update imports + add serde_json::from_value deserialization for grove_cfg.explore",
+    "cli/src/init.rs, tap.rs, config_tui/model.rs, trace_tui/model.rs: import path updates"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-22T00:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

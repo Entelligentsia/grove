@@ -11,7 +11,7 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
-use grove_core::explore::trace::{format_response, request_parts, traces_dir};
+use grove_explore_core::trace::{format_response, request_parts, traces_dir};
 
 /// Token counts (prompt, completion, total).
 #[derive(Debug, Clone, Copy, Default)]

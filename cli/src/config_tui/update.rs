@@ -187,7 +187,7 @@ mod tests {
     use super::*;
     use crate::config_tui::model::Field;
     use grove_core::config::{GroveConfig, Mode};
-    use grove_core::ExploreConfig;
+    use grove_explore_core::ExploreConfig;
 
     fn fresh() -> App {
         App::default()
@@ -448,10 +448,10 @@ mod tests {
     #[test]
     fn from_config_pre_populates() {
         let cfg = ExploreConfig {
-            provider: grove_core::Provider::LlamaCpp,
+            provider: grove_explore_core::Provider::LlamaCpp,
             base_url: "http://localhost:8080/v1".to_string(),
             model: "llama3".to_string(),
-            steering: grove_core::Steering::Standard,
+            steering: grove_explore_core::Steering::Standard,
             allowed_tools: vec!["grove".to_string()],
             tap: true,
             trace_retain: 25,

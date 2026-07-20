@@ -21,7 +21,8 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use grove_core::{config::GroveConfig, ExploreConfig};
+use grove_core::config::GroveConfig;
+use grove_explore_core::ExploreConfig;
 
 use model::{Action, App, Field, Msg};
 
@@ -53,7 +54,7 @@ pub fn run(root: &Path, grove_cfg: Option<GroveConfig>) -> Result<()> {
     // then shows which of ollama / llama.cpp / lm-studio / vllm are live.
     // set_engines re-aligns the cursor onto the row matching the saved endpoint
     // (which may be a detected non-default port, absent from the default list).
-    app.set_engines(grove_core::explore::discover_engines());
+    app.set_engines(grove_explore_core::discover_engines());
 
     // ── Set up terminal ──────────────────────────────────────────────────────
     enable_raw_mode()?;
@@ -93,10 +94,14 @@ fn event_loop(
                     let harnesses = GroveConfig::load(root)
                         .map(|c| c.harnesses)
                         .unwrap_or_else(|_| grove_core::config::default_harnesses());
+                    // GroveConfig.explore is an opaque Value; serialize the typed
+                    // ExploreConfig back to Value before storing.
+                    let explore_val = serde_json::to_value(explore_cfg)
+                        .expect("ExploreConfig is always serializable");
                     let cfg = GroveConfig {
                         version: 1,
                         mode: app.grove_mode,
-                        explore: Some(explore_cfg),
+                        explore: Some(explore_val),
                         harnesses,
                     };
                     cfg.save(root)?;
@@ -125,7 +130,7 @@ fn fetch_models(app: &mut App) {
         model: app.model.clone(),
         ..ExploreConfig::default()
     };
-    let msg = match grove_core::explore::list_models(&cfg) {
+    let msg = match grove_explore_core::list_models(&cfg) {
         Ok(list) => Msg::ModelListFetched(list),
         Err(e) => Msg::ModelFetchError(e),
     };

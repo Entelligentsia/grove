@@ -20,6 +20,8 @@ path = "src/main.rs"
 # Core library — AST engine, registry, fetch, ingest. Published as `grove-cst`;
 # the imported crate name is still `grove_core` (its `[lib] name`).
 grove-cst = { path = "../core", version = "=0.4.1" }
+# Explore subsystem — LLM config, transport, agent loop, tool dispatch.
+grove-explore-core = { path = "../explore", version = "=0.4.1" }
 
 # CLI + output
 clap = { version = "4", features = ["derive"] }

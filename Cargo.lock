@@ -661,11 +661,24 @@ dependencies = [
  "crossterm",
  "dirs",
  "grove-cst",
+ "grove-explore-core",
  "ratatui",
  "serde",
  "serde_json",
  "toml_edit",
  "which",
+]
+
+[[package]]
+name = "grove-explore-core"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "grove-cst",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]

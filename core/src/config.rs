@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::explore::{ExploreConfig, Provider, Steering};
 use crate::harness::HarnessId;
 
 /// The default harness set for a project with no explicit `harnesses` array:
@@ -79,17 +78,19 @@ impl Mode {
 ///
 /// Construct with [`GroveConfig::default`] (mode = `mcp`, no explore section),
 /// then persist with [`GroveConfig::save`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GroveConfig {
     /// Wire version. The only valid value today is `1`; [`validate`] rejects
     /// other values to ensure future migrations are explicit.
     pub version: u32,
     /// Which grove integration surface is active.
     pub mode: Mode,
-    /// Optional mcp-llm explorer configuration. Omitted from the serialized
-    /// form when `None` (see `skip_serializing_if`).
+    /// Optional mcp-llm explorer configuration, stored as a raw JSON value
+    /// (opaque to core). The CLI layer (which depends on grove-explore-core)
+    /// deserializes this into `ExploreConfig` when it needs typed access.
+    /// Omitted from the serialized form when `None` (see `skip_serializing_if`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub explore: Option<ExploreConfig>,
+    pub explore: Option<serde_json::Value>,
     /// The coding agents `grove init` has wired into this project. Defaults to
     /// `[claude-code]` when absent, so pre-multi-harness configs are unchanged.
     #[serde(default = "default_harnesses")]
@@ -115,7 +116,7 @@ struct RawGroveConfig {
     version: u32,
     mode: String,
     #[serde(default)]
-    explore: Option<ExploreConfig>,
+    explore: Option<serde_json::Value>,
     #[serde(default = "default_harnesses")]
     harnesses: Vec<HarnessId>,
 }
@@ -139,58 +140,35 @@ impl TryFrom<RawGroveConfig> for GroveConfig {
     }
 }
 
-/// Wire shape of the legacy `.grove/explore.json` file.  The old key for
-/// steering level was `mode` (not `steering`); this struct mirrors that shape
-/// exactly so we can deserialize without touching `ExploreConfig`'s own raw
-/// struct (which correctly rejects `mode`).
-#[derive(Deserialize)]
-struct LegacyExploreRaw {
-    provider: String,
-    base_url: String,
-    model: String,
-    /// The old steering-level key.  Maps to `ExploreConfig::steering` after
-    /// parsing.
-    mode: String,
-    #[serde(default)]
-    allowed_tools: Vec<String>,
-    #[serde(default)]
-    tap: bool,
-    #[serde(default = "default_legacy_trace_retain")]
-    trace_retain: u32,
-}
-
-fn default_legacy_trace_retain() -> u32 {
-    crate::explore::config::DEFAULT_TRACE_RETAIN
-}
-
 /// Read `.grove/explore.json`, map its old wire shape to a full [`GroveConfig`]
-/// (mode = `McpLlm`, `explore.steering` from the legacy `mode` key), persist
-/// `config.json` atomically, and emit a one-time deprecation warning to stderr.
+/// (mode = `McpLlm`, renaming the legacy `"mode"` key to `"steering"` in the raw
+/// JSON), persist `config.json` atomically, and emit a one-time deprecation
+/// warning to stderr.
 ///
 /// This function is the only code path that reads `explore.json`.  It does not
 /// delete `explore.json` — removal is left to the user; `grove doctor` will
 /// warn about its presence.
+///
+/// Provider/Steering validation is deferred to the CLI layer, which deserializes
+/// the opaque `serde_json::Value` into `ExploreConfig` (from `grove-explore-core`)
+/// when typed access is needed.
 fn migrate_from_legacy_explore(root: &Path) -> Result<GroveConfig> {
-    let path = ExploreConfig::config_path(root);
+    let path = root.join(".grove").join("explore.json");
     let text = fs::read_to_string(&path)
         .with_context(|| format!("reading legacy explore config {}", path.display()))?;
-    let raw: LegacyExploreRaw = serde_json::from_str(&text)
+    let mut explore_val: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("{} is not a valid legacy explore config", path.display()))?;
-    let steering = Steering::from_name(&raw.mode)?;
-    let provider = Provider::from_name(&raw.provider)?;
-    let explore_cfg = ExploreConfig {
-        provider,
-        base_url: raw.base_url,
-        model: raw.model,
-        steering,
-        allowed_tools: raw.allowed_tools,
-        tap: raw.tap,
-        trace_retain: raw.trace_retain,
-    };
+    // The old wire key for steering level was `"mode"`; rename it to `"steering"`
+    // so the migrated config.json matches the current schema.
+    if let Some(obj) = explore_val.as_object_mut() {
+        if let Some(steering) = obj.remove("mode") {
+            obj.entry("steering").or_insert(steering);
+        }
+    }
     let config = GroveConfig {
         version: 1,
         mode: Mode::McpLlm,
-        explore: Some(explore_cfg),
+        explore: Some(explore_val),
         harnesses: default_harnesses(),
     };
     config.validate()?;
@@ -233,7 +211,7 @@ impl GroveConfig {
                 .with_context(|| format!("{} is not a valid grove config", path.display()))?;
             cfg.validate()?;
             Ok(cfg)
-        } else if ExploreConfig::config_path(root).exists() {
+        } else if root.join(".grove").join("explore.json").exists() {
             migrate_from_legacy_explore(root)
         } else {
             bail!(
@@ -359,23 +337,32 @@ mod tests {
     }
 
     // T3 — explore section round-trips when Some.
+    // After the refactor, explore is opaque serde_json::Value — we verify the
+    // JSON round-trip preserves the known fields rather than comparing typed structs.
     #[test]
     fn explore_section_present_when_some() {
-        use crate::explore::{ExploreConfig, Provider, Steering};
-        let explore = ExploreConfig {
-            provider: Provider::Ollama,
-            base_url: "http://localhost:11434/v1".to_string(),
-            model: "qwen2.5-coder:7b".to_string(),
-            steering: Steering::Standard,
-            allowed_tools: vec!["grove".to_string()],
-            tap: false,
-            trace_retain: 50,
+        let explore_val = serde_json::json!({
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "model": "qwen2.5-coder:7b",
+            "steering": "standard",
+            "allowed_tools": ["grove"],
+            "tap": false,
+            "trace_retain": 50
+        });
+        let cfg = GroveConfig {
+            version: 1,
+            mode: Mode::McpLlm,
+            explore: Some(explore_val.clone()),
+            harnesses: default_harnesses(),
         };
-        let cfg = GroveConfig { version: 1, mode: Mode::McpLlm, explore: Some(explore.clone()), harnesses: default_harnesses() };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: GroveConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, back);
-        assert_eq!(back.explore.unwrap(), explore);
+        let back_explore = back.explore.unwrap();
+        assert_eq!(back_explore["provider"], serde_json::json!("ollama"));
+        assert_eq!(back_explore["steering"], serde_json::json!("standard"));
+        assert_eq!(back_explore["model"], serde_json::json!("qwen2.5-coder:7b"));
     }
 
     // T4 — bad mode names the field and lists legal values.
@@ -425,6 +412,7 @@ mod tests {
     }
 
     // T5 — steering key in explore section deserializes correctly.
+    // After the refactor, explore is opaque Value — verify the raw JSON field.
     #[test]
     fn steering_key_in_explore_section() {
         let json = r#"{
@@ -439,8 +427,8 @@ mod tests {
             }
         }"#;
         let cfg: GroveConfig = serde_json::from_str(json).unwrap();
-        use crate::explore::Steering;
-        assert_eq!(cfg.explore.unwrap().steering, Steering::Balanced);
+        let explore = cfg.explore.expect("explore section should be present");
+        assert_eq!(explore["steering"], serde_json::json!("balanced"));
     }
 
     // T6 — save + load round-trip; no leftover temp file.
@@ -497,7 +485,6 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn migrate_legacy_explore_writes_config_json() {
-        use crate::explore::Steering;
         let root = temp_root("legacy_migrate");
         let _ = fs::remove_dir_all(&root);
         let grove_dir = root.join(".grove");
@@ -518,10 +505,16 @@ mod tests {
         // Load should trigger migration.
         let cfg = GroveConfig::load(&root).unwrap();
 
-        // Returned config: mode = McpLlm, steering = Balanced.
+        // Returned config: mode = McpLlm; explore is now an opaque Value with
+        // the legacy `mode` key renamed to `steering`.
         assert_eq!(cfg.mode, Mode::McpLlm, "mode should be McpLlm after migration");
         let explore = cfg.explore.as_ref().expect("explore section must be present");
-        assert_eq!(explore.steering, Steering::Balanced, "steering should be Balanced (mapped from legacy mode=balanced)");
+        assert_eq!(
+            explore["steering"],
+            serde_json::json!("balanced"),
+            "steering should be 'balanced' (mapped from legacy mode=balanced)"
+        );
+        assert!(explore.get("mode").is_none(), "legacy `mode` key must be removed");
 
         // config.json must exist on disk after migration.
         let config_path = GroveConfig::config_path(&root);
