@@ -5,6 +5,9 @@
 //!   2. Enters the alternate screen in raw mode.
 //!   3. Runs the Elm-style event loop (decode event → Msg → update → draw).
 //!   4. Restores the terminal on **every** exit path (save, cancel, error).
+//!
+//! AC5: the save path re-reads `mode` (and `harnesses`) from the on-disk
+//! `GroveConfig` so the TUI never forces `mode` to `McpLlm`.
 
 pub mod model;
 pub mod update;
@@ -29,7 +32,7 @@ use model::{Action, App, Field, Msg};
 /// Launch the config TUI.
 ///
 /// * `root` — project root used by [`GroveConfig::save`].
-/// * `grove_cfg` — pre-populated config loaded by the caller; `None` for defaults (McpLlm active).
+/// * `grove_cfg` — pre-populated config loaded by the caller; `None` for defaults.
 ///
 /// Returns `Ok(())` on save or cancel. Returns an error for I/O failures and
 /// (importantly) for non-TTY environments.
@@ -37,16 +40,16 @@ pub fn run(root: &Path, grove_cfg: Option<GroveConfig>) -> Result<()> {
     // ── Non-TTY guard ────────────────────────────────────────────────────────
     if !io::stdout().is_terminal() {
         anyhow::bail!(
-            "`grove config` requires an interactive terminal — \
+            "`grove-explore config` requires an interactive terminal — \
              pipe output or redirect detected. \
-             Use `grove config` in a real terminal session."
+             Use `grove-explore config` in a real terminal session."
         );
     }
 
     // ── Initialise TUI state ─────────────────────────────────────────────────
     let mut app = match grove_cfg {
         Some(cfg) => App::from_grove_config(cfg),
-        None => App::default(), // McpLlm-active default; used by init first-run
+        None => App::default(),
     };
 
     // Detect local inference engines before entering the alternate screen — a
@@ -89,18 +92,20 @@ fn event_loop(
         match update::update(app, msg) {
             Some(Action::Save) => match app.to_config() {
                 Ok(explore_cfg) => {
-                    // Preserve the project's configured harness set — the config
-                    // TUI only edits the explore surface, not which agents are wired.
-                    let harnesses = GroveConfig::load(root)
-                        .map(|c| c.harnesses)
-                        .unwrap_or_else(|_| grove_core::config::default_harnesses());
+                    // AC5: re-read both mode and harnesses from the on-disk
+                    // GroveConfig so the TUI never forces mode to McpLlm.
+                    // This mirrors how harnesses were already preserved and
+                    // extends the same pattern to mode.
+                    let existing = GroveConfig::load(root).unwrap_or_default();
+                    let harnesses = existing.harnesses;
+                    let mode = existing.mode;
                     // GroveConfig.explore is an opaque Value; serialize the typed
                     // ExploreConfig back to Value before storing.
                     let explore_val = serde_json::to_value(explore_cfg)
                         .expect("ExploreConfig is always serializable");
                     let cfg = GroveConfig {
                         version: 1,
-                        mode: app.grove_mode,
+                        mode,
                         explore: Some(explore_val),
                         harnesses,
                     };

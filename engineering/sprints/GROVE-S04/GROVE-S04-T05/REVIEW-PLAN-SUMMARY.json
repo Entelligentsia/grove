@@ -1,0 +1,15 @@
+{
+  "objective": "Reviewed the revised plan to move config/trace TUIs + tap into a new grove-explore workspace crate with forwarding shims and an explore.json string sweep.",
+  "key_changes": [
+    "Blocker 1 fix verified: init.rs:136 does call crate::config_tui::run; Step 8a's find_explore_binary() exec (helper real at init.rs:597) prevents the compile break (AC7).",
+    "Blocker 2 fix verified: config_tui/mod.rs:103 writes mode: app.grove_mode; Step 6 re-reads existing.mode from disk mirroring harnesses pattern, satisfying AC5 (mode preserved, not forced McpLlm).",
+    "Dependency completeness verified: moved files import only anyhow, crossterm, grove_core, grove_explore_core, ratatui, serde_json (+serde) — all present in new grove-explore/Cargo.toml.",
+    "Wholesale-move premise confirmed: zero crate::{ops,engine,registry,init,serve} references in moved files — no dangling coupling.",
+    "String sweep targets match on-disk strings at tap.rs:24/26-27/33, trace_tui/mod.rs:4, config_tui/view.rs:90; GroveConfig shape matches core/src/config.rs:82.",
+    "Advisory: update.rs has ~12 explore_active guards (not just Save) — compiler-enforced removal via field deletion, so AC7 guarantees completeness.",
+    "Advisory: Step 8a first-run guard still keys on explore.json (pre-existing, not a regression); ensure non-interactive init paths seed explore.json to avoid non-TTY exec failure.",
+    "Advisory: Step 2 must implement Option<Cmd> -> Serve fallback so bare grove-explore (no subcommand, from .mcp.json) still serves; keep an assertion for it."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

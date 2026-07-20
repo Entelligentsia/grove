@@ -1,0 +1,20 @@
+{
+  "objective": "Validate all 7 acceptance criteria for moving config/trace TUIs + tap to grove-explore, forwarding shims, string sweep, mode preservation, and dependency isolation.",
+  "key_changes": [
+    "AC1 PASS: config_tui/trace_tui/tap moved to grove-explore/src; engine picker/model dropdown/tap toggle/trace browser all present; 42 grove-explore-bin unit tests pass.",
+    "AC2 PASS: grove config and grove tap shims both eprintln the new spelling unconditionally; exec-forward to grove-explore; shim tests pass.",
+    "AC3 PASS: tap.rs user strings say 'restart the grove-explore server'; no explore.json in user-facing messages; trace_tui clean.",
+    "AC4 PASS: grove_mode/explore_active fields absent from model.rs; mode badge and inert guards removed from view.rs; zero occurrences in update.rs.",
+    "AC5 PASS: config_tui/mod.rs save re-reads mode+harnesses from GroveConfig::load(root); config_round_trip_preserves_mode_and_harnesses asserts mode==Mcp.",
+    "AC6 PASS: cargo tree -p grove-cst-cli shows no ratatui/crossterm; grove-explore-bin shows both; cli/Cargo.toml clean.",
+    "AC7 PASS: 340 tests pass, 0 failed. Clippy clean. Cold-target: rm grove-explore binary then 'Compiling grove-explore-bin' fires mid-run, tests pass.",
+    "init.rs blocker 1 PASS: first-run TUI call replaced with find_explore_binary() exec; no crate::config_tui::run reference.",
+    "5 new integration tests pass: config shim, tap shim, config non-TTY, tap enables config.json, init absent grove-explore.",
+    "No regressions: 42 pre-existing cli integration tests continue to pass.",
+    "Advisory (non-blocking): round-trip test re-implements save inline rather than exercising real event_loop Save arm.",
+    "Advisory (non-blocking): init.rs first-run guard still keys on explore.json sentinel (pre-existing, one-release deprecation window)."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-20T18:45:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

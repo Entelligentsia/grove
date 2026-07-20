@@ -16,10 +16,6 @@ categories = ["command-line-utilities", "development-tools"]
 name = "grove"
 path = "src/main.rs"
 
-[[bin]]
-name = "grove-explore"
-path = "src/bin/grove_explore.rs"
-
 [dependencies]
 # Core library — AST engine, registry, fetch, ingest. Published as `grove-cst`;
 # the imported crate name is still `grove_core` (its `[lib] name`).
@@ -40,7 +36,5 @@ dirs = "5"
 
 anyhow = "1"
 
-# Full-screen config + trace TUIs (grove config / grove tap verbs)
-ratatui = "0.29"
-crossterm = "0.28"
+
 

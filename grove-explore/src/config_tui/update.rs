@@ -22,13 +22,11 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Engine picker ────────────────────────────────────────────────────
         Msg::EngineUp => {
-            if !app.explore_active { return None; }
             app.engine_cursor = app.engine_cursor.saturating_sub(1);
             apply_selected_engine(app);
             None
         }
         Msg::EngineDown => {
-            if !app.explore_active { return None; }
             let last = app.engines.len().saturating_sub(1);
             app.engine_cursor = (app.engine_cursor + 1).min(last);
             apply_selected_engine(app);
@@ -37,31 +35,26 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── URL text buffer ──────────────────────────────────────────────────
         Msg::UrlChar(c) => {
-            if !app.explore_active { return None; }
             app.base_url.push(c);
             None
         }
         Msg::UrlBackspace => {
-            if !app.explore_active { return None; }
             app.base_url.pop();
             None
         }
 
         // ── Model text buffer + dropdown ─────────────────────────────────────
         Msg::ModelChar(c) => {
-            if !app.explore_active { return None; }
             app.model.push(c);
             app.model_cursor = 0; // re-filter from the top
             None
         }
         Msg::ModelBackspace => {
-            if !app.explore_active { return None; }
             app.model.pop();
             app.model_cursor = 0;
             None
         }
         Msg::ModelDropdownOpen => {
-            if !app.explore_active { return None; }
             app.model_dropdown = true;
             app.model_cursor = 0;
             app.model_status = Some("fetching models…".to_string());
@@ -115,14 +108,12 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
         Msg::ToolsToggle => {
-            if !app.explore_active { return None; }
             if let Some(entry) = app.tools.get_mut(app.tool_cursor) {
                 entry.1 = !entry.1;
             }
             None
         }
         Msg::ToolsAddChar(c) => {
-            if !app.explore_active { return None; }
             app.add_tool_buf.push(c);
             None
         }
@@ -131,7 +122,6 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
             None
         }
         Msg::ToolsAddConfirm => {
-            if !app.explore_active { return None; }
             let name = app.add_tool_buf.trim().to_string();
             if !name.is_empty() {
                 app.tools.push((name, true));
@@ -143,21 +133,12 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Action> {
 
         // ── Tap ───────────────────────────────────────────────────────────────
         Msg::TapToggle => {
-            if !app.explore_active { return None; }
             app.tap = !app.tap;
             None
         }
 
         // ── Terminal actions ──────────────────────────────────────────────────
-        Msg::Save => {
-            if !app.explore_active {
-                app.last_error = Some(
-                    "explore settings inactive — run: grove init --as mcp-llm".to_string(),
-                );
-                return None;
-            }
-            Some(Action::Save)
-        }
+        Msg::Save => Some(Action::Save),
         Msg::Quit => Some(Action::Quit),
     }
 }
@@ -371,66 +352,9 @@ mod tests {
         assert!(err.to_string().contains("base_url"), "error should name the field: {err}");
     }
 
-    // 10. grove_mode badge + explore_active gate (new for GROVE-S03-T05)
-
-    #[test]
-    fn badge_reflects_grove_mode() {
-        let app = App::from_grove_config(GroveConfig { mode: Mode::Mcp, ..Default::default() });
-        assert_eq!(app.grove_mode, Mode::Mcp);
-        assert!(!app.explore_active, "non-mcp-llm mode must set explore_active=false");
-    }
-
-    #[test]
-    fn explore_inert_blocks_all_edits() {
-        // Build an inert app (non-mcp-llm mode).
-        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Mcp, ..Default::default() });
-        let before = app.clone();
-
-        // All explore-edit messages must return None and leave state unchanged.
-        let msgs = vec![
-            Msg::EngineUp,
-            Msg::EngineDown,
-            Msg::UrlChar('x'),
-            Msg::ModelChar('x'),
-            Msg::TapToggle,
-            Msg::ToolsToggle,
-            Msg::ToolsAddChar('x'),
-        ];
-        for msg in msgs {
-            let result = update(&mut app, msg.clone());
-            assert_eq!(result, None, "expected None for {msg:?} when inactive");
-        }
-        // Engine cursor, base_url, model, tap, tools, add_tool_buf must be unchanged.
-        assert_eq!(app.engine_cursor, before.engine_cursor);
-        assert_eq!(app.base_url, before.base_url);
-        assert_eq!(app.model, before.model);
-        assert_eq!(app.tap, before.tap);
-        assert_eq!(app.tools, before.tools);
-        assert_eq!(app.add_tool_buf, before.add_tool_buf);
-    }
-
-    #[test]
-    fn save_blocked_when_inert() {
-        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Skill, ..Default::default() });
-        let result = update(&mut app, Msg::Save);
-        assert_eq!(result, None, "Save must return None when explore_active=false");
-        assert!(
-            !app.last_error.as_deref().unwrap_or("").is_empty(),
-            "last_error must be set on blocked save"
-        );
-    }
-
-    #[test]
-    fn save_allowed_when_mcp_llm() {
-        let mut app = fresh(); // default is McpLlm + explore_active=true
-        let result = update(&mut app, Msg::Save);
-        assert_eq!(result, Some(Action::Save));
-    }
-
     #[test]
     fn tab_and_quit_always_work() {
-        // Test with inert app.
-        let mut app = App::from_grove_config(GroveConfig { mode: Mode::Both, ..Default::default() });
+        let mut app = fresh();
         // TabNext always passes through.
         let focus_before = app.focus;
         let result = update(&mut app, Msg::TabNext);
@@ -468,5 +392,75 @@ mod tests {
         // steering is always persisted as the default now.
         let back = app.to_config().unwrap();
         assert_eq!(back, cfg);
+    }
+
+    // 10. AC5: config save round-trip preserves mode and harnesses from disk.
+    #[test]
+    fn config_round_trip_preserves_mode_and_harnesses() {
+        use std::io::Write as _;
+
+        // Create a temp dir with .grove/config.json containing mode=mcp.
+        let dir = std::env::temp_dir().join(format!(
+            "grove_config_roundtrip_{}", std::process::id()
+        ));
+        let grove_dir = dir.join(".grove");
+        std::fs::create_dir_all(&grove_dir).unwrap();
+
+        let config_json = serde_json::json!({
+            "version": 1,
+            "mode": "mcp",
+            "harnesses": ["claude-code", "codex"],
+            "explore": {
+                "provider": "ollama",
+                "base_url": "http://localhost:11434/v1",
+                "model": "llama3",
+                "steering": "standard",
+                "allowed_tools": ["grove"],
+                "tap": false
+            }
+        });
+        let mut f = std::fs::File::create(grove_dir.join("config.json")).unwrap();
+        write!(f, "{}", serde_json::to_string_pretty(&config_json).unwrap()).unwrap();
+        drop(f);
+
+        // Build App from that GroveConfig.
+        let loaded = GroveConfig::load(&dir).expect("config.json loads");
+        let app = App::from_grove_config(loaded.clone());
+
+        // Simulate the save path: to_config() + GroveConfig::load + re-build + save.
+        let explore_cfg = app.to_config().expect("valid config");
+        let existing = GroveConfig::load(&dir).unwrap_or_default();
+        let harnesses = existing.harnesses.clone();
+        let mode = existing.mode;
+        let explore_val = serde_json::to_value(explore_cfg).unwrap();
+        let new_cfg = GroveConfig {
+            version: 1,
+            mode,
+            explore: Some(explore_val),
+            harnesses,
+        };
+        new_cfg.save(&dir).expect("save succeeds");
+
+        // Read back and assert.
+        let readback = GroveConfig::load(&dir).expect("readback");
+        assert_eq!(
+            readback.mode, Mode::Mcp,
+            "mode must be preserved as Mcp (not forced to McpLlm)"
+        );
+        assert_eq!(
+            readback.harnesses,
+            vec![
+                grove_core::harness::HarnessId::ClaudeCode,
+                grove_core::harness::HarnessId::Codex,
+            ],
+            "harnesses must be preserved"
+        );
+        let explore_back: ExploreConfig = serde_json::from_value(
+            readback.explore.expect("explore section present"),
+        ).expect("explore section valid");
+        assert_eq!(explore_back.model, "llama3", "explore config round-trips");
+        assert_eq!(explore_back.allowed_tools, vec!["grove".to_string()]);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

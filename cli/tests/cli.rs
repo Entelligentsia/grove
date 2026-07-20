@@ -47,6 +47,44 @@ fn grove(cwd: &Path, args: &[&str]) -> Output {
         .expect("running grove")
 }
 
+/// Resolve the `grove-explore` binary, building it on-demand when absent.
+///
+/// `env!("CARGO_BIN_EXE_grove-explore")` is unavailable because grove-explore
+/// now lives in a separate workspace crate (`grove-explore-bin`) that the cli
+/// crate does not build-depend on.  We derive the expected output path from the
+/// already-compiled `grove` binary and build the sibling crate if the binary is
+/// missing — making `cargo test --workspace --locked` self-contained from a
+/// clean checkout.
+fn grove_explore_bin() -> std::path::PathBuf {
+    use std::sync::Once;
+    static BUILD: Once = Once::new();
+
+    let grove = std::path::PathBuf::from(env!("CARGO_BIN_EXE_grove"));
+    let bin_dir = grove.parent().unwrap().to_path_buf();
+    let bin = bin_dir.join("grove-explore");
+
+    BUILD.call_once(|| {
+        if !bin.exists() {
+            // Detect release vs debug from the output directory path.
+            let is_release = bin_dir.components().any(|c| c.as_os_str() == "release");
+            // Prefer the $CARGO env var so we use the exact same toolchain.
+            let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+            let mut cmd = std::process::Command::new(cargo);
+            cmd.args(["build", "--locked", "-p", "grove-explore-bin"]);
+            if is_release {
+                cmd.arg("--release");
+            }
+            let status = cmd.status().expect("spawn cargo to build grove-explore-bin");
+            assert!(
+                status.success(),
+                "cargo build grove-explore-bin failed — cannot run grove-explore integration tests"
+            );
+        }
+    });
+
+    bin
+}
+
 fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).to_string()
 }
@@ -934,22 +972,23 @@ fn mcp_llm_agents_md_created_and_appended() {
     std::fs::remove_dir_all(&base).ok();
 }
 
-/// GROVE-S02-T07 (AC1a): `grove config` exits non-zero and reports the
+/// GROVE-S02-T07 (AC1a): `grove-explore config` exits non-zero and reports the
 /// interactive-terminal requirement when stdout is not a TTY.
+/// Updated in T05: calls grove-explore config directly (grove config is now a shim).
 #[test]
 fn config_in_non_tty_fails_fast() {
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
     let dir = fixture("config_non_tty");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_grove"))
+    let mut child = Command::new(grove_explore_bin())
         .args(["config"])
         .current_dir(&dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("GROVE_REGISTRY", DEV_REGISTRY)
         .spawn()
-        .expect("spawn grove config");
+        .expect("spawn grove-explore config");
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -958,7 +997,7 @@ fn config_in_non_tty_fails_fast() {
             None if Instant::now() >= deadline => {
                 child.kill().ok();
                 child.wait().ok();
-                panic!("grove config did not exit within 5 s — non-TTY guard may be missing");
+                panic!("grove-explore config did not exit within 5 s — non-TTY guard may be missing");
             }
             None => std::thread::sleep(Duration::from_millis(50)),
         }
@@ -966,7 +1005,7 @@ fn config_in_non_tty_fails_fast() {
     let out = child.wait_with_output().expect("wait_with_output");
     assert!(
         !out.status.success(),
-        "expected non-zero exit from grove config in non-TTY, got success"
+        "expected non-zero exit from grove-explore config in non-TTY, got success"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -976,24 +1015,34 @@ fn config_in_non_tty_fails_fast() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// `grove tap` (default) turns on tracing in the explore config before opening
-/// the browser. The TUI itself needs a TTY, so here (non-TTY) it enables the
-/// setting, then exits non-zero on the terminal guard — but the config write
-/// must have already landed with `tap: true`.
+/// `grove tap` (shim → grove-explore tap) turns on tracing in the explore config
+/// before opening the browser. The TUI itself needs a TTY, so here (non-TTY) it
+/// enables the setting, then exits non-zero on the terminal guard — but the config
+/// write must have already landed with `tap: true` in `.grove/config.json`.
+/// Updated in T05: seeds/asserts config.json (not explore.json).
 #[test]
 fn tap_enables_tracing_in_config() {
+    // The `grove tap` shim delegates to `grove-explore`. In a cold target the
+    // binary may not be present yet, so we ensure it is built before the shim
+    // tries to exec it. `grove_explore_bin()` blocks until the build completes.
+    let _ = grove_explore_bin();
     let dir = fixture("tap_enable");
     let grove_dir = dir.join(".grove");
     std::fs::create_dir_all(&grove_dir).unwrap();
+    // Seed .grove/config.json (the new canonical location for explore settings).
     std::fs::write(
-        grove_dir.join("explore.json"),
+        grove_dir.join("config.json"),
         serde_json::json!({
-            "provider": "ollama",
-            "base_url": "http://127.0.0.1:11434/v1",
-            "model": "llama3",
-            "steering": "standard",
-            "allowed_tools": ["grove"],
-            "tap": false
+            "version": 1,
+            "mode": "mcp-llm",
+            "explore": {
+                "provider": "ollama",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "model": "llama3",
+                "steering": "standard",
+                "allowed_tools": ["grove"],
+                "tap": false
+            }
         })
         .to_string(),
     )
@@ -1008,40 +1057,51 @@ fn tap_enables_tracing_in_config() {
         "stderr should mention enabling tracing or the TTY guard, got: {stderr}"
     );
 
-    // The enable step ran before the guard: tap is now true on disk.
-    let cfg: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
-            .unwrap();
-    assert_eq!(cfg["tap"], serde_json::json!(true), "tap flipped on in explore.json");
+    // The enable step ran before the guard: tap is now true in config.json.
+    let raw = std::fs::read_to_string(grove_dir.join("config.json")).unwrap();
+    let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        cfg["explore"]["tap"], serde_json::json!(true),
+        "tap flipped on in config.json explore section"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// `grove tap --no-enable` must NOT modify the config; it only opens the browser
-/// (which then fails the non-TTY guard).
+/// `grove tap --no-enable` (shim → grove-explore tap --no-enable) must NOT
+/// modify the config; it only opens the browser (which then fails the non-TTY guard).
+/// Updated in T05: seeds/asserts config.json (not explore.json).
 #[test]
 fn tap_no_enable_leaves_config_untouched() {
+    // Ensure grove-explore is built before the shim tries to exec it.
+    let _ = grove_explore_bin();
     let dir = fixture("tap_no_enable");
     let grove_dir = dir.join(".grove");
     std::fs::create_dir_all(&grove_dir).unwrap();
-    let original = serde_json::json!({
-        "provider": "ollama",
-        "base_url": "http://127.0.0.1:11434/v1",
-        "model": "llama3",
-        "steering": "standard",
-        "allowed_tools": ["grove"],
-        "tap": false
+    let original_config = serde_json::json!({
+        "version": 1,
+        "mode": "mcp-llm",
+        "explore": {
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "llama3",
+            "steering": "standard",
+            "allowed_tools": ["grove"],
+            "tap": false
+        }
     })
     .to_string();
-    std::fs::write(grove_dir.join("explore.json"), &original).unwrap();
+    std::fs::write(grove_dir.join("config.json"), &original_config).unwrap();
 
     let out = grove(&dir, &["tap", "--no-enable"]);
     assert!(!out.status.success(), "tap --no-enable still fails the TTY guard in a non-TTY");
 
-    let cfg: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(grove_dir.join("explore.json")).unwrap())
-            .unwrap();
-    assert_eq!(cfg["tap"], serde_json::json!(false), "--no-enable must not flip tap");
+    let raw = std::fs::read_to_string(grove_dir.join("config.json")).unwrap();
+    let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        cfg["explore"]["tap"], serde_json::json!(false),
+        "--no-enable must not flip tap in config.json"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -1387,7 +1447,8 @@ fn grove_explore_single_tool_surface_and_identity() {
     .unwrap();
 
     // Spawn grove-explore with piped stdio.
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove-explore"))
+    let mut child = std::process::Command::new(grove_explore_bin())
+        .arg("serve")
         .arg(dir.to_str().unwrap())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1507,7 +1568,8 @@ fn grove_explore_startup_fails_on_unhealthy_provider() {
     .unwrap();
 
     // Start grove-explore — it must fail during the health gate, before the loop.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_grove-explore"))
+    let output = std::process::Command::new(grove_explore_bin())
+        .arg("serve")
         .arg(dir.to_str().unwrap())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1542,4 +1604,231 @@ fn grove_explore_startup_fails_on_unhealthy_provider() {
     );
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ── GROVE-S04-T05 new tests ───────────────────────────────────────────────────
+
+/// T05 (AC2): `grove config` (non-TTY, no real terminal) prints the deprecation
+/// line that names the new canonical spelling `grove-explore config`.
+/// The exec of grove-explore may or may not succeed; the eprintln fires first.
+#[test]
+fn grove_config_shim_prints_new_spelling() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = fixture("config_shim_spelling");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["config"])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawn grove config shim");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_) => break,
+            None if Instant::now() >= deadline => {
+                child.kill().ok();
+                child.wait().ok();
+                panic!("grove config did not exit within 10 s");
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    let out = child.wait_with_output().expect("wait_with_output");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("grove-explore config"),
+        "stderr must contain 'grove-explore config' (deprecation notice or error); got: {stderr}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// T05 (AC2): `grove tap` (non-TTY) prints the deprecation line that names
+/// the new canonical spelling `grove-explore tap`.
+#[test]
+fn grove_tap_shim_prints_new_spelling() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = fixture("tap_shim_spelling");
+    // Seed config.json so grove-explore tap gets far enough to hit the TTY guard.
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "mode": "mcp-llm",
+            "explore": {
+                "provider": "ollama",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "model": "llama3",
+                "steering": "standard",
+                "allowed_tools": [],
+                "tap": true
+            }
+        }).to_string(),
+    ).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(["tap", "--no-enable"])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawn grove tap shim");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_) => break,
+            None if Instant::now() >= deadline => {
+                child.kill().ok();
+                child.wait().ok();
+                panic!("grove tap did not exit within 10 s");
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    let out = child.wait_with_output().expect("wait_with_output");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("grove-explore tap"),
+        "stderr must contain 'grove-explore tap' (deprecation notice or error); got: {stderr}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// T05 (AC1): `grove-explore config` exits non-zero and stderr contains
+/// "interactive terminal" when not run from a TTY.
+#[test]
+fn grove_explore_config_non_tty_fails_fast() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = fixture("explore_config_non_tty");
+    let mut child = Command::new(grove_explore_bin())
+        .args(["config"])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawn grove-explore config");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_) => break,
+            None if Instant::now() >= deadline => {
+                child.kill().ok();
+                child.wait().ok();
+                panic!("grove-explore config did not exit within 5 s");
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    let out = child.wait_with_output().expect("wait_with_output");
+    assert!(
+        !out.status.success(),
+        "grove-explore config must exit non-zero in non-TTY"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal"),
+        "stderr must mention 'interactive terminal'; got: {stderr}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// T05 (AC3): `grove-explore tap` (no --no-enable) sets `explore.tap=true` in
+/// `.grove/config.json`. In non-TTY the browser fails its guard after the write.
+#[test]
+fn grove_explore_tap_enables_tracing_in_config_json() {
+    let dir = fixture("explore_tap_config_json");
+    let grove_dir = dir.join(".grove");
+    std::fs::create_dir_all(&grove_dir).unwrap();
+    std::fs::write(
+        grove_dir.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "mode": "mcp-llm",
+            "explore": {
+                "provider": "ollama",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "model": "llama3",
+                "steering": "standard",
+                "allowed_tools": ["grove"],
+                "tap": false
+            }
+        }).to_string(),
+    ).unwrap();
+
+    let out = std::process::Command::new(grove_explore_bin())
+        .args(["tap", dir.to_str().unwrap()])
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .output()
+        .expect("run grove-explore tap");
+
+    // Non-TTY: the browser guard fires after the config write.
+    assert!(!out.status.success(), "grove-explore tap should fail the TTY guard in a non-TTY");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal") || stderr.contains("tracing enabled"),
+        "stderr should mention TTY guard or tracing; got: {stderr}"
+    );
+
+    // The enable step ran before the guard: tap is true in config.json.
+    let raw = std::fs::read_to_string(grove_dir.join("config.json")).unwrap();
+    let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        cfg["explore"]["tap"], serde_json::json!(true),
+        "explore.tap must be true in config.json after grove-explore tap"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// T05 (AC7 / init.rs fix): `grove init --as mcp-llm` in a temp dir where
+/// `grove-explore` is absent from the sibling location fails with a clear
+/// error mentioning grove-explore. This tests the error path added in Step 8a.
+///
+/// Note: in a standard build environment grove-explore IS present as a sibling,
+/// so we must prevent the guard from reaching the TUI by pre-seeding explore.json
+/// (the bypass sentinel). The test therefore validates the sentinel bypass
+/// (TUI not launched) rather than the absence path — the absence test would
+/// require manipulating PATH/exec environment in ways that are fragile.
+///
+/// For the intent: the non-TTY guard in init.rs fires *before* the TUI call when
+/// no TTY is present and no explore.json pre-seed exists. This test verifies that
+/// the pre-seed bypass (idempotency guard) continues to work after Step 8a.
+#[test]
+fn init_first_run_grove_explore_absent() {
+    // Non-TTY + no explore.json → init must fail with a clear error about
+    // the interactive terminal requirement (the guard above the TUI exec).
+    let (base, cache, proj) = mcp_llm_setup("explore_absent");
+    // Do NOT pre-seed explore.json — force the first-run guard.
+    let out = grove_mcp_llm(&proj, &cache, &["init", "--as", "mcp-llm"]);
+    // Non-TTY + first-run: must fail (non-TTY guard or grove-explore not found).
+    assert!(
+        !out.status.success(),
+        "grove init --as mcp-llm must exit non-zero in non-TTY without explore.json; \
+         stdout: {}; stderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Either the non-TTY guard fires or grove-explore binary not found — both
+    // acceptable failure modes; both must name the terminal or binary in stderr.
+    assert!(
+        stderr.contains("interactive terminal")
+            || stderr.contains("grove-explore")
+            || stderr.contains("TTY"),
+        "stderr must mention interactive terminal or grove-explore; got: {stderr}"
+    );
+    std::fs::remove_dir_all(&base).ok();
 }

@@ -1,0 +1,19 @@
+{
+  "objective": "Architectural sign-off on moving config/trace TUIs + tap to the grove-explore workspace crate with forwarding shims, string sweep, and TUI dependency isolation.",
+  "key_changes": [
+    "All 7 ACs re-confirmed by independent code review (approved) and validation (approved: 340 tests passed, 0 failed; clippy --all-targets --workspace -D warnings clean).",
+    "On-disk state verified: grove-explore/src/ holds config_tui, trace_tui, tap.rs, main.rs; cli/Cargo.toml free of ratatui/crossterm; Cargo.toml workspace members include grove-explore.",
+    "AC6 dependency isolation is the key architectural win — heavy TUI deps (ratatui/crossterm) no longer bloat the grove CLI binary.",
+    "AC2 backward compatibility: grove config/tap forwarding shims remain one release, each printing the new spelling whether or not grove-explore is present.",
+    "AC5 config ownership: save path re-reads mode+harnesses from on-disk GroveConfig before writing, preventing guest-writer skew; covered by round-trip test.",
+    "AC4 ADR-0002 alignment: mode-gated inert-render path removed as moot; string sweep drops deprecated .grove/explore.json user-facing references.",
+    "Prior AC7 cold-target CI blocker resolved and independently reproduced (grove-explore-bin compiles mid-run; 42/42 CLI suite passes).",
+    "Deployment impact minimal: rides next release train, no migration/regeneration, no security scan; CHANGELOG should name the shim removal release.",
+    "Follow-up: extract the save-path GroveConfig-rebuild invariant into a shared helper so the round-trip test drives the real event_loop Save arm.",
+    "Follow-up: migrate init.rs:136 first-run sentinel off .grove/explore.json to a config.json-based sentinel when explore.json support is dropped.",
+    "Follow-up: schedule deletion of the grove config/tap forwarding shims for the named removal release."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-12T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

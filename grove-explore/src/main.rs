@@ -1,21 +1,20 @@
-//! `grove-explore` — a dedicated MCP server that exposes exactly one tool:
-//! `explore`. Uses stdio JSON-RPC 2.0, identical transport to `grove serve`.
+//! `grove-explore` — dedicated MCP server + TUI verbs for the explore surface.
 //!
-//! Design differences from `grove serve`:
-//! - No Surface enum: the tool surface is fixed (always explore).
-//! - Startup health gate: if config load, explore-section deserialization, or
-//!   the provider health probe fails, the binary exits non-zero immediately.
-//!   It **never** falls back to a standard structural surface.
-//! - Mode gate intentionally omitted: the binary is always in explore mode by
-//!   design — a separate binary expresses that more cleanly than a flag.
-//!
-//! All diagnostics go to stderr; stdout is the MCP protocol channel.
+//! # Subcommands
+//! * `serve [PATH]`              — MCP server (default when no subcommand given)
+//! * `config [PATH]`             — full-screen config TUI
+//! * `tap [PATH] [--no-enable]`  — enable tracing + trace browser
+
+mod config_tui;
+mod tap;
+mod trace_tui;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
-use clap::Parser;
+use anyhow::Result;
+use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
 use grove_core::config::GroveConfig;
@@ -27,25 +26,78 @@ use grove_explore_core::{
 const SERVER_NAME: &str = "grove-explore";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_PROTOCOL: &str = "2025-06-18";
-
 const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
-// ── CLI ──────────────────────────────────────────────────────────────────────
+// ── CLI ───────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "grove-explore", about = "grove MCP server — explore tool only")]
-struct Args {
-    /// Project root (defaults to the current directory).
-    #[arg(default_value = ".")]
-    path: PathBuf,
+#[command(name = "grove-explore", about = "grove explore surface: MCP server + TUI verbs")]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Run as an MCP server over stdio (the explore LLM surface).
+    ///
+    /// This is the default when grove-explore is invoked with no subcommand
+    /// (as registered in `.mcp.json`).
+    Serve {
+        /// Project root (defaults to current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Open the full-screen config TUI to set up (or edit) the explore config.
+    ///
+    /// Requires an interactive terminal. Opens pre-populated when
+    /// `.grove/config.json` already exists with an explore section.
+    Config {
+        /// Project directory (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Enable explore-mode tracing and browse recorded sessions in a TUI.
+    ///
+    /// Records to `.grove/traces/`; no proxy needed.
+    Tap {
+        /// Project directory holding `.grove/` (default: current).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Open the browser without turning tracing on in the config.
+        #[arg(long = "no-enable")]
+        no_enable: bool,
+    },
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-fn main() {
-    let args = Args::parse();
-    let root = args.path.canonicalize().unwrap_or_else(|e| {
-        eprintln!("grove-explore: cannot resolve path '{}': {e}", args.path.display());
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    match cli.cmd.unwrap_or(Cmd::Serve { path: PathBuf::from(".") }) {
+        Cmd::Serve { path } => {
+            serve_main(path);
+            Ok(())
+        }
+        Cmd::Config { path } => {
+            let root = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let grove_cfg = GroveConfig::load(&root).ok();
+            config_tui::run(&root, grove_cfg)?;
+            Ok(())
+        }
+        Cmd::Tap { path, no_enable } => {
+            let root = path.canonicalize().unwrap_or_else(|_| path.clone());
+            tap::run(&root, no_enable)?;
+            Ok(())
+        }
+    }
+}
+
+// ── Serve implementation ──────────────────────────────────────────────────────
+
+fn serve_main(path: PathBuf) {
+    let root = path.canonicalize().unwrap_or_else(|e| {
+        eprintln!("grove-explore: cannot resolve path '{}': {e}", path.display());
         process::exit(1);
     });
 
@@ -67,7 +119,7 @@ fn main() {
         None => {
             eprintln!(
                 "grove-explore: mode is mcp-llm but no explore section found in config; \
-                 run `grove config` or `grove init --as mcp-llm` to configure it"
+                 run `grove-explore config` or `grove init --as mcp-llm` to configure it"
             );
             process::exit(1);
         }
@@ -75,7 +127,7 @@ fn main() {
     let cfg = serde_json::from_value::<ExploreConfig>(explore_val).unwrap_or_else(|e| {
         eprintln!(
             "grove-explore: invalid explore config ({e}); \
-             run `grove config` to fix the explore section in .grove/config.json"
+             run `grove-explore config` to fix the explore section in .grove/config.json"
         );
         process::exit(1);
     });
@@ -304,7 +356,7 @@ fn call_explore_tool(
         Err(ExploreError::ProviderDown { url, detail }) => Outcome::Ok(tool_text(
             &json!(format!(
                 "provider down ({url}): {detail}; \
-                 check the endpoint / run `grove config` / \
+                 check the endpoint / run `grove-explore config` / \
                  restart grove-explore to reconnect"
             )),
             true,

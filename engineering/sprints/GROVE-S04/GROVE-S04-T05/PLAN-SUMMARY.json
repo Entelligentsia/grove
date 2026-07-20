@@ -1,0 +1,19 @@
+{
+  "objective": "Move config_tui, trace_tui, and tap.rs wholesale to grove-explore as grove-explore config/tap subcommands, add forwarding shims in the grove CLI, fix init.rs first-run TUI call, preserve GroveConfig.mode on save, and sweep single-server user strings.",
+  "key_changes": [
+    "New grove-explore/Cargo.toml workspace crate with ratatui+crossterm deps; removes both from cli/Cargo.toml and removes the [[bin]] grove-explore block.",
+    "New grove-explore/src/main.rs dispatches serve/config/tap subcommands; serve becomes explicit (was a positional path arg).",
+    "Move 9 files verbatim from cli/src/{config_tui,trace_tui,tap.rs} to grove-explore/src/; update crate-internal references.",
+    "AC4 removal: drop grove_mode + explore_active from App; remove mode-badge, inert-render guards, and 4 now-trivial unit tests.",
+    "AC5 fix (blocker 2): save path re-reads mode from GroveConfig::load(root) before writing — mirrors harnesses pattern; mode never forced to McpLlm.",
+    "New unit test config_round_trip_preserves_mode_and_harnesses: builds from config.json with mode=mcp, simulates save, asserts mode==Mcp and harnesses preserved.",
+    "AC3 string sweep: tap.rs user strings updated from explore.json/grove-serve to config.json/grove-explore; doc strings updated.",
+    "cli/src/main.rs: remove 3 mod decls; Config and Tap match arms become exec shims printing deprecation note before forwarding.",
+    "cli/src/init.rs fix (blocker 1): replace crate::config_tui::run() with find_explore_binary() exec of grove-explore config; fix stale comment.",
+    "cli/tests/cli.rs: replace CARGO_BIN_EXE_grove-explore with grove_explore_bin() helper; update tap tests to seed/assert config.json.",
+    "5 new integration tests: shim prints new spelling (config+tap), grove-explore config non-TTY fails fast, grove-explore tap enables config.json, init absent grove-explore.",
+    "cargo tree check: ratatui/crossterm absent from grove-cst-cli dep tree; present in grove-explore-bin dep tree (AC6)."
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PLAN.md"
+}

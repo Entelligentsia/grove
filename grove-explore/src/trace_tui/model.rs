@@ -56,7 +56,7 @@ pub struct Call {
     pub turn_blocks: Vec<Turn>,
 }
 
-/// One `grove serve` session.
+/// One `grove-explore` session.
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
@@ -522,7 +522,7 @@ fn session_from_filename(path: &Path) -> Option<Session> {
 }
 
 /// A session is "live" when its file was written very recently (a running
-/// `grove serve` is still appending to it).
+/// `grove-explore` server is still appending to it).
 fn is_live(path: &Path) -> bool {
     let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     match modified {

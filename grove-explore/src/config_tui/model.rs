@@ -1,6 +1,6 @@
 //! Pure data types for the config TUI (Elm-style Model layer).
 
-use grove_core::config::{GroveConfig, Mode};
+use grove_core::config::GroveConfig;
 use grove_explore_core::{DiscoveredEngine, ENGINE_CANDIDATES, ExploreConfig, Provider, Steering};
 
 /// Which field currently holds focus.
@@ -130,12 +130,11 @@ fn provider_for_url(url: &str) -> Provider {
 }
 
 /// The full TUI state.
+///
+/// AC4: `grove_mode` and `explore_active` have been removed — grove-explore is
+/// always in explore mode, so there is no mode-gating or inert-rendering.
 #[derive(Debug, Clone)]
 pub struct App {
-    /// The grove integration mode, read from `GroveConfig` — never mutated by TUI.
-    pub grove_mode: Mode,
-    /// `true` when `grove_mode == Mode::McpLlm`; explore fields are editable only then.
-    pub explore_active: bool,
     /// Locally-detected inference engines (built-in candidates, annotated with
     /// liveness + model lists by the startup probe).
     pub engines: Vec<DiscoveredEngine>,
@@ -153,7 +152,7 @@ pub struct App {
     pub add_tool_buf: String,
     /// Which field is focused.
     pub focus: Field,
-    /// Session tracing to `.grove/traces/` (browse with `grove tap`).
+    /// Session tracing to `.grove/traces/` (browse with `grove-explore tap`).
     pub tap: bool,
     /// Trace-session retention, carried through unchanged (edited via config file).
     pub trace_retain: u32,
@@ -171,30 +170,23 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        App::from_grove_config(GroveConfig {
-            mode: Mode::McpLlm,
-            ..Default::default()
-        })
+        App::from_config(ExploreConfig::default())
     }
 }
 
 impl App {
     /// Construct TUI state from a [`GroveConfig`].
     ///
-    /// Sets `grove_mode` and `explore_active` from the config; populates
-    /// explore fields from `cfg.explore` when present, or uses defaults.
+    /// The explore section is extracted and passed to [`from_config`]; the
+    /// grove mode field is intentionally ignored — grove-explore is always in
+    /// explore mode (AC4).
     pub fn from_grove_config(cfg: GroveConfig) -> Self {
-        let explore_active = cfg.mode == Mode::McpLlm;
-        let grove_mode = cfg.mode;
         // GroveConfig.explore is an opaque Value; deserialize into ExploreConfig,
         // falling back to defaults if absent or if deserialization fails.
         let explore_cfg: ExploreConfig = cfg.explore
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
-        let mut app = App::from_config(explore_cfg);
-        app.grove_mode = grove_mode;
-        app.explore_active = explore_active;
-        app
+        App::from_config(explore_cfg)
     }
 
     /// Pre-populate TUI state from an existing [`ExploreConfig`].
@@ -208,8 +200,6 @@ impl App {
         // Existing tools are shown as selected; no unselected entries from load.
         let tools = cfg.allowed_tools.into_iter().map(|t| (t, true)).collect();
         Self {
-            grove_mode: Mode::McpLlm,
-            explore_active: true,
             engines,
             engine_cursor,
             base_url: cfg.base_url,

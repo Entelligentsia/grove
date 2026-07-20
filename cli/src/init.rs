@@ -130,10 +130,20 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
         return Ok(());
     }
 
-    // First-run TUI: launch the config TUI to create .grove/explore.json when
-    // it doesn't exist yet. Skipped on re-runs (file already there).
+    // First-run TUI: exec grove-explore config to set up .grove/config.json when
+    // the explore section is not yet configured. Skipped on re-runs (explore.json
+    // presence is kept as the guard sentinel for backward-compat).
     if target == Target::McpLlm && !root.join(".grove").join("explore.json").exists() {
-        crate::config_tui::run(root, None)?;
+        let bin = find_explore_binary()
+            .context("locating grove-explore for first-run config setup")?;
+        let status = std::process::Command::new(&bin)
+            .arg("config")
+            .arg(root)
+            .status()
+            .with_context(|| format!("launching {} config", bin.display()))?;
+        if !status.success() {
+            anyhow::bail!("grove-explore config exited with status {:?}", status.code());
+        }
     }
 
     // Reconcile the harness glue to match new_mode, then extend with provisioning

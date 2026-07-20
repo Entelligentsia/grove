@@ -5,11 +5,8 @@
 
 use grove_core::{doctor, ops, registry, fetch, ingest};
 
-mod config_tui;
 mod init;
 mod mcp;
-mod tap;
-mod trace_tui;
 
 use std::path::PathBuf;
 
@@ -170,8 +167,8 @@ enum Cmd {
     Lock,
     /// Open the full-screen config TUI to set up (or edit) the explore config.
     ///
-    /// Requires an interactive terminal. Opens pre-populated when
-    /// `.grove/explore.json` already exists; starts from defaults otherwise.
+    /// Requires an interactive terminal. Forwarded to `grove-explore config`
+    /// (deprecated shim — use `grove-explore config` directly).
     Config {
         /// Project directory (default: current).
         #[arg(default_value = ".")]
@@ -192,8 +189,10 @@ enum Cmd {
         #[arg(long = "standard", hide = true)]
         standard: bool,
     },
-    /// Enable explore-mode tracing and browse recorded sessions in a TUI — a
-    /// debug aid for `--as mcp-llm`. Records to `.grove/traces/`; no proxy.
+    /// Enable explore-mode tracing and browse recorded sessions in a TUI.
+    ///
+    /// Forwarded to `grove-explore tap` (deprecated shim — use
+    /// `grove-explore tap` directly).
     Tap {
         /// Project directory holding `.grove/` (default: current).
         #[arg(default_value = ".")]
@@ -367,9 +366,20 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Config { path } => {
-            // Load existing GroveConfig (mode + explore) if present; defaults otherwise.
-            let grove_cfg = grove_core::config::GroveConfig::load(&path).ok();
-            config_tui::run(&path, grove_cfg)?;
+            // Forwarding shim: deprecated `grove config` → `grove-explore config`.
+            eprintln!("note: `grove config` is deprecated; use `grove-explore config` instead");
+            let bin = find_explore_binary();
+            let status = std::process::Command::new(&bin)
+                .arg("config")
+                .arg(&path)
+                .status();
+            match status {
+                Ok(s) => std::process::exit(s.code().unwrap_or(if s.success() { 0 } else { 1 })),
+                Err(_) => {
+                    eprintln!("`grove-explore` not found — install it or use `grove-explore config` directly");
+                    std::process::exit(1);
+                }
+            }
         }
         Cmd::Init { path, target, agents, dry_run } => init::run(&path, target, agents, dry_run)?,
         Cmd::Fetch { langs, force } => fetch::run(&langs, force)?,
@@ -415,9 +425,39 @@ fn main() -> Result<()> {
             }
             mcp::serve(&path)?;
         }
-        Cmd::Tap { path, no_enable } => tap::run(&path, no_enable)?,
+        Cmd::Tap { path, no_enable } => {
+            // Forwarding shim: deprecated `grove tap` → `grove-explore tap`.
+            eprintln!("note: `grove tap` is deprecated; use `grove-explore tap` instead");
+            let bin = find_explore_binary();
+            let mut cmd = std::process::Command::new(&bin);
+            cmd.arg("tap").arg(&path);
+            if no_enable { cmd.arg("--no-enable"); }
+            let status = cmd.status();
+            match status {
+                Ok(s) => std::process::exit(s.code().unwrap_or(if s.success() { 0 } else { 1 })),
+                Err(_) => {
+                    eprintln!("`grove-explore` not found — install it or use `grove-explore tap` directly");
+                    std::process::exit(1);
+                }
+            }
+        }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Locate the `grove-explore` binary as a sibling of the running `grove` binary.
+/// Falls back to the plain name `"grove-explore"` (PATH lookup) when the binary
+/// cannot be found as a sibling — e.g. when running from cargo's test harness
+/// without sibling placement.
+fn find_explore_binary() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("grove-explore")))
+        .unwrap_or_else(|| std::path::PathBuf::from("grove-explore"))
 }
 
 // ---------------------------------------------------------------------------

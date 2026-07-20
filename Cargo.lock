@@ -658,15 +658,27 @@ version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
- "crossterm",
  "dirs",
+ "grove-cst",
+ "grove-explore-core",
+ "serde",
+ "serde_json",
+ "toml_edit",
+ "which",
+]
+
+[[package]]
+name = "grove-explore-bin"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm",
  "grove-cst",
  "grove-explore-core",
  "ratatui",
  "serde",
  "serde_json",
- "toml_edit",
- "which",
 ]
 
 [[package]]

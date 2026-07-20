@@ -1,7 +1,7 @@
-//! Full-screen ratatui trace browser (`grove tap`) — entry point + event loop.
+//! Full-screen ratatui trace browser (`grove-explore tap`) — entry point + event loop.
 //!
 //! Drills through recorded explore sessions: session list → call list → per-call
-//! turn detail. Reloads from `.grove/traces/` on a tick so a live `grove serve`
+//! turn detail. Reloads from `.grove/traces/` on a tick so a live `grove-explore`
 //! session streams in. Structured like `config_tui` (model/update/view/mod).
 
 pub mod model;
@@ -26,7 +26,7 @@ use model::{Action, App, Msg};
 pub fn run(root: &Path) -> Result<()> {
     if !io::stdout().is_terminal() {
         anyhow::bail!(
-            "`grove tap` requires an interactive terminal — pipe/redirect detected. \
+            "`grove-explore tap` requires an interactive terminal — pipe/redirect detected. \
              Run it in a real terminal session."
         );
     }

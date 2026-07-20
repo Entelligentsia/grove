@@ -1,0 +1,21 @@
+[package]
+name = "grove-explore-bin"
+version = "0.4.1"
+edition = "2021"
+description = "grove-explore MCP server + TUI verbs (config, tap)"
+license = "MIT"
+repository = "https://github.com/Entelligentsia/grove"
+
+[[bin]]
+name = "grove-explore"
+path = "src/main.rs"
+
+[dependencies]
+grove-cst          = { path = "../core",    version = "=0.4.1" }
+grove-explore-core = { path = "../explore", version = "=0.4.1" }
+clap               = { version = "4", features = ["derive"] }
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+anyhow             = "1"
+ratatui            = "0.29"
+crossterm          = "0.28"

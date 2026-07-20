@@ -64,7 +64,7 @@ fn render_sessions(app: &App, frame: &mut Frame, area: Rect) {
     };
 
     let list = List::new(items)
-        .block(titled(" grove tap — trace sessions "))
+        .block(titled(" grove-explore tap — trace sessions "))
         .highlight_style(Style::default().fg(FOCUSED).add_modifier(Modifier::BOLD))
         .highlight_symbol("▸ ");
     let mut state = ListState::default();

@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "explore", "cli"]
+members = ["core", "explore", "cli", "grove-explore"]
 resolver = "2"
 
 # Slim, self-contained release binaries for distribution.
