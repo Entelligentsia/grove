@@ -1,0 +1,17 @@
+{
+  "objective": "Reviewed the mcp-llm=register-both plan for correctness, completeness, and resolution of prior REQUIRED items.",
+  "key_changes": [
+    "Plan revised to repurpose write_mcp_json_explore as write_json_mcp_explore_server, eliminating dead_code lint (AC7)",
+    "assert_mcp_json_consistent now checks grove-explore absence in non-McpLlm branches (AC4)",
+    "Both REQUIRED items from prior review are resolved"
+  ],
+  "findings": [
+    "ADR 0002 single-writer invariant preserved via second loop inside reconcile_harness_for",
+    "Forward migration converges pre-split projects on first run via overwrite semantics",
+    "Dual-surface steering is locator-framed with recommended flow per memory note",
+    "Host content preservation test extended to verify grove-explore strip"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T10:22:00.000Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

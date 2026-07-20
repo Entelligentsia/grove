@@ -1,0 +1,15 @@
+{
+  "objective": "Re-key Mode::McpLlm to both-servers: grove init --as mcp-llm registers structural grove + grove-explore, writes dual-surface steering, migrates pre-split projects.",
+  "key_changes": [
+    "core/src/harness.rs: add EXPLORE_SERVER_KEY; fix expected_mcp_args(McpLlm)→[serve]; add expected_explore_args; update expected_claude_marker(McpLlm); unit tests",
+    "cli/src/init.rs: add find_explore_binary(), write_json_mcp_explore_server(), strip_json_mcp_explore_server(), write_toml_mcp_explore_server(), strip_toml_mcp_explore_server()",
+    "cli/src/init.rs: add write_explore_harness_registration(), strip_explore_harness_registration(); second reconcile loop in reconcile_harness_for (AC2)",
+    "cli/src/init.rs: rewrite claude_section(McpLlm) + agents_section(McpLlm) with dual-surface steering naming both servers",
+    "cli/src/init.rs: delete dead write_mcp_json_explore (AC7); update assert_mcp_json_consistent all 3 branches (AC4)",
+    "cli/src/init.rs: add forward-migration test 4h (AC3); update host-content test 4i; rename 4d/4e; update reconcile_mcp_llm test (len=4)",
+    "cli/tests/cli.rs: update mcp-llm integration tests for both-servers layout and dry-run grove-explore mention",
+    "core/src/doctor.rs: add write_explore_mcp_json; update seed_harness_for_mode(McpLlm) and drift fixtures"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-20T11:40:00.000Z"
+}

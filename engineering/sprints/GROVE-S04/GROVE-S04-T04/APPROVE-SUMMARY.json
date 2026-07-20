@@ -1,0 +1,16 @@
+{
+  "objective": "Architectural review and approval of mcp-llm both-servers re-keying implementation",
+  "key_changes": [
+    "Harness shape constants (EXPLORE_SERVER_KEY, expected_explore_args, expected_claude_marker) define second-server contract correctly",
+    "Second reconcile loop (lines 334-345) writes/strips grove-explore without duplicating first loop structure",
+    "Dual-surface steering is locator-framed with recommended flow, satisfying memory note about outer-agent bypass",
+    "ADR 0002 single-writer invariant intact — all writes flow through reconcile_harness_for",
+    "Forward migration converges pre-split layouts on first init run",
+    "Host content preservation verified — only grove-owned entries touched",
+    "Unix-only find_explore_binary() documented; Windows support deferred",
+    "No new crates or dependencies; clean test suite and clippy"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T10:55:00.000Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

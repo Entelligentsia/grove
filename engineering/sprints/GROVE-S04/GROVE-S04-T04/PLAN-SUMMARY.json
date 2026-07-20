@@ -1,0 +1,20 @@
+{
+  "objective": "Re-key Mode::McpLlm to register both grove-serve and grove-explore in every harness, write dual-surface steering, migrate pre-split projects, and fix two REQUIRED review defects.",
+  "key_changes": [
+    "core/src/harness.rs: add EXPLORE_SERVER_KEY, fix expected_mcp_args(McpLlm)→[serve], add expected_explore_args, update expected_claude_marker(McpLlm)",
+    "cli/src/init.rs: rename write_mcp_json_explore → write_json_mcp_explore_server (repurpose body; eliminates dead_code lint, fixes AC7)",
+    "cli/src/init.rs: add find_explore_binary() helper (sibling of current_exe, Unix-only scope for T04)",
+    "cli/src/init.rs: add write/strip JSON helpers for grove-explore entry under EXPLORE_SERVER_KEY",
+    "cli/src/init.rs: add write/strip TOML helpers for grove-explore entry (Codex harness)",
+    "cli/src/init.rs: add write_explore_harness_registration / strip_explore_harness_registration dispatch wrappers",
+    "cli/src/init.rs: extend reconcile_harness_for with second loop for explore-server; strip half removes grove-explore on mode transitions",
+    "cli/src/init.rs: rewrite claude_section(McpLlm) with dual-surface steering naming both mcp__grove__* and mcp__grove-explore__explore",
+    "cli/src/init.rs: update ALL three assert_mcp_json_consistent branches — McpLlm checks grove==[serve]+grove-explore present; Mcp/Both/Skill/Grammars assert grove-explore absent (fixes AC4/AC2 gap)",
+    "cli/src/init.rs: rename test fns 4d/4e, add forward-migration test 4h, update host-content test 4i to seed+strip grove-explore",
+    "cli/tests/cli.rs: update mcp-llm integration tests to assert both-servers layout and dual-surface steering markers",
+    "core/src/doctor.rs: update seed_harness_for_mode(McpLlm) and drift fixtures; add write_explore_mcp_json helper"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-20T04:20:00.000Z",
+  "artifact_ref": "PLAN.md"
+}

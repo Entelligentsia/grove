@@ -1,0 +1,121 @@
+{
+  "taskId": "GROVE-S04-T04",
+  "sprintId": "GROVE-S04",
+  "title": "mcp-llm = register-both — reconcile_harness both-servers column, forward migration, extended transition-matrix",
+  "status": "approved",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T04",
+  "estimate": "L",
+  "dependencies": [
+    "GROVE-S04-T02",
+    "GROVE-S04-T03"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Re-key Mode::McpLlm to register both grove-serve and grove-explore in every harness, write dual-surface steering, migrate pre-split projects, and fix two REQUIRED review defects.",
+      "key_changes": [
+        "core/src/harness.rs: add EXPLORE_SERVER_KEY, fix expected_mcp_args(McpLlm)→[serve], add expected_explore_args, update expected_claude_marker(McpLlm)",
+        "cli/src/init.rs: rename write_mcp_json_explore → write_json_mcp_explore_server (repurpose body; eliminates dead_code lint, fixes AC7)",
+        "cli/src/init.rs: add find_explore_binary() helper (sibling of current_exe, Unix-only scope for T04)",
+        "cli/src/init.rs: add write/strip JSON helpers for grove-explore entry under EXPLORE_SERVER_KEY",
+        "cli/src/init.rs: add write/strip TOML helpers for grove-explore entry (Codex harness)",
+        "cli/src/init.rs: add write_explore_harness_registration / strip_explore_harness_registration dispatch wrappers",
+        "cli/src/init.rs: extend reconcile_harness_for with second loop for explore-server; strip half removes grove-explore on mode transitions",
+        "cli/src/init.rs: rewrite claude_section(McpLlm) with dual-surface steering naming both mcp__grove__* and mcp__grove-explore__explore",
+        "cli/src/init.rs: update ALL three assert_mcp_json_consistent branches — McpLlm checks grove==[serve]+grove-explore present; Mcp/Both/Skill/Grammars assert grove-explore absent (fixes AC4/AC2 gap)",
+        "cli/src/init.rs: rename test fns 4d/4e, add forward-migration test 4h, update host-content test 4i to seed+strip grove-explore",
+        "cli/tests/cli.rs: update mcp-llm integration tests to assert both-servers layout and dual-surface steering markers",
+        "core/src/doctor.rs: update seed_harness_for_mode(McpLlm) and drift fixtures; add write_explore_mcp_json helper"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-20T04:20:00.000Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Reviewed the mcp-llm=register-both plan for correctness, completeness, and resolution of prior REQUIRED items.",
+      "key_changes": [
+        "Plan revised to repurpose write_mcp_json_explore as write_json_mcp_explore_server, eliminating dead_code lint (AC7)",
+        "assert_mcp_json_consistent now checks grove-explore absence in non-McpLlm branches (AC4)",
+        "Both REQUIRED items from prior review are resolved"
+      ],
+      "findings": [
+        "ADR 0002 single-writer invariant preserved via second loop inside reconcile_harness_for",
+        "Forward migration converges pre-split projects on first run via overwrite semantics",
+        "Dual-surface steering is locator-framed with recommended flow per memory note",
+        "Host content preservation test extended to verify grove-explore strip"
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T10:22:00.000Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Re-key Mode::McpLlm to both-servers: grove init --as mcp-llm registers structural grove + grove-explore, writes dual-surface steering, migrates pre-split projects.",
+      "key_changes": [
+        "core/src/harness.rs: add EXPLORE_SERVER_KEY; fix expected_mcp_args(McpLlm)→[serve]; add expected_explore_args; update expected_claude_marker(McpLlm); unit tests",
+        "cli/src/init.rs: add find_explore_binary(), write_json_mcp_explore_server(), strip_json_mcp_explore_server(), write_toml_mcp_explore_server(), strip_toml_mcp_explore_server()",
+        "cli/src/init.rs: add write_explore_harness_registration(), strip_explore_harness_registration(); second reconcile loop in reconcile_harness_for (AC2)",
+        "cli/src/init.rs: rewrite claude_section(McpLlm) + agents_section(McpLlm) with dual-surface steering naming both servers",
+        "cli/src/init.rs: delete dead write_mcp_json_explore (AC7); update assert_mcp_json_consistent all 3 branches (AC4)",
+        "cli/src/init.rs: add forward-migration test 4h (AC3); update host-content test 4i; rename 4d/4e; update reconcile_mcp_llm test (len=4)",
+        "cli/tests/cli.rs: update mcp-llm integration tests for both-servers layout and dry-run grove-explore mention",
+        "core/src/doctor.rs: add write_explore_mcp_json; update seed_harness_for_mode(McpLlm) and drift fixtures"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-20T11:40:00.000Z"
+    },
+    "code_review": {
+      "objective": "Verify Mode::McpLlm re-keying to both-servers layout with dual steering, forward migration, and transition-matrix coverage",
+      "key_changes": [
+        "EXPLORE_SERVER_KEY added and expected_mcp_args/expected_explore_args/expected_claude_marker updated per plan",
+        "write_json_mcp_explore_server, strip_json_mcp_explore_server, write/strip_toml_mcp_explore_server helpers added",
+        "Second reconcile loop (lines 334-345) writes/strips grove-explore for all harnesses — AC2 satisfied",
+        "claude_section(McpLlm) and agents_section(McpLlm) rewritten with dual-surface steering naming both servers",
+        "assert_mcp_json_consistent updated for all three branches including grove-explore strip — AC4 satisfied",
+        "Forward migration test confirms pre-split layouts converge — AC3 satisfied",
+        "Host-content test seeds and verifies both grove and grove-explore strip — AC6 satisfied",
+        "write_mcp_json_explore deleted (no grep hits) — AC7 satisfied",
+        "doctor.rs: write_explore_mcp_json helper added; seed_harness_for_mode(McpLlm) updated",
+        "37 CLI + 54 core tests pass; clippy clean; build clean"
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T10:38:48.433Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate mcp-llm both-servers registration, forward migration, and transition-matrix coverage",
+      "key_changes": [
+        "AC1-7 all pass: both servers registered, forward migration test, matrix coverage complete",
+        "92 tests pass (cargo test --release --locked), clippy clean",
+        "No dead_code from removed write_mcp_json_explore"
+      ],
+      "findings": [
+        "AC1 PASS: EXPLORE_SERVER_KEY + expected_explore_args + dual steering with mcp__grove-explore__explore marker",
+        "AC2 PASS: Single reconcile_harness_for writer with strip_explore_harness_registration for mode transitions",
+        "AC3 PASS: mcp_llm_forward_migration_converges_single_to_two_registrations test passes",
+        "AC4 PASS: assert_mcp_json_consistent validates grove-explore presence/absence for all modes",
+        "AC5 PASS: Mode enum unchanged, no modes added or removed",
+        "AC6 PASS: Host content preservation test passes, only grove-authored blocks modified",
+        "AC7 PASS: 92 tests pass, clippy clean, no dead_code warnings"
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T16:11:30+05:30",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural review and approval of mcp-llm both-servers re-keying implementation",
+      "key_changes": [
+        "Harness shape constants (EXPLORE_SERVER_KEY, expected_explore_args, expected_claude_marker) define second-server contract correctly",
+        "Second reconcile loop (lines 334-345) writes/strips grove-explore without duplicating first loop structure",
+        "Dual-surface steering is locator-framed with recommended flow, satisfying memory note about outer-agent bypass",
+        "ADR 0002 single-writer invariant intact — all writes flow through reconcile_harness_for",
+        "Forward migration converges pre-split layouts on first init run",
+        "Host content preservation verified — only grove-owned entries touched",
+        "Unix-only find_explore_binary() documented; Windows support deferred",
+        "No new crates or dependencies; clean test suite and clippy"
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T10:55:00.000Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

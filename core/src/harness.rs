@@ -21,12 +21,16 @@ pub const GROVE_START: &str = "<!-- grove:start -->";
 /// Closing sentinel for the grove steering block.
 pub const GROVE_END: &str = "<!-- grove:end -->";
 
-// ── MCP server registry key ───────────────────────────────────────────────
+// ── MCP server registry keys ─────────────────────────────────────────────
 
 /// The key grove registers itself under in `.mcp.json`.  Claude Code
 /// namespaces MCP tools as `mcp__<key>__<tool>`, so this string also
 /// determines the tool-name prefix the steering directive uses.
 pub const MCP_SERVER_KEY: &str = "grove";
+
+/// The key the `grove-explore` server registers under in `.mcp.json` when
+/// `Mode::McpLlm` is active. Yields the `mcp__grove-explore__` tool prefix.
+pub const EXPLORE_SERVER_KEY: &str = "grove-explore";
 
 // ── Harness adapters ──────────────────────────────────────────────────────
 //
@@ -266,9 +270,19 @@ impl<'de> Deserialize<'de> for HarnessId {
 /// **no** grove MCP entry.
 pub fn expected_mcp_args(mode: Mode) -> Option<&'static [&'static str]> {
     match mode {
-        Mode::Mcp | Mode::Both => Some(&["serve"]),
-        Mode::McpLlm => Some(&["serve", "--explore"]),
+        Mode::Mcp | Mode::Both | Mode::McpLlm => Some(&["serve"]),
         Mode::Skill | Mode::Grammars => None,
+    }
+}
+
+/// The `args` array that `grove-explore` should register under
+/// [`EXPLORE_SERVER_KEY`] for `mode`. Returns `Some(&[])` only for
+/// `McpLlm` (the binary takes no args); `None` for every other mode,
+/// meaning the explore-server entry must be absent / stripped.
+pub fn expected_explore_args(mode: Mode) -> Option<&'static [&'static str]> {
+    match mode {
+        Mode::McpLlm => Some(&[]),
+        _ => None,
     }
 }
 
@@ -277,7 +291,7 @@ pub fn expected_mcp_args(mode: Mode) -> Option<&'static [&'static str]> {
 /// block must be **absent**.
 pub fn expected_claude_marker(mode: Mode) -> Option<&'static str> {
     match mode {
-        Mode::McpLlm => Some("mcp__grove__explore"),
+        Mode::McpLlm => Some("mcp__grove-explore__explore"),
         Mode::Mcp | Mode::Both => Some("mcp__grove__outline"),
         Mode::Skill => Some("grove skill"),
         Mode::Grammars => None,
@@ -307,19 +321,29 @@ mod tests {
     fn expected_mcp_args_coverage() {
         assert_eq!(expected_mcp_args(Mode::Mcp), Some(["serve"].as_slice()));
         assert_eq!(expected_mcp_args(Mode::Both), Some(["serve"].as_slice()));
-        assert_eq!(
-            expected_mcp_args(Mode::McpLlm),
-            Some(["serve", "--explore"].as_slice())
-        );
+        // McpLlm: structural grove server takes same args as Mcp/Both; the
+        // explore server is tracked separately via expected_explore_args.
+        assert_eq!(expected_mcp_args(Mode::McpLlm), Some(["serve"].as_slice()));
         assert_eq!(expected_mcp_args(Mode::Skill), None);
         assert_eq!(expected_mcp_args(Mode::Grammars), None);
     }
 
     #[test]
+    fn expected_explore_args_coverage() {
+        // Only McpLlm registers the explore server (no-arg binary).
+        assert_eq!(expected_explore_args(Mode::McpLlm), Some([].as_slice()));
+        assert_eq!(expected_explore_args(Mode::Mcp), None);
+        assert_eq!(expected_explore_args(Mode::Both), None);
+        assert_eq!(expected_explore_args(Mode::Skill), None);
+        assert_eq!(expected_explore_args(Mode::Grammars), None);
+    }
+
+    #[test]
     fn expected_claude_marker_coverage() {
+        // McpLlm: marker is the explore tool in the grove-explore server.
         assert_eq!(
             expected_claude_marker(Mode::McpLlm),
-            Some("mcp__grove__explore")
+            Some("mcp__grove-explore__explore")
         );
         assert_eq!(
             expected_claude_marker(Mode::Mcp),

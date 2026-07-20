@@ -840,6 +840,21 @@ mod tests {
         .unwrap();
     }
 
+    /// Seed a `.mcp.json` that includes both the `grove` structural entry AND the
+    /// `grove-explore` explore-server entry, reflecting the dual-server McpLlm layout.
+    fn write_explore_mcp_json(dir: &Path) {
+        let exe = std::env::current_exe().unwrap();
+        let exe_path = exe.display();
+        // grove entry: args ["serve"]; grove-explore entry: args []
+        fs::write(
+            dir.join(".mcp.json"),
+            format!(
+                r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":["serve"]}},"grove-explore":{{"command":"{exe_path}","args":[]}}}}}}"#
+            ),
+        )
+        .unwrap();
+    }
+
     fn write_claude_md(dir: &Path, marker: &str) {
         fs::write(
             dir.join("CLAUDE.md"),
@@ -897,8 +912,10 @@ mod tests {
                 write_agents_md(dir);
             }
             Mode::McpLlm => {
-                write_mcp_json(dir, &["serve", "--explore"]);
-                write_claude_md(dir, "mcp__grove__explore");
+                // Both servers: structural grove + grove-explore explore server.
+                write_explore_mcp_json(dir);
+                // CLAUDE.md marker is now in the grove-explore server namespace.
+                write_claude_md(dir, "mcp__grove-explore__explore");
                 write_agents_md(dir);
             }
             Mode::Skill => {
@@ -1037,8 +1054,9 @@ mod tests {
     fn mcp_llm_mode_without_agents_md_is_warn() {
         let dir = tmp("drift_agents_md");
         write_config(&dir, "mcp-llm");
-        write_mcp_json(dir.as_path(), &["serve", "--explore"]);
-        write_claude_md(&dir, "mcp__grove__explore");
+        // Dual-server layout: grove with ["serve"], grove-explore with [].
+        write_explore_mcp_json(dir.as_path());
+        write_claude_md(&dir, "mcp__grove-explore__explore");
         // AGENTS.md intentionally absent
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1104,10 +1122,11 @@ mod tests {
     #[test]
     fn explore_config_absent_is_fail() {
         let dir = tmp("explore_absent");
-        // mcp-llm mode but no explore section in config
+        // mcp-llm mode but no explore section in config.
+        // Use the dual-server layout that init now produces.
         write_config(&dir, "mcp-llm");
-        write_mcp_json(&dir, &["serve", "--explore"]);
-        write_claude_md(&dir, "mcp__grove__explore");
+        write_explore_mcp_json(&dir);
+        write_claude_md(&dir, "mcp__grove-explore__explore");
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);

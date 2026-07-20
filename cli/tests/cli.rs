@@ -807,6 +807,11 @@ fn mcp_llm_dry_run_output_shape() {
     assert!(text.contains("mcp.json"), "dry-run prints .mcp.json: {text}");
     assert!(text.contains("CLAUDE.md"), "dry-run prints CLAUDE.md: {text}");
     assert!(text.contains("AGENTS.md"), "dry-run prints AGENTS.md: {text}");
+    // McpLlm registers two servers — dry-run must mention grove-explore registration.
+    assert!(
+        text.contains("grove-explore"),
+        "dry-run output must mention grove-explore registration: {text}"
+    );
     // No files written.
     assert!(!proj.join(".mcp.json").exists(), "dry-run writes no .mcp.json");
     assert!(!proj.join("CLAUDE.md").exists(), "dry-run writes no CLAUDE.md");
@@ -854,6 +859,23 @@ fn mcp_llm_steering_block_idempotency() {
     assert_eq!(claude.matches("<!-- grove:end -->").count(), 1);
     assert_eq!(agents.matches("<!-- grove:start -->").count(), 1, "AGENTS.md: exactly 1 grove block");
     assert_eq!(agents.matches("<!-- grove:end -->").count(), 1);
+
+    // .mcp.json must have BOTH grove (structural) and grove-explore entries.
+    let mcp_json_path = proj.join(".mcp.json");
+    assert!(mcp_json_path.exists(), ".mcp.json must exist after idempotent init");
+    let mcp: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&mcp_json_path).unwrap(),
+    )
+    .expect(".mcp.json must be valid JSON");
+    assert_eq!(
+        mcp["mcpServers"]["grove"]["args"],
+        serde_json::json!(["serve"]),
+        "grove entry must have args [serve]"
+    );
+    assert!(
+        !mcp["mcpServers"]["grove-explore"].is_null(),
+        "grove-explore entry must be present after idempotent init"
+    );
 
     std::fs::remove_dir_all(&base).ok();
 }
@@ -1058,7 +1080,7 @@ fn mcp_llm_dry_run_twice_is_stable() {
 
 /// GROVE-S02-T07 (AC1b): after two real `grove init --as mcp-llm` invocations
 /// the resulting `.mcp.json` contains exactly one `"grove"` key under
-/// `mcpServers` with `args: ["serve", "--explore"]`.
+/// `mcpServers` with `args: ["serve"]` and exactly one `"grove-explore"` key.
 #[test]
 fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
     let (base, cache, proj) = mcp_llm_setup("mcp_json_dedup");
@@ -1096,6 +1118,8 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
     let servers = mcp["mcpServers"]
         .as_object()
         .expect("mcpServers must be an object");
+
+    // Exactly one "grove" key with args == ["serve"].
     let grove_count = servers.keys().filter(|k| *k == "grove").count();
     assert_eq!(grove_count, 1, "expected exactly 1 'grove' key, found {grove_count}");
 
@@ -1105,7 +1129,15 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
     let arg_strs: Vec<&str> = args.iter()
         .map(|v| v.as_str().expect("arg must be string"))
         .collect();
-    assert_eq!(arg_strs, vec!["serve", "--explore"], "grove args must be [serve, --explore]");
+    assert_eq!(arg_strs, vec!["serve"], "grove args must be [serve]");
+
+    // Exactly one "grove-explore" key.
+    let explore_count = servers.keys().filter(|k| *k == "grove-explore").count();
+    assert_eq!(explore_count, 1, "expected exactly 1 'grove-explore' key, found {explore_count}");
+    assert!(
+        !mcp["mcpServers"]["grove-explore"].is_null(),
+        "grove-explore entry must be present"
+    );
 
     std::fs::remove_dir_all(&base).ok();
 }

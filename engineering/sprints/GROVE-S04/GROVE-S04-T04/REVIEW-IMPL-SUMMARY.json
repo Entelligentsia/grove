@@ -1,0 +1,18 @@
+{
+  "objective": "Verify Mode::McpLlm re-keying to both-servers layout with dual steering, forward migration, and transition-matrix coverage",
+  "key_changes": [
+    "EXPLORE_SERVER_KEY added and expected_mcp_args/expected_explore_args/expected_claude_marker updated per plan",
+    "write_json_mcp_explore_server, strip_json_mcp_explore_server, write/strip_toml_mcp_explore_server helpers added",
+    "Second reconcile loop (lines 334-345) writes/strips grove-explore for all harnesses — AC2 satisfied",
+    "claude_section(McpLlm) and agents_section(McpLlm) rewritten with dual-surface steering naming both servers",
+    "assert_mcp_json_consistent updated for all three branches including grove-explore strip — AC4 satisfied",
+    "Forward migration test confirms pre-split layouts converge — AC3 satisfied",
+    "Host-content test seeds and verifies both grove and grove-explore strip — AC6 satisfied",
+    "write_mcp_json_explore deleted (no grep hits) — AC7 satisfied",
+    "doctor.rs: write_explore_mcp_json helper added; seed_harness_for_mode(McpLlm) updated",
+    "37 CLI + 54 core tests pass; clippy clean; build clean"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T11:50:00.000Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

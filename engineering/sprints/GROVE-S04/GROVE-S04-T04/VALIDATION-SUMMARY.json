@@ -1,0 +1,20 @@
+{
+  "objective": "Validate mcp-llm both-servers registration, forward migration, and transition-matrix coverage",
+  "key_changes": [
+    "AC1-7 all pass: both servers registered, forward migration test, matrix coverage complete",
+    "92 tests pass (cargo test --release --locked), clippy clean",
+    "No dead_code from removed write_mcp_json_explore"
+  ],
+  "findings": [
+    "AC1 PASS: EXPLORE_SERVER_KEY + expected_explore_args + dual steering with mcp__grove-explore__explore marker",
+    "AC2 PASS: Single reconcile_harness_for writer with strip_explore_harness_registration for mode transitions",
+    "AC3 PASS: mcp_llm_forward_migration_converges_single_to_two_registrations test passes",
+    "AC4 PASS: assert_mcp_json_consistent validates grove-explore presence/absence for all modes",
+    "AC5 PASS: Mode enum unchanged, no modes added or removed",
+    "AC6 PASS: Host content preservation test passes, only grove-authored blocks modified",
+    "AC7 PASS: 92 tests pass, clippy clean, no dead_code warnings"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T16:11:30+05:30",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

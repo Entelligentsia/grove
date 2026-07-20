@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use grove_core::config::{GroveConfig, Mode};
 use grove_core::harness::{
     self, GROVE_START as CLAUDE_START, GROVE_END as CLAUDE_END, HarnessId, McpFormat, Scope,
-    MCP_SERVER_KEY,
+    MCP_SERVER_KEY, EXPLORE_SERVER_KEY,
 };
 use grove_core::init::provision_project;
 use grove_core::registry;
@@ -165,10 +165,10 @@ pub fn run(root: &Path, target: Target, agents: Option<String>, dry_run: bool) -
         println!("             ✓ {w}");
     }
     if target == Target::McpLlm {
-        println!("\n  ready      `mcp__grove__explore` is your single code-exploration surface.");
-        println!("             While the local model is healthy, all code questions route there.");
-        println!("             If the provider goes down, grove auto-surfaces the 7 structural");
-        println!("             tools (outline · symbols · source · callers · map · definition · check).");
+        println!("\n  ready      two surfaces registered:");
+        println!("             mcp__grove__*          — 7 structural tools (byte-precise, token-cheap)");
+        println!("             mcp__grove-explore__explore — LLM-backed code locator (file:line citations)");
+        println!("\n             Use explore for broad 'where is X' questions, then grove for precision.");
     } else if target.writes_mcp() {
         println!("\n  ready      your agent now has grove's tools across its loop:");
         println!("             outline · symbols · source · callers · map · definition · check");
@@ -289,6 +289,13 @@ fn harness_targets(root: &Path, home: &Path, mode: Mode, harnesses: &[HarnessId]
             out.push(format!("{} — {} registration{scope}", display_path(root, &path), h.display_name()));
         }
     }
+    // Explore-server preview: one line per harness when McpLlm is active.
+    if harness::expected_explore_args(mode).is_some() {
+        for &h in harnesses {
+            let path = h.mcp_config_path_in(root, Some(home));
+            out.push(format!("{} — {} grove-explore registration", display_path(root, &path), h.display_name()));
+        }
+    }
     if harnesses.contains(&HarnessId::ClaudeCode) && mode != Mode::Grammars {
         out.push("CLAUDE.md — steering".to_string());
     }
@@ -321,6 +328,19 @@ fn reconcile_harness_for(
             wrote.push(write_harness_registration(root, &path, h, new_mode)?);
         } else {
             strip_harness_registration(&path, h)?;
+        }
+    }
+
+    // ── grove-explore registration (McpLlm only) ─────────────────────────────
+    // Second loop: write or strip the grove-explore server entry for every known
+    // harness. This ensures that transitions away from McpLlm (e.g. McpLlm→Mcp)
+    // remove the explore entry from every harness's registration file.
+    let wants_explore = harness::expected_explore_args(new_mode).is_some();
+    for &h in HarnessId::ALL {
+        if wants_explore && harnesses.contains(&h) {
+            wrote.push(write_explore_harness_registration(root, home, h)?);
+        } else {
+            strip_explore_harness_registration(root, home, h)?;
         }
     }
 
@@ -572,6 +592,160 @@ fn strip_toml_mcp(path: &Path, table: &str) -> Result<()> {
     Ok(())
 }
 
+/// Locate the `grove-explore` binary as a sibling of the running `grove` binary.
+/// Unix-only scope for T04: no `.exe` suffix is added.
+fn find_explore_binary() -> Result<std::path::PathBuf> {
+    let grove = std::env::current_exe().context("locating grove binary")?;
+    let dir = grove.parent().context("grove binary has no parent dir")?;
+    Ok(dir.join("grove-explore"))
+}
+
+/// Add (or refresh) the `grove-explore` server entry in a JSON MCP config at
+/// `path`, under `root_key`/[`EXPLORE_SERVER_KEY`]. The binary is located via
+/// [`find_explore_binary`] and takes no args. Preserves any other servers. Creates
+/// parent directories. When `needs_type_stdio`, adds `"type": "stdio"`.
+fn write_json_mcp_explore_server(
+    path: &Path,
+    root_key: &str,
+    needs_type_stdio: bool,
+) -> Result<()> {
+    let mut doc: Value = match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text)
+            .with_context(|| format!("{} is not valid JSON", path.display()))?,
+        Err(_) => json!({}),
+    };
+    if !doc.is_object() {
+        doc = json!({});
+    }
+    let exe = find_explore_binary()?;
+    let mut entry = json!({ "command": exe.to_string_lossy(), "args": [] });
+    if needs_type_stdio {
+        entry["type"] = json!("stdio");
+    }
+    doc[root_key][EXPLORE_SERVER_KEY] = entry;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+    }
+    std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Remove the `grove-explore` server entry from a JSON MCP config at `path`,
+/// under `root_key`. No-op when the file is absent, has no such object, or has
+/// no `grove-explore` entry. Errors on malformed JSON.
+fn strip_json_mcp_explore_server(path: &Path, root_key: &str) -> Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return Ok(()), // file absent — no-op
+    };
+    let mut doc: Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+    if doc.get(root_key).and_then(|s| s.get(EXPLORE_SERVER_KEY)).is_none() {
+        return Ok(()); // no grove-explore entry — no-op
+    }
+    if let Some(servers) = doc.get_mut(root_key).and_then(|v| v.as_object_mut()) {
+        servers.remove(EXPLORE_SERVER_KEY);
+    }
+    std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Add (or refresh) the `grove-explore` server table in a TOML MCP config at
+/// `path`, under `[<table>.grove-explore]`. The binary is located via
+/// [`find_explore_binary`] and takes no args. Preserves every other table.
+fn write_toml_mcp_explore_server(path: &Path, table: &str) -> Result<()> {
+    use toml_edit::{Array, DocumentMut, Item, Table};
+    let mut doc: DocumentMut = match std::fs::read_to_string(path) {
+        Ok(text) => text
+            .parse()
+            .with_context(|| format!("{} is not valid TOML", path.display()))?,
+        Err(_) => DocumentMut::new(),
+    };
+    let exe = find_explore_binary()?;
+    if doc.get(table).and_then(|i| i.as_table()).is_none() {
+        let mut t = Table::new();
+        t.set_implicit(true);
+        doc[table] = Item::Table(t);
+    }
+    let servers = doc[table]
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("{}: `{}` is not a table", path.display(), table))?;
+    let mut explore = Table::new();
+    explore["command"] = toml_edit::value(exe.to_string_lossy().into_owned());
+    explore["args"] = toml_edit::value(Array::new());
+    servers[EXPLORE_SERVER_KEY] = Item::Table(explore);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+    }
+    std::fs::write(path, doc.to_string())
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Remove the `grove-explore` server table from a TOML MCP config at `path`,
+/// under `[<table>.grove-explore]`. No-op when the file is absent or has no
+/// `grove-explore` table. Errors on malformed TOML.
+fn strip_toml_mcp_explore_server(path: &Path, table: &str) -> Result<()> {
+    use toml_edit::DocumentMut;
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return Ok(()), // file absent — no-op
+    };
+    let mut doc: DocumentMut = text
+        .parse()
+        .with_context(|| format!("{} is not valid TOML", path.display()))?;
+    let had = doc
+        .get(table)
+        .and_then(|i| i.as_table())
+        .map(|t| t.contains_key(EXPLORE_SERVER_KEY))
+        .unwrap_or(false);
+    if !had {
+        return Ok(()); // no grove-explore table — no-op
+    }
+    if let Some(servers) = doc.get_mut(table).and_then(|i| i.as_table_mut()) {
+        servers.remove(EXPLORE_SERVER_KEY);
+    }
+    std::fs::write(path, doc.to_string())
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Write (or refresh) the `grove-explore` server entry for one harness,
+/// dispatching on its [`McpFormat`]. Returns a human-facing status line.
+/// Only called when [`harness::expected_explore_args`] is `Some` for the mode.
+fn write_explore_harness_registration(root: &Path, home: &Path, h: HarnessId) -> Result<String> {
+    let path = h.mcp_config_path_in(root, Some(home));
+    match h.mcp_format() {
+        McpFormat::Json { root_key, needs_type_stdio } => {
+            write_json_mcp_explore_server(&path, root_key, needs_type_stdio)?
+        }
+        McpFormat::Toml { table } => write_toml_mcp_explore_server(&path, table)?,
+    }
+    Ok(format!(
+        "{} ({} explore-server registration)",
+        display_path(root, &path),
+        h.display_name()
+    ))
+}
+
+/// Strip the `grove-explore` server entry for one harness from its registration
+/// file, dispatching on its [`McpFormat`]. No-op when the file or entry is absent.
+fn strip_explore_harness_registration(root: &Path, home: &Path, h: HarnessId) -> Result<()> {
+    let path = h.mcp_config_path_in(root, Some(home));
+    match h.mcp_format() {
+        McpFormat::Json { root_key, .. } => strip_json_mcp_explore_server(&path, root_key),
+        McpFormat::Toml { table } => strip_toml_mcp_explore_server(&path, table),
+    }
+}
+
 /// Add (or refresh) the grove MCP server in `.mcp.json`, preserving other servers.
 /// Superseded in production by [`write_harness_registration`] (the per-harness
 /// dispatch); retained as a focused regression fixture for the claude-code path.
@@ -618,15 +792,6 @@ fn write_steering_md(
     Ok(message.to_string())
 }
 
-/// Add (or refresh) the grove MCP server in `.mcp.json` in explore-mode,
-/// registering `["serve", "--explore"]`. Preserves other servers. Superseded in
-/// production by [`write_harness_registration`]; kept as a claude-code fixture.
-#[cfg(test)]
-fn write_mcp_json_explore(root: &Path) -> Result<String> {
-    write_json_mcp(&root.join(".mcp.json"), &["serve", "--explore"], "mcpServers", false)?;
-    Ok(".mcp.json (explore-mode registration)".to_string())
-}
-
 /// Write/refresh the grove steering section in `AGENTS.md` via `write_steering_md`;
 /// uses harness-neutral framing (AGENTS.md is read by non-Claude harnesses too).
 /// The status line is mode-aware: explore-mode vs the standard cross-agent block.
@@ -652,30 +817,26 @@ fn agents_section(langs: &[String], target: Target) -> String {
     let langs_str = langs.join(", ");
     format!(
         "{CLAUDE_START}
-## Code navigation: grove explore-mode
+## Code navigation: grove — structural + explore surfaces
 
-**grove** is running in explore-mode (languages: {langs_str}). The `explore` tool
-exposed by the grove MCP server is a code **locator** backed by a local LLM and
-tree-sitter tools: it finds WHERE code lives and returns file:line citations.
+**grove** is configured with **two** servers (languages: {langs_str}):
 
-Ask it ONE narrow, single-focus question per call (where-is / what-defines /
-who-calls) instead of built-in file search — but keep each question targeted.
-For a broad task (\"how does feature F work\"), make a few focused `explore`
-calls to locate the pieces, then read the cited spans and synthesize the answer
-yourself; the local model is light and overshoots on one large compound question.
+- **Structural tools** (`outline`, `symbols`, `source`, `callers`, `definition`,
+  `map`, `check`): byte-precise, token-cheap. Use for precision work on named
+  symbols: read one symbol's body, map a directory, check syntax after an edit.
 
-**Recommended flow to understand a feature:** (1) a few narrow `explore` calls to
-locate the pieces — iterate broad → symbol-specific, each refining from the last;
-(2) read the cited spans — yourself, or via one focused subagent whose prompt
-cites those exact file:line locations; (3) synthesize. Do not spawn a grep-based
-search subagent before locating with grove — that wastes context on what grove
-does locally for free.
+- **`explore`** — LLM-backed code locator: sweeps multiple files with tree-sitter
+  + text tools, returns file:line citations. Use for broad \"where is X\" questions
+  before you know which file to look in.
 
-**Automatic fallback**: if the grove provider is unreachable, the 7 structural
-grove tools (outline, symbols, source, callers, map, definition, check) are
-surfaced automatically — use them as you normally would.
+**Recommended flow to understand a feature:**
+(1) `explore` — one narrow question per call (\"where is X defined\",
+    \"which files handle Y\"); iterate broad → specific.
+(2) `source` / `map` on the cited file:line locations.
+(3) Synthesise the explanation yourself.
 
-For text, configs, and non-code files, use the built-in shell or file-read tools.
+Do not delegate large multi-part tasks to `explore`; keep each question
+single-focus. For text, configs, and non-code files, use the shell (`grep`, `rg`).
 {CLAUDE_END}"
     )
 }
@@ -729,39 +890,30 @@ Rule of thumb: want a **symbol** → grove first (don't `grep` / `read` for it).
 fn claude_section(langs: &[String], target: Target) -> String {
     let langs = langs.join(", ");
     if target == Target::McpLlm {
-        let p = format!("mcp__{MCP_SERVER_KEY}__");
         return format!(
             "{CLAUDE_START}
-## Code navigation: grove explore-mode
+## Code navigation: grove — structural + explore surfaces
 
-**grove** is running in explore-mode (languages: {langs}). `{p}explore` is a code
-**locator** backed by a local LLM with tree-sitter + text tools — it finds WHERE
-relevant code lives and returns file:line citations. It is not a full-analysis
-oracle.
+**grove** is configured with **two** MCP servers (languages: {langs}):
 
-**Ask it ONE narrow, single-focus question per call** (\"where is X defined\",
-\"which files handle Y\", \"who calls Z\") — not a broad multi-part task. For a
-question like \"how does feature F work\", don't delegate the whole thing: make a
-few targeted `{p}explore` calls to locate the pieces, then read the cited spans
-and **synthesize the explanation yourself**. The local model is light and
-overshoots on compound \"find everything and explain how it all works\" prompts.
-The explore tool handles tool-selection internally; do **not** call the
-individual structural tools (outline, symbols, source, callers, map, definition,
-check) directly while the local model is healthy — they are not exposed in
-explore-mode.
+- **`mcp__grove__*`** — 7-tool structural surface (byte-precise, token-cheap):
+  `mcp__grove__outline`, `mcp__grove__symbols`, `mcp__grove__source`,
+  `mcp__grove__callers`, `mcp__grove__definition`, `mcp__grove__map`, `mcp__grove__check`.
+  Use **directly** for precision work: read one symbol's body, map a directory,
+  check syntax after an edit.
 
-**Recommended flow to understand a feature:** (1) make a few narrow
-`{p}explore` calls to locate the pieces — iterate broad → symbol-specific, each
-call refining from the last's results; (2) read the cited spans — yourself, or
-via **one** focused subagent whose prompt cites those exact file:line locations;
-(3) synthesize. **Do not spawn a grep-based search subagent before locating with
-grove** — that spends your metered context on what grove does locally for free.
+- **`mcp__grove-explore__explore`** — LLM-backed code locator: sweeps multiple
+  files with tree-sitter + text tools, returns file:line citations.
+  Use for **broad \"where is X\"** questions before you know which file to look in.
 
-**Automatic fallback**: if the local model provider is unreachable, grove
-automatically surfaces the 7 structural tools. They will appear in your tool
-list and work identically to the standard MCP surface.
+**Recommended flow to understand a feature:**
+(1) `mcp__grove-explore__explore` — one narrow question per call
+    (\"where is X defined\", \"which files handle Y\"); iterate broad → specific.
+(2) `mcp__grove__source` / `mcp__grove__map` on the cited file:line locations.
+(3) Synthesise the explanation yourself.
 
-For text, configs, and non-code files, use the shell (`grep`, `rg`, `read`).
+Do not delegate large multi-part tasks to `explore`; keep each question
+single-focus. For text, configs, and non-code files, use the shell (`grep`, `rg`).
 {CLAUDE_END}"
         );
     }
@@ -1183,6 +1335,13 @@ mod tests {
                     json!(["serve"]),
                     "mode {mode:?}: .mcp.json args should be [serve]"
                 );
+                // grove-explore must NOT be present (only McpLlm registers it).
+                assert!(
+                    doc.get("mcpServers")
+                        .and_then(|s| s.get("grove-explore"))
+                        .is_none(),
+                    "mode {mode:?}: grove-explore entry must be absent in .mcp.json"
+                );
             }
             Mode::McpLlm => {
                 let doc: Value = serde_json::from_str(
@@ -1190,14 +1349,20 @@ mod tests {
                         .unwrap_or_else(|_| panic!("missing .mcp.json for mode {mode:?}")),
                 )
                 .unwrap();
+                // grove key: args == ["serve"] (not ["serve", "--explore"])
                 assert_eq!(
                     doc["mcpServers"]["grove"]["args"],
-                    json!(["serve", "--explore"]),
-                    "mode {mode:?}: .mcp.json args should be [serve, --explore]"
+                    json!(["serve"]),
+                    "mode McpLlm: .mcp.json grove args should be [serve]"
+                );
+                // grove-explore key must be present
+                assert!(
+                    !doc["mcpServers"]["grove-explore"].is_null(),
+                    "mode McpLlm: grove-explore entry must be present in .mcp.json"
                 );
             }
             Mode::Skill | Mode::Grammars => {
-                // File may not exist, or if it does, grove entry must be absent.
+                // File may not exist, or if it does, both grove and grove-explore must be absent.
                 if path.exists() {
                     let doc: Value = serde_json::from_str(
                         &std::fs::read_to_string(&path).unwrap(),
@@ -1208,6 +1373,12 @@ mod tests {
                             .and_then(|s| s.get("grove"))
                             .is_none(),
                         "mode {mode:?}: grove entry should be absent in .mcp.json"
+                    );
+                    assert!(
+                        doc.get("mcpServers")
+                            .and_then(|s| s.get("grove-explore"))
+                            .is_none(),
+                        "mode {mode:?}: grove-explore entry should be absent in .mcp.json"
                     );
                 }
             }
@@ -1235,8 +1406,8 @@ mod tests {
                     "mode McpLlm: CLAUDE.md must have grove block"
                 );
                 assert!(
-                    text.contains("mcp__grove__explore"),
-                    "mode McpLlm: CLAUDE.md must reference explore tool"
+                    text.contains("mcp__grove-explore__explore"),
+                    "mode McpLlm: CLAUDE.md must reference explore tool in grove-explore server"
                 );
             }
             Mode::Mcp | Mode::Both => {
@@ -1346,17 +1517,19 @@ mod tests {
         assert!(claude.contains("Host notes."), "host content in CLAUDE.md preserved");
         assert!(!claude.contains(CLAUDE_START), "grove block removed from CLAUDE.md");
 
-        // 2. Seed .mcp.json with grove + other server; transition to Skill → grove removed.
+        // 2. Seed .mcp.json with grove + grove-explore + other server; transition to Skill
+        // → both grove and grove-explore removed, other preserved.
         let mcp_path = dir.join(".mcp.json");
         std::fs::write(
             &mcp_path,
-            r#"{"mcpServers":{"grove":{"command":"g","args":["serve"]},"other":{"command":"x"}}}"#,
+            r#"{"mcpServers":{"grove":{"command":"g","args":["serve"]},"grove-explore":{"command":"ge","args":[]},"other":{"command":"x"}}}"#,
         )
         .unwrap();
         reconcile_harness(&dir, Some(Mode::Grammars), Mode::Skill).unwrap();
         let doc: Value =
             serde_json::from_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
         assert!(doc["mcpServers"]["grove"].is_null(), "grove removed from .mcp.json");
+        assert!(doc["mcpServers"]["grove-explore"].is_null(), "grove-explore removed from .mcp.json");
         assert_eq!(doc["mcpServers"]["other"]["command"], json!("x"), "other server preserved");
 
         // 3. Seed AGENTS.md with host content + an MCP block; transition to a mode
@@ -1416,9 +1589,14 @@ mod tests {
         let s = claude_section(&["rust".into()], Target::McpLlm);
         assert!(s.starts_with(CLAUDE_START));
         assert!(s.trim_end().ends_with(CLAUDE_END));
-        assert!(s.contains("mcp__grove__explore"), "names explore tool: {s}");
-        assert!(!s.contains("mcp__grove__outline"), "must not name outline directly: {s}");
-        assert!(s.contains("fallback"), "mentions fallback behaviour: {s}");
+        // New dual-surface steering: explore tool is in the grove-explore server.
+        assert!(s.contains("mcp__grove-explore__explore"), "names explore tool in grove-explore server: {s}");
+        // Structural tools are also named directly (both servers always present).
+        assert!(s.contains("mcp__grove__map"), "names structural map tool: {s}");
+        // Old single-server explore tool name must be gone.
+        assert!(!s.contains("mcp__grove__explore"), "old single-server tool name must be absent: {s}");
+        // No automatic fallback framing — both servers are always registered.
+        assert!(!s.contains("fallback"), "no fallback framing when both servers always present: {s}");
     }
 
     #[test]
@@ -1426,9 +1604,14 @@ mod tests {
         let s = agents_section(&["rust".into()], Target::McpLlm);
         assert!(s.starts_with(CLAUDE_START));
         assert!(s.trim_end().ends_with(CLAUDE_END));
+        // New dual-surface framing: explore tool named by bare name (harness-neutral).
         assert!(s.contains("explore"), "names explore tool: {s}");
+        // AGENTS.md must not use Claude-specific MCP prefixes.
         assert!(!s.contains("mcp__grove__"), "must not use Claude-specific prefix: {s}");
-        assert!(s.contains("fallback"), "mentions fallback behaviour: {s}");
+        // Structural tools also mentioned by bare name.
+        assert!(s.contains("`source`") || s.contains("`map`"), "names structural tools: {s}");
+        // No automatic fallback framing in the new dual-surface content.
+        assert!(!s.contains("fallback"), "no fallback framing when both servers always present: {s}");
     }
 
     #[test]
@@ -1437,18 +1620,65 @@ mod tests {
         seed_lock(&dir);
         let wrote = reconcile_harness(&dir, None, Mode::McpLlm).unwrap();
 
-        // .mcp.json must be present and contain --explore
+        // .mcp.json must have grove key with ["serve"] and grove-explore key present.
         let mcp_json = std::fs::read_to_string(dir.join(".mcp.json")).unwrap();
         let doc: serde_json::Value = serde_json::from_str(&mcp_json).unwrap();
         assert_eq!(
             doc["mcpServers"]["grove"]["args"],
-            serde_json::json!(["serve", "--explore"]),
-            "explore-mode args"
+            serde_json::json!(["serve"]),
+            "structural grove server args must be [serve]"
+        );
+        assert!(
+            !doc["mcpServers"]["grove-explore"].is_null(),
+            "grove-explore entry must be present in .mcp.json"
         );
 
         assert!(dir.join("CLAUDE.md").exists(), "CLAUDE.md written");
         assert!(dir.join("AGENTS.md").exists(), "AGENTS.md written");
-        assert_eq!(wrote.len(), 3, "3 harness entries: {wrote:?}");
+        // 4 harness entries: structural registration + explore-server registration + CLAUDE.md + AGENTS.md
+        assert_eq!(wrote.len(), 4, "4 harness entries: {wrote:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// AC3: pre-split projects whose `.mcp.json` has `grove` with args
+    /// `["serve", "--explore"]` converge to the dual-server layout on first
+    /// `reconcile_harness(_, _, Mode::McpLlm)` call.
+    #[test]
+    fn mcp_llm_forward_migration_converges_single_to_two_registrations() {
+        let dir = tmp("mcp_llm_migration");
+        seed_lock(&dir);
+
+        // Seed the old (pre-split) layout: one entry with the now-invalid args.
+        std::fs::write(
+            dir.join(".mcp.json"),
+            r#"{"mcpServers":{"grove":{"command":"/usr/bin/grove","args":["serve","--explore"]}}}"#,
+        )
+        .unwrap();
+
+        reconcile_harness(&dir, None, Mode::McpLlm).unwrap();
+
+        let doc: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join(".mcp.json")).unwrap(),
+        )
+        .unwrap();
+        // grove key args must be updated to ["serve"].
+        assert_eq!(
+            doc["mcpServers"]["grove"]["args"],
+            serde_json::json!(["serve"]),
+            "forward migration: grove args must be updated to [serve]"
+        );
+        // grove-explore key must now be present.
+        assert!(
+            !doc["mcpServers"]["grove-explore"].is_null(),
+            "forward migration: grove-explore entry must be added"
+        );
+        // Old ["serve", "--explore"] arg must be gone.
+        let grove_args = doc["mcpServers"]["grove"]["args"].as_array().unwrap();
+        assert!(
+            !grove_args.iter().any(|a| a.as_str() == Some("--explore")),
+            "forward migration: --explore arg must be gone from grove entry"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1489,32 +1719,48 @@ mod tests {
     }
 
     #[test]
-    fn write_mcp_json_explore_registers_with_explore_flag() {
-        let dir = tmp("mcp_explore_fresh");
-        write_mcp_json_explore(&dir).unwrap();
+    fn write_explore_server_registers_in_grove_explore_key() {
+        let dir = tmp("explore_server_fresh");
+        write_json_mcp_explore_server(&dir.join(".mcp.json"), "mcpServers", false).unwrap();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
+        // grove-explore key must be present with empty args array.
+        assert!(
+            !doc["mcpServers"]["grove-explore"].is_null(),
+            "grove-explore entry must be present"
+        );
         assert_eq!(
-            doc["mcpServers"]["grove"]["args"],
-            serde_json::json!(["serve", "--explore"]),
+            doc["mcpServers"]["grove-explore"]["args"],
+            serde_json::json!([]),
+            "grove-explore args must be empty"
+        );
+        // grove key must NOT be affected.
+        assert!(
+            doc.get("mcpServers").and_then(|s| s.get("grove")).is_none(),
+            "grove key must not be touched by write_json_mcp_explore_server"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn write_mcp_json_explore_preserves_other_servers() {
-        let dir = tmp("mcp_explore_preserve");
+    fn write_explore_server_preserves_other_servers() {
+        let dir = tmp("explore_server_preserve");
         let path = dir.join(".mcp.json");
         std::fs::write(&path, r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
 
-        write_mcp_json_explore(&dir).unwrap();
+        write_json_mcp_explore_server(&path, "mcpServers", false).unwrap();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(doc["mcpServers"]["other"]["command"], serde_json::json!("x"), "existing server kept");
+        // grove-explore key added with empty args.
+        assert!(
+            !doc["mcpServers"]["grove-explore"].is_null(),
+            "grove-explore entry added"
+        );
         assert_eq!(
-            doc["mcpServers"]["grove"]["args"],
-            serde_json::json!(["serve", "--explore"]),
-            "grove explore registered"
+            doc["mcpServers"]["grove-explore"]["args"],
+            serde_json::json!([]),
+            "grove-explore args must be empty"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
