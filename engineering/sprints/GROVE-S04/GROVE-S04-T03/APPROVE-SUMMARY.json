@@ -1,0 +1,16 @@
+{
+  "objective": "Architectural sign-off on deleting bimodal Surface/determine_surface/health-fallback machinery so grove serve unconditionally dispatches the 7-tool structural surface, plus removal of --explore/--standard flags.",
+  "key_changes": [
+    "AC1 verified independently: grep -nE 'explore|Surface|determine_surface' cli/src/mcp.rs returns zero hits; grove_explore_core import block fully removed.",
+    "Change collapses a runtime-branching Surface enum + health-probe fallback into a single constant dispatch — coherent with the hand-rolled, synchronous, single-purpose MCP server design in architecture/stack.md.",
+    "Blast radius contained: only main.rs:405 called mcp::serve; active_mode/Mode/ModeChoice retained in core for Cmd::Doctor.",
+    "AC4 (ratatui/crossterm dep prune) deferred to T05 — sanctioned by approved PLAN/PLAN_REVIEW; cargo tree -i ratatui confirms grove-cst-cli still consumes via trace_tui/config_tui.",
+    "Cross-task gate: joint T03+T05 cargo-tree check must run when T05 lands the TUI move + Cargo.toml prune.",
+    "T04 sequencing: release must ship T03+T04 together so the intermediate (flags removed, migration absent) state never ships alone.",
+    "Deployment: version bump on next release train; CHANGELOG needs a deprecation note for the removed flags; no migrations/schema/runtime config changes.",
+    "Full pipeline chain (plan, review-plan, implement, code-review, validate) all approved and internally consistent."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-13T00:00:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

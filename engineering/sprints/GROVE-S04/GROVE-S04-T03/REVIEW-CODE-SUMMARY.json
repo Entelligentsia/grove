@@ -1,0 +1,18 @@
+{
+  "objective": "Assess the deletion of Surface/determine_surface/health-fallback and serve mode flags so grove serve is unconditionally the 7-tool structural surface.",
+  "key_changes": [
+    "AC1 verified: grep for explore/Surface/determine_surface in cli/src/mcp.rs returns zero hits; grove_explore_core and config Mode imports removed, ops/registry retained.",
+    "AC1: all 11 explore symbols deleted (Surface, determine_surface, open_session_trace, enum_str, explore_instructions/tool_spec, resolve_explore_question, StdoutProgress, call_explore_tool).",
+    "handle()/serve() signatures simplified; match-surface collapsed to direct calls; 7 test call sites and 3 explore unit tests updated/deleted.",
+    "AC2 verified: hidden --explore/--standard flags still parse; dispatch bail! names grove-explore serve; serve_removed_explore_flag_errors_with_hint passes (both exit non-zero).",
+    "AC3 verified: serve_mcp_llm_config_returns_7_structural_tools + serve_always_serves_structural_surface pass — mcp-llm config yields 7 tools, no explore tool, no 'falling back' stderr.",
+    "AC5 verified: bug1 stale-explore.json regression guard retained/retargeted; replaced test assertion correctly inverted to !contains 'falling back'.",
+    "AC6 verified independently: clippy --all-targets --workspace --locked -D warnings clean; 37 integration + 109 bin unit tests pass.",
+    "AC4 NOT met (ratatui/crossterm still deps via trace_tui/config_tui) but is the sanctioned deferral to T05 per approved PLAN + PLAN_REVIEW; consistent with T05's TUI move.",
+    "Follow-up: AC4 cargo-tree check is a joint T03+T05 gate — must run when T05 lands. Advisory, tracked.",
+    "Minor advisory: cosmetic multi-blank-line runs at mcp.rs:23 and mcp.rs:126; not a gate (CI deliberately omits fmt --check per ci.yml:26-27)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-20T07:20:14Z",
+  "artifact_ref": "CODE_REVIEW.md"
+}

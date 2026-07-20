@@ -1,0 +1,19 @@
+{
+  "objective": "Assess the plan to delete Surface/determine_surface/health-fallback and serve mode flags so grove serve is unconditionally the 7-tool structural surface.",
+  "key_changes": [
+    "Deleted-code inventory matches mcp.rs outline symbol-for-symbol (Surface, determine_surface, open_session_trace, enum_str, explore_* helpers, StdoutProgress, call_explore_tool, 3 tests).",
+    "Verified no dangling refs: enum_str (174-175), SessionMeta (172), ExploreError (387/395) used only inside deleted functions; whole grove_explore_core import block consumed only by deleted code.",
+    "instructions() (structural) is correctly retained as the sole instructions path.",
+    "Signature change is contained: only main.rs:405 calls mcp::serve; plan updates that site.",
+    "Plan correctly preserves active_mode/Mode/ModeChoice in core (Cmd::Doctor at main.rs:291 still uses them); only the mcp.rs import is dropped.",
+    "AC2 covered via hidden #[arg(hide=true)] flags + dispatch bail! + serve_removed_explore_flag_errors_with_hint test.",
+    "AC3 covered via serve_mcp_llm_config_returns_7_structural_tools plus updated bug1_serve_mcp_mode_ignores_stale_explore_json.",
+    "AC4 (not blocking): ratatui/crossterm still used by trace_tui/ and config_tui/, so a Cargo.toml prune here would break the build; deferral to T05 is forced and sanctioned.",
+    "Advisory: plan marks AC4 'N/A' but it satisfies AC4's serve-path half; cargo-tree check is a joint T03+T05 gate and should be tracked.",
+    "Advisory: update Cmd::Serve doc comment (main.rs:182/185/188) which still references .grove/explore.json + removed force flags.",
+    "Advisory: ensure hidden flags still parse in clap so the grove-authored hint fires (assert hint text, not clap's generic error)."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-06-12T00:00:00Z",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

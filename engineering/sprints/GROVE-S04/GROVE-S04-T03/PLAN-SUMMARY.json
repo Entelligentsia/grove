@@ -1,0 +1,20 @@
+{
+  "objective": "Delete all bimodal Surface/determine_surface/health-probe machinery from cli/src/mcp.rs so that grove serve unconditionally dispatches the 7-tool structural surface, and remove the now-dead --explore/--standard CLI flags with a clear replacement-naming error.",
+  "key_changes": [
+    "Delete Surface enum and determine_surface function from cli/src/mcp.rs",
+    "Delete open_session_trace, enum_str, explore_instructions, explore_tool_spec, resolve_explore_question, StdoutProgress, progress_token, call_explore_tool from cli/src/mcp.rs",
+    "Remove all grove_explore_core imports and active_mode/GroveConfig/Mode/ModeChoice imports from cli/src/mcp.rs",
+    "Simplify serve() to take only root: &Path (no force_explore/force_standard); drop trace_writer and surface from the loop",
+    "Simplify handle() to take only method/params; hardcode structural paths for initialize/tools-list/tools-call",
+    "Update all handle() call sites in the mcp.rs unit test module to drop &Surface::Standard/None args",
+    "Delete 3 resolve_explore_question unit tests from cli/src/mcp.rs (testing deleted function)",
+    "In cli/src/main.rs: hide --explore/--standard in Cmd::Serve via #[arg(hide=true)]; add bail! guard in dispatch arm naming grove-explore serve as replacement",
+    "Update cli/src/main.rs Cmd::Serve dispatch to call mcp::serve(&path) with no flag args",
+    "In cli/tests/cli.rs: replace explore_mode_unhealthy_provider_falls_back_to_standard_surface with serve_always_serves_structural_surface (no fallback — constant surface)",
+    "Add serve_removed_explore_flag_errors_with_hint integration test for AC2",
+    "Add serve_mcp_llm_config_returns_7_structural_tools integration test for AC3; leave Cargo.toml unchanged (dep prune is T05)"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-07-22T18:00:00Z",
+  "artifact_ref": "PLAN.md"
+}

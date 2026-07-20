@@ -1,0 +1,14 @@
+{
+  "objective": "Validate that Surface/determine_surface/health-probe explore machinery was deleted from cli/src/mcp.rs, --explore/--standard flags produce a clear replacement error, grove serve unconditionally serves 7 structural tools, and the workspace is clean.",
+  "key_changes": [
+    "AC1 PASS: grep for explore/Surface/determine_surface in mcp.rs returns zero hits; grove_explore_core and Mode imports removed; all 11 explore symbols confirmed deleted.",
+    "AC2 PASS: --explore/--standard flags hidden with #[arg(hide=true)]; dispatch bail! names 'grove-explore serve'; serve_removed_explore_flag_errors_with_hint passes.",
+    "AC3 PASS: serve_mcp_llm_config_returns_7_structural_tools and serve_always_serves_structural_surface pass; mode=mcp-llm yields 7 tools, no explore tool, no fallback stderr.",
+    "AC4 DEFERRED TO T05 (sanctioned): ratatui/crossterm still in cli/Cargo.toml via trace_tui/config_tui; mcp::serve has zero ratatui/crossterm imports; full dep prune is T05 gate.",
+    "AC5 PASS: All 37 integration tests pass; fallback test replaced; bug1 regression guard retained; 7 handle() call sites updated.",
+    "AC6 PASS: 336 total tests pass; clippy --all-targets --workspace --locked -D warnings clean; all 3 changed files end with newline."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-16T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

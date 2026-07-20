@@ -178,15 +178,18 @@ enum Cmd {
         path: PathBuf,
     },
     /// Run as an MCP server over stdio (the agent-facing face).
+    ///
+    /// Always serves the 7-tool structural surface. To use the explore
+    /// (LLM-delegating) surface, use `grove-explore serve` instead.
     Serve {
-        /// Project directory used to locate .grove/explore.json (default: current dir).
+        /// Project directory (default: current dir).
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// Force explore mode even if .grove/explore.json is absent.
-        #[arg(long = "explore")]
+        /// Removed — use `grove-explore serve` for the explore surface.
+        #[arg(long = "explore", hide = true)]
         explore: bool,
-        /// Force standard structural mode (ignore .grove/explore.json if present).
-        #[arg(long = "standard")]
+        /// Removed — use `grove-explore serve` for the explore surface.
+        #[arg(long = "standard", hide = true)]
         standard: bool,
     },
     /// Enable explore-mode tracing and browse recorded sessions in a TUI — a
@@ -402,7 +405,16 @@ fn main() -> Result<()> {
             let lock = registry::write_lock(std::path::Path::new("grove.lock"))?;
             println!("wrote grove.lock ({} grammars)", lock);
         }
-        Cmd::Serve { path, explore, standard } => mcp::serve(&path, explore, standard)?,
+        Cmd::Serve { path, explore, standard } => {
+            if explore || standard {
+                anyhow::bail!(
+                    "--explore and --standard have been removed from `grove serve`.\n\
+                     Use `grove-explore serve` for the LLM-delegating explore surface,\n\
+                     or plain `grove serve` for the 7-tool structural surface."
+                );
+            }
+            mcp::serve(&path)?;
+        }
         Cmd::Tap { path, no_enable } => tap::run(&path, no_enable)?,
     }
     Ok(())

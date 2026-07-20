@@ -1,0 +1,25 @@
+{
+  "objective": "Delete all bimodal Surface/determine_surface/health-probe explore machinery from cli/src/mcp.rs so grove serve unconditionally dispatches the 7-tool structural surface, and remove the dead --explore/--standard CLI flags with a clear replacement-naming error.",
+  "key_changes": [
+    "Removed grove_explore_core import block (7 types) and grove_core::config::{active_mode, GroveConfig, Mode, ModeChoice} from cli/src/mcp.rs",
+    "Deleted enum Surface, fn determine_surface (50 lines), fn open_session_trace, fn enum_str from cli/src/mcp.rs",
+    "Simplified pub fn serve signature: (root, force_explore, force_standard) → (_root) — removed trace_writer, surface, and initialize trace-open block",
+    "Simplified fn handle signature: (method, params, surface, trace) → (method, params) — collapsed match surface branches into direct calls",
+    "Deleted fn explore_instructions, fn explore_tool_spec, EXPLORE_QUESTION_KEYS const, fn resolve_explore_question from cli/src/mcp.rs",
+    "Deleted struct StdoutProgress + impl ProgressReporter, fn progress_token, fn call_explore_tool from cli/src/mcp.rs",
+    "Deleted 3 resolve_explore_question unit tests; updated 7 handle() call sites in mod tests to drop &Surface::Standard, None args",
+    "In cli/src/main.rs: hid --explore and --standard with #[arg(hide=true)]; added bail! guard naming grove-explore serve as replacement; simplified dispatch to mcp::serve(&path)",
+    "Updated Cmd::Serve doc comment to state always-structural invariant",
+    "Replaced explore_mode_unhealthy_provider_falls_back_to_standard_surface with serve_always_serves_structural_surface (asserts no 'falling back' on stderr)",
+    "Added serve_removed_explore_flag_errors_with_hint integration test (AC2)",
+    "Added serve_mcp_llm_config_returns_7_structural_tools integration test (AC3); updated bug1_serve_mcp_mode_ignores_stale_explore_json assertions"
+  ],
+  "files_changed": [
+    "cli/src/mcp.rs",
+    "cli/src/main.rs",
+    "cli/tests/cli.rs"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-07-14T00:00:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

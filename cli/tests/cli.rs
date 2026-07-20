@@ -417,39 +417,41 @@ fn index_writes_catalog() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// GROVE-S02-T04 (AC-6) / GROVE-S03-T03: when `.grove/explore.json` names an
-/// unreachable provider, `grove serve` falls back to the standard 7-tool structural
-/// surface and emits a diagnostic note to stderr. No real provider is required —
-/// port 1 fails immediately.
+/// GROVE-S04-T03 (AC3): `grove serve` always serves the 7-tool structural surface,
+/// regardless of `.grove/config.json` contents. With `mode: "mcp-llm"` in config and
+/// an unreachable provider, grove serve must still return exactly 7 structural tools
+/// without logging a "falling back" diagnostic (it's the constant surface, not a
+/// fallback).
 ///
-/// After T03 the explore.json is migrated by [`GroveConfig::load`] on first access
-/// to `.grove/config.json` with `mode: "mcp-llm"`, so `active_mode` returns
-/// `McpLlm`, the health probe fires (port 1 → connection refused), and the
-/// standard-surface fallback path is exercised exactly as before.
+/// Replaces the old `explore_mode_unhealthy_provider_falls_back_to_standard_surface`
+/// test — the explore machinery has been removed from `grove serve`.
 #[test]
-fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
+fn serve_always_serves_structural_surface() {
     use std::io::Write;
     use std::process::Stdio;
 
     let dir = std::env::temp_dir().join(format!(
-        "grove_cli_test_{}_explore_fallback",
+        "grove_cli_test_{}_serve_always_structural",
         std::process::id()
     ));
     std::fs::create_dir_all(dir.join(".grove")).unwrap();
 
-    // Port 1 is IANA reserved — guaranteed connection-refused (fast fail).
-    // NOTE: use the legacy explore.json shape (`mode` key, not `steering`) so
-    // that GroveConfig::load can migrate it to config.json. After migration,
-    // active_mode returns McpLlm and health_probe fires against port 1.
+    // config.json declares mode=mcp-llm with an unreachable provider. In the old
+    // code this would activate a health probe and fall back to standard. Now
+    // grove serve unconditionally serves the structural surface — no probe, no fallback.
     let config = serde_json::json!({
-        "provider": "ollama",
-        "base_url": "http://127.0.0.1:1/v1",
-        "model": "nomodel",
-        "mode": "standard",
-        "allowed_tools": []
+        "version": 1,
+        "mode": "mcp-llm",
+        "explore": {
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:1/v1",
+            "model": "nomodel",
+            "steering": "standard",
+            "allowed_tools": []
+        }
     });
     std::fs::write(
-        dir.join(".grove").join("explore.json"),
+        dir.join(".grove").join("config.json"),
         serde_json::to_string_pretty(&config).unwrap(),
     )
     .unwrap();
@@ -499,26 +501,130 @@ fn explore_mode_unhealthy_provider_falls_back_to_standard_surface() {
     assert_eq!(
         tools.len(),
         7,
-        "unhealthy explore provider must fall back to the 7-tool standard surface, got: {tools:?}"
+        "grove serve must always return exactly 7 structural tools, got: {tools:?}"
     );
 
+    // The structural surface is constant, not a fallback — no "falling back" on stderr.
     let stderr_str = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr_str.contains("falling back"),
-        "stderr must contain 'falling back' diagnostic; got: {stderr_str}"
+        !stderr_str.contains("falling back"),
+        "stderr must NOT contain 'falling back' — structural is the constant surface, not a fallback; got: {stderr_str}"
     );
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Bug-1 regression (GROVE-S03-T03): `grove serve` must honour `mode: "mcp"` in
-/// `.grove/config.json` and serve the standard 7-tool surface even when a stale
-/// `.grove/explore.json` file exists alongside it.
-///
-/// Before T03, `determine_surface` sniffed `explore.json` existence directly and
-/// activated explore mode regardless of the declared config mode. This test proves
-/// the fix: config.json is the single source of truth; explore.json is ignored when
-/// config.json is present.
+/// GROVE-S04-T03 (AC2): `grove serve --explore` and `grove serve --standard` must
+/// exit non-zero with a clear error message naming `grove-explore serve` as the
+/// replacement. The flags are hidden (not shown in --help) but still parsed by clap
+/// so our dispatch guard fires before any server logic.
+#[test]
+fn serve_removed_explore_flag_errors_with_hint() {
+    let dir = fixture("serve_removed_flag");
+
+    // --explore is hidden but still parsed; our dispatch guard fires before mcp::serve.
+    let out = grove(&dir, &["serve", "--explore"]);
+    assert!(
+        !out.status.success(),
+        "grove serve --explore must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("grove-explore serve"),
+        "error must name 'grove-explore serve' as the replacement; got: {stderr}"
+    );
+
+    // --standard must behave the same way.
+    let out2 = grove(&dir, &["serve", "--standard"]);
+    assert!(
+        !out2.status.success(),
+        "grove serve --standard must exit non-zero"
+    );
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    assert!(
+        stderr2.contains("grove-explore serve"),
+        "error must name 'grove-explore serve' as the replacement; got: {stderr2}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GROVE-S04-T03 (AC3): a project with `.grove/config.json` containing
+/// `mode: "mcp-llm"` returns exactly 7 structural tools from `tools/list`.
+/// The explore surface is not activated and no health probe is performed.
+#[test]
+fn serve_mcp_llm_config_returns_7_structural_tools() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = std::env::temp_dir().join(format!(
+        "grove_cli_test_{}_mcp_llm_structural",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join(".grove")).unwrap();
+
+    // config.json with mode=mcp-llm but no explore section — in the old code
+    // this would try to load explore config and fall back; now it's a no-op.
+    let config = serde_json::json!({
+        "version": 1,
+        "mode": "mcp-llm"
+    });
+    std::fs::write(
+        dir.join(".grove").join("config.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_grove"))
+        .arg("serve")
+        .arg(dir.to_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GROVE_REGISTRY", DEV_REGISTRY)
+        .spawn()
+        .expect("spawning grove serve");
+
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": { "protocolVersion": "2025-06-18" }
+    })).unwrap();
+    writeln!(stdin, "{}", serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}
+    })).unwrap();
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("grove serve to finish");
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let tools_response = stdout_str
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|v| v["id"] == serde_json::json!(2))
+        .expect("tools/list response (id=2) must be present");
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("result.tools is an array");
+    assert_eq!(
+        tools.len(),
+        7,
+        "mode=mcp-llm must still yield 7 structural tools from grove serve, got: {tools:?}"
+    );
+    // The explore delegating tool must never appear in grove serve.
+    assert!(
+        !tools.iter().any(|t| t["name"] == serde_json::json!("explore")),
+        "explore tool must not appear in grove serve output: {tools:?}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Bug-1 regression (GROVE-S03-T03 / GROVE-S04-T03): `grove serve` must serve the
+/// 7-tool structural surface even when a stale `.grove/explore.json` exists alongside
+/// `.grove/config.json`. With T03 the explore machinery is removed from grove serve
+/// entirely, so this invariant now comes from the constant structural surface rather
+/// than from config branching.
 #[test]
 fn bug1_serve_mcp_mode_ignores_stale_explore_json() {
     use std::io::Write;
@@ -598,17 +704,17 @@ fn bug1_serve_mcp_mode_ignores_stale_explore_json() {
         .as_array()
         .expect("result.tools is an array");
 
-    // Must be exactly 7 tools (standard surface), not the single explore tool.
+    // Must be exactly 7 tools — the structural surface is now constant, not config-gated.
     assert_eq!(
         tools.len(),
         7,
-        "config.json mode=mcp + stale explore.json must give the 7-tool standard surface, got: {tools:?}"
+        "stale explore.json must not affect grove serve — always 7 structural tools, got: {tools:?}"
     );
 
-    // Prove the explore delegating tool is absent (it would be named "explore").
+    // The explore delegating tool must never appear (grove serve is unconditionally structural).
     assert!(
         !tools.iter().any(|t| t["name"] == serde_json::json!("explore")),
-        "the 'explore' delegating tool must not appear when config.json declares mode=mcp"
+        "the 'explore' delegating tool must not appear from grove serve"
     );
 
     std::fs::remove_dir_all(&dir).ok();
