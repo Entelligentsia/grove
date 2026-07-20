@@ -1252,6 +1252,10 @@ fn doctor_help_documents_verb() {
     assert!(out.status.success(), "doctor --help failed");
     let text = stdout(&out);
     assert!(text.contains("doctor"), "--help output must mention doctor: {text}");
+    assert!(
+        !text.contains("--explore") && !text.contains("--standard"),
+        "doctor --help must not document removed force flags: {text}"
+    );
     std::fs::remove_dir_all(&dir).ok();
 }
 

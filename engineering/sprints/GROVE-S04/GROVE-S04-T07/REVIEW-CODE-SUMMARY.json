@@ -1,0 +1,17 @@
+{
+  "objective": "Reviewed the GROVE-S04-T07 implementation re-keying grove doctor explore checks onto grove-explore registration presence, extending the drift matrix for two-registration + stale-layout, and removing orphaned --explore/--standard flags.",
+  "key_changes": [
+    "AC1 met: explore group gated by has_explore_registration scanning all 6 harnesses; tests pin both gate sides incl. non-Claude Cursor fixture.",
+    "AC2 met: structural checks, --json shape, and exit-code gate byte-identical to pre-T07.",
+    "AC3 met: drift matrix validates grove + grove-explore entries per mode; stale-layout detection short-circuits to grove init --as mcp-llm hint.",
+    "AC4 met: --explore/--standard removed from Cmd::Doctor; ModeChoice pruned to None only; active_mode retained for API compat; all callers pass None.",
+    "AC5 met: clippy -D warnings clean; 15 doctor tests pass (5 new); doctor_help_documents_verb passes; files end with newline.",
+    "Verified dependent harness primitives exist: EXPLORE_SERVER_KEY, expected_explore_args, mcp_format, mcp_config_path_in for all 6 harnesses.",
+    "Conservative ModeChoice pruning avoids touching lib.rs:68 and init.rs:1602/1612 per approved plan section 4.",
+    "Security: read-only, no network, no user-controlled path components; malformed JSON/TOML swallowed to None.",
+    "Advisory: stale-layout hint is mode-blind (returns mcp-llm hint even for mcp-mode downgraded projects); plan-conformant, rare edge case.",
+    "Advisory: pre-existing duplication between check_harness_mcp_json and check_harness_registration extended consistently; DRY refactor out of scope."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "CODE_REVIEW.md"
+}

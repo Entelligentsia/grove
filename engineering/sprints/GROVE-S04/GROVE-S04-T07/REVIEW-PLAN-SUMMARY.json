@@ -1,0 +1,18 @@
+{
+  "objective": "Re-assessed the revised GROVE-S04-T07 plan after the prior revision-required verdict, verifying the conservative ModeChoice/active_mode path and the named multi-harness explore-registration fixture.",
+  "key_changes": [
+    "Required Change #1 resolved: §4 takes the conservative path (drop only ForceExplore/ForceStandard, keep ModeChoice::None + active_mode); lib.rs:68 and init.rs:1602/1612 correctly left unmodified.",
+    "Empirically verified the conservative path is clippy-clean: a single-variant enum matched with a single named arm does NOT trip clippy::match_single_binding under -D warnings.",
+    "Required Change #2 resolved: §5 and Testing Strategy now explicitly name a multi-harness/non-Claude mcp-llm fixture (grove-explore registered only in Cursor).",
+    "Building blocks verified present: harness::EXPLORE_SERVER_KEY, expected_explore_args, check_harness_registration, read_grove_args, McpFormat across all 6 harnesses (mcpServers/servers/Codex TOML).",
+    "Current explore trigger is a single 'if mode == McpLlm' arm at the tail of diagnose; re-keying to registration presence is a one-line gate change.",
+    "check_harness_serve_surface already accepts a has_explore_cfg bool; repointing to registration presence is mechanical.",
+    "Crate layering preserved: core (grove-cst) has no grove-explore-core dependency; cli already has it but plan adds none.",
+    "Spec compliance: all 5 ACs mapped; plan widens trigger beyond literal '.mcp.json' AC text to any selected harness, the agreed harness-agnostic direction.",
+    "Doctor deletes --explore/--standard outright (no error-guard) vs T03's hidden error-guard; justified since doctor has no successor binary; §4 states this.",
+    "Plugin impact correct: version bump flagged material; migration entry N/A (read-only); no schema change; no security scan needed.",
+    "Carried advisory: docs/doctor-command-proposal.md will go stale after flag removal; out of sprint scope (item 9), noted as Known Doc Debt."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

@@ -1,0 +1,15 @@
+{
+  "objective": "Validated that grove doctor explore checks are keyed on grove-explore registration across all selected harnesses, the two-registration/stale-layout drift matrix works, force flags are removed, and the workspace is green.",
+  "key_changes": [
+    "AC1 PASS: explore group gated by has_explore_registration scanning all 6 harnesses; tests cover both gate sides including a non-Claude Cursor fixture.",
+    "AC2 PASS: structural checks, --json shape, and exit-code gate preserved; doctor_json_output_is_valid and doctor_fail_exits_nonzero verify this.",
+    "AC3 PASS: drift matrix validates grove + grove-explore entries per mode; stale single-registration layout with --explore is flagged with mcp-llm re-init hint.",
+    "AC4 PASS: --explore/--standard removed from Cmd::Doctor; ModeChoice pruned to None only; doctor_help_documents_verb asserts flags are absent from --help.",
+    "AC5 PASS: cargo test --release --locked passes all 343 tests (139 + 65 + 43 + 42 + 54).",
+    "AC6 PASS: cargo clippy --all-targets --workspace --locked -- -D warnings is clean.",
+    "AC7 PASS: all modified files end with a newline.",
+    "Boundary coverage: malformed JSON/TOML is treated as no registration; mode-blind stale hint matches approved plan; no CLI force semantics remain."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

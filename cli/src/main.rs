@@ -122,12 +122,6 @@ enum Cmd {
         /// Project directory (default: current).
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// Force explore-mode checks even if config declares standard mode.
-        #[arg(long = "explore")]
-        explore: bool,
-        /// Force standard-mode checks.
-        #[arg(long = "standard")]
-        standard: bool,
     },
     /// Download grammars from the hosted registry into the OS cache.
     Fetch {
@@ -290,15 +284,8 @@ fn main() -> Result<()> {
                 eprintln!("\n{} definition(s) of `{}`", defs.len(), resolved);
             }
         }
-        Cmd::Doctor { path, explore, standard } => {
-            let force = if standard {
-                grove_core::config::ModeChoice::ForceStandard
-            } else if explore {
-                grove_core::config::ModeChoice::ForceExplore
-            } else {
-                grove_core::config::ModeChoice::None
-            };
-            let report = doctor::diagnose(&path, force);
+        Cmd::Doctor { path } => {
+            let report = doctor::diagnose(&path, grove_core::config::ModeChoice::None);
             if cli.json {
                 // ── JSON output ──────────────────────────────────────────────
                 let checks_json: Vec<_> = report.checks.iter().map(|c| {

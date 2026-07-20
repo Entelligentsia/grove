@@ -1,0 +1,16 @@
+{
+  "objective": "Re-key `grove doctor` so explore checks run only on `grove-explore` registration, add two-registration drift detection plus stale-layout hint, and remove orphaned `--explore`/`--standard` flags conservatively.",
+  "key_changes": [
+    "Re-key explore group trigger from `mode == McpLlm` to `grove-explore` registration in any selected harness.",
+    "Add registration-detection helper scanning all harness configs (Claude, Cursor, Codex, Gemini, Windsurf, VS Code).",
+    "Extend harness-consistency drift matrix for two-registration layout and stale single-registration layout.",
+    "Emit stale-layout hint to re-run `grove init --as mcp-llm` when old `--explore` arg is found.",
+    "Remove `--explore`/`--standard` flags from `grove doctor` and delete force plumbing in `cli/src/main.rs`.",
+    "Keep `ModeChoice::None` and `active_mode` in `core/src/config.rs`; only drop `ForceExplore`/`ForceStandard` variants.",
+    "Leave `core/src/lib.rs` and `cli/src/init.rs` untouched because the conservative path preserves their public API.",
+    "Remove `core/src/config.rs` unit tests covering the deleted force variants.",
+    "Update `core/src/doctor.rs` tests for registration gating, drift rows, and a non-Claude/multi-harness fixture.",
+    "Preserve structural checks, `--json` shape, exit-code gate, and mark the change material for version bump."
+  ],
+  "verdict": "n/a"
+}

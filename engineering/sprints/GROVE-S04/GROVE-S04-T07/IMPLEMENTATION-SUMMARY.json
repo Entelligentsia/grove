@@ -1,0 +1,25 @@
+{
+  "objective": "Re-keyed `grove doctor` so explore checks run only on `grove-explore` registration, added two-registration drift detection plus stale-layout hint, and removed orphaned `--explore`/`--standard` flags.",
+  "key_changes": [
+    "Re-keyed the explore check group trigger from `mode == McpLlm` to presence of a `grove-explore` registration in any selected harness.",
+    "Added harness-agnostic `has_explore_registration` helper scanning all six harness configs (Claude, Cursor, Codex, Gemini, Windsurf, VS Code).",
+    "Extended per-harness registration checks to validate both structural `grove` and explore `grove-explore` entries against the declared mode.",
+    "Added stale-layout detection that flags any `grove` entry still containing the removed `--explore` argument and hints `grove init --as mcp-llm`.",
+    "Updated `harness_serve_surface` to report Standard/Explore based on explore-registration presence rather than mode inference.",
+    "Removed `--explore`/`--standard` flags and force plumbing from `Cmd::Doctor` in `cli/src/main.rs`.",
+    "Conservatively pruned `ModeChoice` in `core/src/config.rs` to only `None`, keeping `active_mode` for API compatibility.",
+    "Removed obsolete `ModeChoice::ForceExplore`/`ForceStandard` unit tests and renumbered remaining active_mode tests.",
+    "Added unit tests for registration gating, non-Claude multi-harness `mcp-llm` fixtures, stale-layout detection, unexpected explore entries, and missing explore entries.",
+    "Strengthened `cli/tests/cli.rs::doctor_help_documents_verb` to assert removed flags are absent from `--help`."
+  ],
+  "files_changed": [
+    "core/src/doctor.rs",
+    "core/src/config.rs",
+    "cli/src/main.rs",
+    "cli/tests/cli.rs",
+    "engineering/sprints/GROVE-S04/GROVE-S04-T07/PROGRESS.md"
+  ],
+  "verdict": "n/a",
+  "written_at": "2025-01-24T19:42:00Z",
+  "artifact_ref": "PROGRESS.md"
+}

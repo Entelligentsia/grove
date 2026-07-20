@@ -1,0 +1,18 @@
+{
+  "objective": "Approved the GROVE-S04-T07 re-keying of grove doctor explore checks onto grove-explore registration presence, the two-registration/stale-layout drift matrix, and the removal of orphaned --explore/--standard flags.",
+  "key_changes": [
+    "Crate layering preserved: grove-cst (core) gains no grove-explore-core dependency; registration detection uses existing mcp_config_path_in/mcp_format/read_grove_args primitives across all 6 harnesses.",
+    "Conservative ModeChoice pruning: only ForceExplore/ForceStandard dropped; None + active_mode retained, leaving lib.rs:68 and init.rs:1602/1612 untouched per approved plan §4.",
+    "Harness-agnostic re-keying aligns with GROVE-S04-T04 (mcp-llm = register both servers) and GROVE-S04-T03 (flags removed from serve).",
+    "Read-only semantics: doctor only reports/hints; no mutation, no network, no user-controlled paths; malformed JSON/TOML degrades to no-registration.",
+    "All 5 ACs verified PASS; workspace green — 343 tests pass, clippy -D warnings clean, all modified files end with newline.",
+    "No migration, no schema change; version bump flagged material, rides next release train.",
+    "Backwards compat: stale mcp-llm layouts with old --explore arg get a re-init hint, not a hard failure.",
+    "Advisory: stale-layout hint is mode-blind (returns mcp-llm hint even for mcp-mode downgraded projects); plan-conformant, rare edge case.",
+    "Advisory: pre-existing check_harness_mcp_json/check_harness_registration duplication extended consistently; DRY refactor out of scope.",
+    "Follow-up: docs/doctor-command-proposal.md will go stale after flag removal (out of sprint scope, item 9)."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-05-08T04:12:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

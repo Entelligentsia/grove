@@ -92,12 +92,15 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
         Ok(cfg) => cfg.mode,
         Err(_) => Mode::Mcp,
     };
-    // Determine whether the explore section is present for harness_serve_surface.
-    let has_explore_cfg = cfg_result
+    // Determine whether any selected harness has registered the explore server.
+    // This gates both the explore check group and the reported serve surface.
+    let harnesses = cfg_result
         .as_ref()
         .ok()
-        .and_then(|c| c.explore.as_ref())
-        .is_some();
+        .map(|c| c.harnesses.clone())
+        .unwrap_or_else(default_harnesses);
+    let home = dirs::home_dir().unwrap_or_else(|| root.to_path_buf());
+    let has_explore_reg = has_explore_registration(root, &home, &harnesses);
 
     match &cfg_result {
         Ok(cfg) => {
@@ -152,17 +155,11 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
         });
     }
 
-    // Resolve the effective mode for harness checks (respects --explore/--standard).
+    // Resolve the effective mode for harness checks from the declared config.
     let mode = active_mode(root, force);
 
     // The configured harness set drives per-agent registration checks. Absent a
     // readable config, fall back to the historical Claude-Code-only expectation.
-    let harnesses = cfg_result
-        .as_ref()
-        .ok()
-        .map(|c| c.harnesses.clone())
-        .unwrap_or_else(default_harnesses);
-    let home = dirs::home_dir().unwrap_or_else(|| root.to_path_buf());
     let claude_selected = harnesses.contains(&HarnessId::ClaudeCode);
 
     // ── harness sub-checks ──────────────────────────────────────────────────
@@ -178,7 +175,7 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
     }
     checks.push(check_harness_claude_md(root, mode, claude_selected));
     checks.push(check_harness_agents_md(root, mode));
-    checks.push(check_harness_serve_surface(mode, has_explore_cfg));
+    checks.push(check_harness_serve_surface(mode, has_explore_reg));
 
     // ── registry_root (Ok / Fail) ───────────────────────────────────────────
     let candidates = registry::search_path();
@@ -339,8 +336,8 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
         }
     }
 
-    // ── Explore-mode checks (McpLlm only) ───────────────────────────────────
-    if mode == Mode::McpLlm {
+    // ── Explore-mode checks (grove-explore registration only) ───────────────
+    if has_explore_reg {
         let explore_cfg = cfg_result.ok().and_then(|c| c.explore);
         checks.extend(explore_checks(explore_cfg.as_ref()));
     }
@@ -357,101 +354,152 @@ pub fn diagnose(root: &Path, force: ModeChoice) -> Report {
 
 fn check_harness_mcp_json(root: &Path, mode: Mode) -> Check {
     let path = root.join(".mcp.json");
+    let format = HarnessId::ClaudeCode.mcp_format();
+
+    // Stale pre-split layout: a single `grove` entry still carrying `--explore`.
+    if has_stale_explore_arg(&path, format) {
+        return Check {
+            group: "universal",
+            name: "harness_mcp_json",
+            status: Status::Fail,
+            detail: format!(
+                "mode={}: .mcp.json uses the removed `--explore` arg (stale layout)",
+                mode_name(mode)
+            ),
+            hint: Some("grove init --as mcp-llm".to_string()),
+        };
+    }
+
     let expected_args = harness::expected_mcp_args(mode);
+    let actual_args = read_grove_args(&path, format);
+    let expected_explore = harness::expected_explore_args(mode);
+    let actual_explore = read_server_args(&path, format, harness::EXPLORE_SERVER_KEY);
 
-    let actual_args: Option<Vec<String>> = (|| -> Option<Vec<String>> {
-        let text = std::fs::read_to_string(&path).ok()?;
-        let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
-        let args = doc["mcpServers"][harness::MCP_SERVER_KEY]["args"].as_array()?;
-        Some(
-            args.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect(),
-        )
-    })();
+    let mut parts = Vec::new();
+    let structural_ok = match (expected_args, actual_args) {
+        (None, None) => {
+            parts.push("no grove entry expected and none present".to_string());
+            true
+        }
+        (None, Some(_)) => {
+            parts.push(".mcp.json has a grove entry but none is expected".to_string());
+            false
+        }
+        (Some(expected), None) => {
+            parts.push(format!(
+                ".mcp.json absent or no grove entry; expected args {:?}",
+                expected
+            ));
+            false
+        }
+        (Some(expected), Some(actual)) => {
+            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
+            if expected == actual_refs.as_slice() {
+                parts.push(format!("grove args {:?}", actual));
+                true
+            } else {
+                parts.push(format!(
+                    "expected grove args {:?}, found {:?}",
+                    expected, actual
+                ));
+                false
+            }
+        }
+    };
 
-    match (expected_args, actual_args) {
-        // Mode expects no grove entry and none is present
-        (None, None) => Check {
+    let explore_ok = match (expected_explore, actual_explore) {
+        (None, None) => {
+            parts.push("no grove-explore entry expected and none present".to_string());
+            true
+        }
+        (None, Some(_)) => {
+            parts.push(".mcp.json has a grove-explore entry but none is expected".to_string());
+            false
+        }
+        (Some(expected), None) => {
+            parts.push(format!(
+                ".mcp.json absent or no grove-explore entry; expected args {:?}",
+                expected
+            ));
+            false
+        }
+        (Some(expected), Some(actual)) => {
+            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
+            if expected == actual_refs.as_slice() {
+                parts.push(format!("grove-explore args {:?}", actual));
+                true
+            } else {
+                parts.push(format!(
+                    "expected grove-explore args {:?}, found {:?}",
+                    expected, actual
+                ));
+                false
+            }
+        }
+    };
+
+    if structural_ok && explore_ok {
+        Check {
             group: "universal",
             name: "harness_mcp_json",
             status: Status::Ok,
-            detail: format!(
-                "mode={}: no grove entry expected and none present",
-                mode_name(mode)
-            ),
+            detail: format!("mode={}: {}", mode_name(mode), parts.join("; ")),
             hint: None,
-        },
-        // Mode expects no grove entry but one is present
-        (None, Some(_)) => Check {
+        }
+    } else {
+        let hint = if expected_explore.is_some() || mode == Mode::McpLlm {
+            "grove init --as mcp-llm".to_string()
+        } else {
+            format!("grove init --as {}", mode_name(mode))
+        };
+        Check {
             group: "universal",
             name: "harness_mcp_json",
             status: Status::Fail,
-            detail: format!(
-                "mode={}: .mcp.json has a grove entry but none is expected",
-                mode_name(mode)
-            ),
-            hint: Some(format!("grove init --as {}", mode_name(mode))),
-        },
-        // Mode expects a grove entry but .mcp.json is absent or has no grove entry
-        (Some(expected), None) => Check {
-            group: "universal",
-            name: "harness_mcp_json",
-            status: Status::Fail,
-            detail: format!(
-                "mode={}: .mcp.json absent or no grove entry; expected args {:?}",
-                mode_name(mode),
-                expected
-            ),
-            hint: Some(format!("grove init --as {}", mode_name(mode))),
-        },
-        // Mode expects a grove entry and one is present — compare args
-        (Some(expected), Some(actual)) => {
-            let expected_strs: Vec<&str> = expected.to_vec();
-            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
-            if expected_strs == actual_refs {
-                Check {
-                    group: "universal",
-                    name: "harness_mcp_json",
-                    status: Status::Ok,
-                    detail: format!("mode={}: args {:?}", mode_name(mode), actual),
-                    hint: None,
-                }
-            } else {
-                Check {
-                    group: "universal",
-                    name: "harness_mcp_json",
-                    status: Status::Fail,
-                    detail: format!(
-                        "mode={}: expected args {:?}, found {:?}",
-                        mode_name(mode),
-                        expected_strs,
-                        actual
-                    ),
-                    hint: Some(format!("grove init --as {}", mode_name(mode))),
-                }
-            }
+            detail: format!("mode={}: {}", mode_name(mode), parts.join("; ")),
+            hint: Some(hint),
         }
     }
 }
 
-/// Read grove's registered `args` from a harness MCP config, format-aware:
-/// JSON (`<root_key>.grove.args`) or TOML (`[<table>.grove] args`). `None` when
-/// the file is absent/unparseable or has no grove entry.
-fn read_grove_args(path: &Path, format: McpFormat) -> Option<Vec<String>> {
+/// Read a registered server's `args` from a harness MCP config, format-aware:
+/// JSON (`<root_key>.<server>.args`) or TOML (`[<table>.<server>] args`).
+/// `None` when the file is absent/unparseable or has no entry for `server_key`.
+fn read_server_args(path: &Path, format: McpFormat, server_key: &str) -> Option<Vec<String>> {
     let text = std::fs::read_to_string(path).ok()?;
     match format {
         McpFormat::Json { root_key, .. } => {
             let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
-            let args = doc[root_key][harness::MCP_SERVER_KEY]["args"].as_array()?;
+            let args = doc[root_key][server_key]["args"].as_array()?;
             Some(args.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         }
         McpFormat::Toml { table } => {
             let doc: toml_edit::DocumentMut = text.parse().ok()?;
-            let args = doc.get(table)?.get(harness::MCP_SERVER_KEY)?.get("args")?.as_array()?;
+            let args = doc.get(table)?.get(server_key)?.get("args")?.as_array()?;
             Some(args.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         }
     }
+}
+
+/// Convenience wrapper for the structural `grove` server entry.
+fn read_grove_args(path: &Path, format: McpFormat) -> Option<Vec<String>> {
+    read_server_args(path, format, harness::MCP_SERVER_KEY)
+}
+
+/// `true` if any selected harness registers a `grove-explore` server.
+fn has_explore_registration(root: &Path, home: &Path, harnesses: &[HarnessId]) -> bool {
+    harnesses.iter().any(|&h| {
+        let path = h.mcp_config_path_in(root, Some(home));
+        read_server_args(&path, h.mcp_format(), harness::EXPLORE_SERVER_KEY).is_some()
+    })
+}
+
+/// `true` if the structural `grove` entry in a harness still uses the removed
+/// `--explore` argument (pre-split `mcp-llm` layout).
+fn has_stale_explore_arg(path: &Path, format: McpFormat) -> bool {
+    read_grove_args(path, format)
+        .map(|args| args.iter().any(|a| a == "--explore"))
+        .unwrap_or(false)
 }
 
 /// The stable check name for a harness's registration (`harness_mcp_<slug>`).
@@ -473,36 +521,107 @@ fn check_harness_registration(root: &Path, home: &Path, h: HarnessId, mode: Mode
     let name = harness_reg_check_name(h);
     let path = h.mcp_config_path_in(root, Some(home));
     let label = h.display_name();
-    let expected_args = harness::expected_mcp_args(mode);
-    let actual_args = read_grove_args(&path, h.mcp_format());
+    let format = h.mcp_format();
 
-    let (status, detail) = match (expected_args, actual_args) {
-        (None, None) => (
-            Status::Ok,
-            format!("{label}: no grove entry expected and none present"),
-        ),
-        (None, Some(_)) => (
-            Status::Fail,
-            format!("{label}: registration has a grove entry but none is expected"),
-        ),
-        (Some(expected), None) => (
-            Status::Fail,
-            format!("{label}: registration absent or no grove entry; expected args {expected:?}"),
-        ),
+    // Stale pre-split layout: a single `grove` entry still carrying `--explore`.
+    if has_stale_explore_arg(&path, format) {
+        return Check {
+            group: "universal",
+            name,
+            status: Status::Fail,
+            detail: format!(
+                "{label}: registration uses the removed `--explore` arg (stale layout)"
+            ),
+            hint: Some("grove init --as mcp-llm".to_string()),
+        };
+    }
+
+    let expected_args = harness::expected_mcp_args(mode);
+    let actual_args = read_grove_args(&path, format);
+    let expected_explore = harness::expected_explore_args(mode);
+    let actual_explore = read_server_args(&path, format, harness::EXPLORE_SERVER_KEY);
+
+    let mut parts = Vec::new();
+    let structural_ok = match (expected_args, actual_args) {
+        (None, None) => {
+            parts.push("no grove entry expected and none present".to_string());
+            true
+        }
+        (None, Some(_)) => {
+            parts.push("registration has a grove entry but none is expected".to_string());
+            false
+        }
+        (Some(expected), None) => {
+            parts.push(format!(
+                "registration absent or no grove entry; expected args {expected:?}"
+            ));
+            false
+        }
         (Some(expected), Some(actual)) => {
             let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
             if expected == actual_refs.as_slice() {
-                (Status::Ok, format!("{label}: args {actual:?}"))
+                parts.push(format!("grove args {actual:?}"));
+                true
             } else {
-                (
-                    Status::Fail,
-                    format!("{label}: expected args {expected:?}, found {actual:?}"),
-                )
+                parts.push(format!("expected grove args {expected:?}, found {actual:?}"));
+                false
             }
         }
     };
-    let hint = matches!(status, Status::Fail).then(|| format!("grove init --as {}", mode_name(mode)));
-    Check { group: "universal", name, status, detail, hint }
+
+    let explore_ok = match (expected_explore, actual_explore) {
+        (None, None) => {
+            parts.push("no grove-explore entry expected and none present".to_string());
+            true
+        }
+        (None, Some(_)) => {
+            parts.push(
+                "registration has a grove-explore entry but none is expected".to_string(),
+            );
+            false
+        }
+        (Some(expected), None) => {
+            parts.push(format!(
+                "registration absent or no grove-explore entry; expected args {expected:?}"
+            ));
+            false
+        }
+        (Some(expected), Some(actual)) => {
+            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
+            if expected == actual_refs.as_slice() {
+                parts.push(format!("grove-explore args {actual:?}"));
+                true
+            } else {
+                parts.push(format!(
+                    "expected grove-explore args {expected:?}, found {actual:?}"
+                ));
+                false
+            }
+        }
+    };
+
+    if structural_ok && explore_ok {
+        Check {
+            group: "universal",
+            name,
+            status: Status::Ok,
+            detail: format!("{label}: {}", parts.join("; ")),
+            hint: None,
+        }
+    } else {
+        let hint = if expected_explore.is_some() || mode == Mode::McpLlm {
+            "grove init --as mcp-llm".to_string()
+        } else {
+            format!("grove init --as {}", mode_name(mode))
+        };
+        Check {
+            group: "universal",
+            name,
+            status: Status::Fail,
+            detail: format!("{label}: {}", parts.join("; ")),
+            hint: Some(hint),
+        }
+    }
 }
 
 fn check_harness_claude_md(root: &Path, mode: Mode, claude_selected: bool) -> Check {
@@ -660,13 +779,9 @@ fn check_harness_agents_md(root: &Path, mode: Mode) -> Check {
     }
 }
 
-fn check_harness_serve_surface(mode: Mode, has_explore_cfg: bool) -> Check {
-    let surface = if mode == Mode::McpLlm {
-        if has_explore_cfg {
-            "Explore (when provider is healthy)"
-        } else {
-            "Standard (explore config missing; would fall back)"
-        }
+fn check_harness_serve_surface(mode: Mode, has_explore_reg: bool) -> Check {
+    let surface = if has_explore_reg {
+        "Explore (when provider is healthy)"
     } else {
         "Standard"
     };
@@ -855,6 +970,28 @@ mod tests {
         .unwrap();
     }
 
+    /// Seed a Cursor `.cursor/mcp.json` with optional `grove-explore` registration.
+    fn write_cursor_mcp_json(dir: &Path, args: &[&str], explore_args: Option<&[&str]>) {
+        let exe = std::env::current_exe().unwrap();
+        let exe_path = exe.display();
+        let args_json: Vec<_> = args.iter().map(|a| format!(r#""{a}""#)).collect();
+        let args_str = args_json.join(",");
+        let body = match explore_args {
+            Some(exp) => {
+                let exp_json: Vec<_> = exp.iter().map(|a| format!(r#""{a}""#)).collect();
+                let exp_str = exp_json.join(",");
+                format!(
+                    r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":[{args_str}]}},"grove-explore":{{"command":"{exe_path}","args":[{exp_str}]}}}}}}"#
+                )
+            }
+            None => format!(
+                r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":[{args_str}]}}}}}}"#
+            ),
+        };
+        fs::create_dir_all(dir.join(".cursor")).unwrap();
+        fs::write(dir.join(".cursor").join("mcp.json"), body).unwrap();
+    }
+
     fn write_claude_md(dir: &Path, marker: &str) {
         fs::write(
             dir.join("CLAUDE.md"),
@@ -1012,7 +1149,7 @@ mod tests {
     fn mcp_mode_with_explore_args_in_mcp_json_is_fail() {
         let dir = tmp("drift_mcp_json");
         write_config(&dir, "mcp");
-        write_mcp_json(dir.as_path(), &["serve", "--explore"]); // wrong for mcp mode
+        write_mcp_json(dir.as_path(), &["serve", "--explore"]); // stale layout for mcp mode
         write_claude_md(&dir, "mcp__grove__outline");
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1023,9 +1160,151 @@ mod tests {
             .unwrap();
         assert!(
             matches!(chk.status, Status::Fail),
-            "expected Fail for mcp mode with explore args, got {:?}: {}",
+            "expected Fail for stale --explore arg, got {:?}: {}",
             chk.status,
             chk.detail
+        );
+        assert!(
+            chk.hint.as_deref() == Some("grove init --as mcp-llm"),
+            "stale-layout hint should mention mcp-llm: {:?}",
+            chk.hint
+        );
+    }
+
+    #[test]
+    fn mcp_llm_stale_layout_single_registration_is_fail() {
+        let dir = tmp("drift_stale_layout");
+        write_config(&dir, "mcp-llm");
+        // Pre-split single-server layout: grove carries `--explore`, no grove-explore.
+        write_mcp_json(dir.as_path(), &["serve", "--explore"]);
+        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_agents_md(&dir);
+
+        let report = diagnose(&dir, ModeChoice::None);
+        let chk = report
+            .checks
+            .iter()
+            .find(|c| c.name == "harness_mcp_json")
+            .unwrap();
+        assert!(
+            matches!(chk.status, Status::Fail),
+            "expected Fail for stale single-registration layout, got {:?}: {}",
+            chk.status,
+            chk.detail
+        );
+        assert!(
+            chk.hint.as_deref() == Some("grove init --as mcp-llm"),
+            "stale-layout hint should mention mcp-llm: {:?}",
+            chk.hint
+        );
+    }
+
+    #[test]
+    fn mcp_mode_with_cursor_explore_registration_is_fail() {
+        let dir = tmp("drift_cursor_explore");
+        std::fs::create_dir_all(dir.join(".grove")).unwrap();
+        std::fs::write(
+            dir.join(".grove").join("config.json"),
+            r#"{"version":1,"mode":"mcp","harnesses":["claude-code","cursor"]}"#,
+        )
+        .unwrap();
+        write_mcp_json(dir.as_path(), &["serve"]);
+        write_claude_md(&dir, "mcp__grove__outline");
+        // Cursor registered for explore even though mode is mcp.
+        write_cursor_mcp_json(dir.as_path(), &["serve"], Some(&[]));
+
+        let report = diagnose(&dir, ModeChoice::None);
+        let cursor = report.checks.iter().find(|c| c.name == "harness_mcp_cursor").unwrap();
+        assert!(
+            matches!(cursor.status, Status::Fail),
+            "unexpected grove-explore in cursor registration for mcp mode → Fail: {}",
+            cursor.detail
+        );
+    }
+
+    #[test]
+    fn mcp_llm_cursor_only_explore_registration_triggers_explore_group() {
+        let dir = tmp("cursor_only_explore");
+        std::fs::create_dir_all(dir.join(".grove")).unwrap();
+        std::fs::write(
+            dir.join(".grove").join("config.json"),
+            r#"{"version":1,"mode":"mcp-llm","harnesses":["cursor"],"explore":{"provider":"ollama","base_url":"http://localhost:11434/v1","model":"x","steering":"standard","allowed_tools":[]}}"#,
+        )
+        .unwrap();
+        // No Claude .mcp.json; only Cursor has the dual-server registration.
+        write_cursor_mcp_json(dir.as_path(), &["serve"], Some(&[]));
+        write_agents_md(&dir);
+
+        let report = diagnose(&dir, ModeChoice::None);
+        let cursor = report.checks.iter().find(|c| c.name == "harness_mcp_cursor").unwrap();
+        assert!(matches!(cursor.status, Status::Ok), "cursor OK: {}", cursor.detail);
+        assert!(
+            report.checks.iter().any(|c| c.group == "explore"),
+            "explore group must run when grove-explore is registered in a selected harness"
+        );
+        let surface = report
+            .checks
+            .iter()
+            .find(|c| c.name == "harness_serve_surface")
+            .unwrap();
+        assert!(
+            surface.detail.starts_with("Explore"),
+            "serve surface should report Explore: {}",
+            surface.detail
+        );
+    }
+
+    #[test]
+    fn mcp_llm_without_explore_registration_skips_explore_group() {
+        let dir = tmp("no_explore_reg");
+        write_config(&dir, "mcp-llm");
+        // Structural-only registration: no grove-explore anywhere.
+        write_mcp_json(dir.as_path(), &["serve"]);
+        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_agents_md(&dir);
+
+        let report = diagnose(&dir, ModeChoice::None);
+        assert!(
+            !report.checks.iter().any(|c| c.group == "explore"),
+            "explore group must be skipped when no grove-explore registration is present"
+        );
+        let surface = report
+            .checks
+            .iter()
+            .find(|c| c.name == "harness_serve_surface")
+            .unwrap();
+        assert!(
+            surface.detail.starts_with("Standard"),
+            "serve surface should report Standard without explore registration: {}",
+            surface.detail
+        );
+    }
+
+    #[test]
+    fn mcp_llm_missing_explore_entry_is_fail() {
+        let dir = tmp("missing_explore_entry");
+        write_config(&dir, "mcp-llm");
+        // Structural grove entry present but grove-explore missing.
+        write_mcp_json(dir.as_path(), &["serve"]);
+        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_agents_md(&dir);
+
+        let report = diagnose(&dir, ModeChoice::None);
+        let chk = report
+            .checks
+            .iter()
+            .find(|c| c.name == "harness_mcp_json")
+            .unwrap();
+        assert!(
+            matches!(chk.status, Status::Fail),
+            "expected Fail for mcp-llm without grove-explore entry, got {:?}: {}",
+            chk.status,
+            chk.detail
+        );
+        assert!(
+            chk.hint.as_deref() == Some("grove init --as mcp-llm"),
+            "hint should mention mcp-llm: {:?}",
+            chk.hint
         );
     }
 
