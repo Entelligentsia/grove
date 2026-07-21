@@ -2,7 +2,7 @@
 
 # Feature Registry
 
-> Generated: 2026-07-04
+> Generated: 2026-07-21
 
 _No features yet._
 

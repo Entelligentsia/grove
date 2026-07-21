@@ -1,28 +1,28 @@
 {
   "persona-models": {
     "architect": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-8"
+      "provider": "ollama-cloud",
+      "model": "glm-5.2"
     },
     "supervisor": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-8"
+      "provider": "ollama-cloud",
+      "model": "glm-5.2"
     },
     "engineer": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     },
     "bug-fixer": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     },
     "qa-engineer": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     },
     "product-manager": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     },
     "collator": {
       "provider": "anthropic",

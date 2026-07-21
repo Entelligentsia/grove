@@ -1,0 +1,126 @@
+{
+  "taskId": "GROVE-S04-T08",
+  "sprintId": "GROVE-S04",
+  "title": "Packaging — release.yml/npm/brew ship both binaries; release dry-run",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T08",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T02",
+    "GROVE-S04-T03",
+    "GROVE-S04-T05"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Close the code-review revision by verifying all version files are at 0.4.1, producing a forced-rebuild with fresh --version evidence, exercising bump-version.sh with an explicit restore-and-checksum protocol, and documenting the safe bump-test procedure in RELEASING.md.",
+      "key_changes": [
+        "Verify all 12 version-bearing locations are at 0.4.1 (no 9.9.9 remains); restore from HEAD or targeted edit if any are wrong.",
+        "Force recompile both binaries (touch main.rs files) and confirm grove 0.4.1 and grove-explore 0.4.1 from --version.",
+        "Run cargo test --release --locked --workspace and cargo clippy --all-targets --workspace --locked -- -D warnings; capture fresh output.",
+        "Exercise scripts/bump-version.sh 9.9.9: run, verify 4 crates + 5 pins + 4 Cargo.lock entries mutated, restore with git checkout HEAD + targeted package.json edit, sha256 checksum before/after.",
+        "Run JS/shell/YAML/JSON syntax checks on all packaging files; record output verbatim.",
+        "Add 'Testing the bump script' subsection to RELEASING.md with run→verify→restore→checksum-confirm procedure.",
+        "Write fresh, non-stale PROGRESS.md with all evidence pairs (command + output).",
+        "No changes to release.yml, npm, Homebrew, install.sh, bump-version.sh, or deployment.md — all were assessed correct by code review."
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-21T03:21:14.123Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Review the revision plan for GROVE-S04-T08 packaging task to confirm it addresses the code-review version-corruption finding.",
+      "key_changes": [
+        "Plan correctly identifies version files are already restored to 0.4.1 — verification only needed.",
+        "Step 2 forced-rebuild addresses the stale --version evidence from prior PROGRESS.md.",
+        "Step 4 run→verify→restore→checksum protocol is well-designed for safe bump-script testing.",
+        "Step 6 documents the testing procedure in RELEASING.md to prevent recurrence.",
+        "Minor typo: Step 1 table lists root Cargo.toml but should be core/Cargo.toml — non-blocking.",
+        "Plan preserves all approved implementation work (release.yml, npm, brew, install.sh).",
+        "All nine acceptance criteria have traceable plan steps.",
+        "Scope is correctly limited to RELEASING.md and PROGRESS.md — no code changes."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T03:24:04.298Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Close code-review revision: verify version files at 0.4.1, produce fresh forced-rebuild evidence, run bump-version.sh with checksum restore, add 'Testing the bump script' to RELEASING.md, write non-stale PROGRESS.md.",
+      "key_changes": [
+        "Verified all four Cargo.toml, Cargo.lock, package.json, and CHANGELOG.md are at 0.4.1 — no 9.9.9 in any file.",
+        "Forced rebuild (touch main.rs files): `grove 0.4.1` and `grove-explore 0.4.1` confirmed from freshly compiled binaries.",
+        "cargo test --release --locked --workspace: 42+54+1 passed, 0 failed.",
+        "cargo clippy --all-targets --workspace --locked -- -D warnings: warning-clean.",
+        "bump-version.sh 9.9.9: 4 crates, 5 pins, 4 lock entries mutated; restored via git checkout HEAD + perl on package.json; sha256 matches before/after.",
+        "YAML/JSON/shell/JS syntax checks on all packaging files: all pass.",
+        "Added 'Testing the bump script' subsection to RELEASING.md with run→verify→restore→checksum protocol.",
+        "Wrote fresh PROGRESS.md with all evidence pairs (command + verbatim output)."
+      ],
+      "files_changed": [
+        ".github/workflows/release.yml",
+        "RELEASING.md",
+        "dist/homebrew/grove.rb",
+        "dist/npm/bin/grove-explore.js",
+        "dist/npm/install.js",
+        "dist/npm/package.json",
+        "grove-explore/src/main.rs",
+        "install.sh",
+        "scripts/bump-version.sh",
+        "engineering/architecture/deployment.md"
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PROGRESS.md",
+      "written_at": "2026-07-21T03:30:03.092Z"
+    },
+    "code_review": {
+      "objective": "Re-review the GROVE-S04-T08 revision pass that addresses the version-corruption finding from the prior code review.",
+      "key_changes": [
+        "All version files independently verified at 0.4.1 — no 9.9.9 remains in any crate, Cargo.lock, or package.json.",
+        "Binary --version smoke check: grove 0.4.1 and grove-explore 0.4.1 confirmed from fresh build.",
+        "Test suite passes: 97 tests (42+54+1), 0 failures.",
+        "Clippy CI-equivalent check passes with no warnings.",
+        "RELEASING.md now includes 'Testing the bump script' section with run→verify→restore→checksum protocol.",
+        "PROGRESS.md contains fresh, non-stale evidence matching independent verification.",
+        "Dual-binary release train (release.yml, npm, brew, install.sh) preserved and verified correct.",
+        "Prior code-review findings fully resolved."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T03:34:44.517Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate the dual-binary packaging implementation against the nine acceptance criteria for version cleanliness, binary outputs, test suite, lint, and documentation.",
+      "key_changes": [
+        "PASS: All 4 Cargo.toml files at version 0.4.1, no 9.9.9 in any version-bearing file",
+        "PASS: grove --version outputs 'grove 0.4.1'",
+        "PASS: grove-explore --version outputs 'grove-explore 0.4.1'",
+        "PASS: cargo test --release --locked --workspace: 97 tests passed, 0 failed",
+        "PASS: cargo clippy --all-targets --workspace --locked -- -D warnings: no warnings",
+        "PASS: PROGRESS.md contains bump-script run/verify/restore/checksum evidence",
+        "PASS: RELEASING.md includes 'Testing the bump script' subsection",
+        "PASS: All JS/shell/YAML/JSON syntax checks pass",
+        "PASS: PROGRESS.md evidence matches independent verification"
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T03:42:00.000Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architect approval for dual-binary packaging implementation (release.yml, npm, Homebrew, install.sh) shipping grove and grove-explore.",
+      "key_changes": [
+        "Two-binary architecture correctly implements grove (structural) and grove-explore (mcp-llm) separation.",
+        "Release workflow builds both binaries for all five platform targets with correct 4-crate publish order.",
+        "All distribution channels (npm, Homebrew, curl) ship both binaries with graceful degradation.",
+        "Version consistency verified: all four crates, Cargo.lock, npm package.json at 0.4.1.",
+        "Bump-version.sh handles all twelve version-bearing locations correctly.",
+        "Full test suite (97 tests) and CI-equivalent clippy lint pass.",
+        "RELEASING.md now includes safe bump-script testing protocol.",
+        "No breaking changes; existing grove users unaffected.",
+        "Future: consider automating npm publish and Homebrew tap regeneration."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T04:02:30.000Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

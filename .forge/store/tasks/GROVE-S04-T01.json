@@ -1,0 +1,133 @@
+{
+  "taskId": "GROVE-S04-T01",
+  "sprintId": "GROVE-S04",
+  "title": "Stage 1 — move core/src/explore/ into a new explore/ workspace crate",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T01",
+  "estimate": "L",
+  "dependencies": [],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Extract core/src/explore/ (11 modules + embedded prompt, ~3,900 lines) into a new workspace crate grove-explore-core, making grove-cst a pure structural library by storing the explore section of GroveConfig as an opaque serde_json::Value.",
+      "key_changes": [
+        "Create explore/ workspace crate with Cargo.toml (lib, name=grove_explore_core, deps: grove-cst, ureq, serde, serde_json, anyhow, dirs)",
+        "Move all 11 modules + prompts/ from core/src/explore/ to explore/src/ byte-identical except mechanical import changes",
+        "toolset.rs: change `use crate::ops` → `use grove_core::ops` (only non-trivial import change)",
+        "Remove core/src/explore/ entirely; remove pub mod explore from core/src/lib.rs and its re-exports",
+        "Change GroveConfig.explore: Option<ExploreConfig> → Option<serde_json::Value> (opaque to core)",
+        "Rewrite migrate_from_legacy_explore in core/src/config.rs to pure JSON key-rename (mode→steering) without typed parse",
+        "Drop Eq derive from GroveConfig (serde_json::Value is not Eq); adapt config round-trip tests to Value assertions",
+        "Adapt core/src/doctor.rs: remove health_probe/HealthError/toolset imports; inline tool constants; drop HTTP health-probe checks; adapt explore_checks to Option<&serde_json::Value>",
+        "Add explore to Cargo.toml workspace.members",
+        "Add grove-explore-core dep to cli/Cargo.toml",
+        "cli/src/mcp.rs: update imports + add serde_json::from_value deserialization for grove_cfg.explore",
+        "cli/src/init.rs, tap.rs, config_tui/model.rs, trace_tui/model.rs: import path updates"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-22T00:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Adversarially reviewed the plan to move core/src/explore/ into a new grove-explore-core crate and make GroveConfig.explore an opaque serde_json::Value.",
+      "key_changes": [
+        "APPROVED: architecturally sound — opaque Option<serde_json::Value> for GroveConfig.explore correctly avoids a circular grove-cst <-> grove-explore-core dep.",
+        "Verified toolset::READ/GLOB/GREP = 'Read'/'Glob'/'Grep'; the plan's inlined doctor.rs literals match exactly (no behavior change).",
+        "Verified version pin: workspace is 0.4.1; proposed grove-explore-core = { version = '=0.4.1' } mirrors the existing grove-cst pin.",
+        "Verified include_str!('prompts/explore_v2.system.md') is source-relative and stays valid after the move (plan agrees, no change needed).",
+        "Verified GroveConfig::validate() only checks version==1, so the opaque explore section removes no validate()-time coverage.",
+        "Verified new crate's mod.rs public surface already re-exports every symbol the CLI imports; mirroring into explore/src/lib.rs covers all consumers.",
+        "ADVISORY 1: CLI inventory incomplete — config_tui/mod.rs, config_tui/update.rs, model.rs L4 also import grove_core explore/ExploreConfig/Provider/Steering; absent from plan's table, must repoint.",
+        "ADVISORY 2: mcp.rs uses NoopReporter (L374) beyond the L15-16 block; repointed use must also cover run_explore_reporting, ExploreConfig, ExploreError, OpenAiCompatClient, health_probe.",
+        "ADVISORY 3: JSON key-rename in migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; malformed legacy files migrate silently — minor AC3 delta, note in PROGRESS.",
+        "ADVISORY 4: AC4 byte-identity diff summary in PROGRESS.md should show toolset.rs's crate::ops->grove_core::ops as the sole non-path delta and path-only for the rest.",
+        "Testing strategy is adequate: workspace build/test/clippy, cargo tree -p grove-cst | grep explore empty, byte-identity diffs, legacy-migration smoke test, --release --locked build."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-07-15T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Extract core/src/explore/ (11 modules + prompt) into a new grove-explore-core workspace crate; make GroveConfig.explore an opaque serde_json::Value in grove-cst.",
+      "key_changes": [
+        "Created explore/ workspace crate (grove_explore_core) with Cargo.toml, lib.rs, and all 11 modules + prompt moved from core/src/explore/",
+        "toolset.rs: `use crate::ops` → `use grove_core::ops` (sole non-path content change); 3 test use lines fixed",
+        "core/src/explore/ directory fully deleted; core/src/lib.rs: removed pub mod explore and its re-exports",
+        "core/src/config.rs: GroveConfig.explore changed to Option<serde_json::Value>; dropped Eq; rewrote migrate_from_legacy_explore as pure JSON key-rename",
+        "core/src/doctor.rs: removed explore imports; explore_checks takes Option<&Value>; replaced validate() with JSON field checks; removed HTTP health-probe checks",
+        "Cargo.toml: added 'explore' to workspace.members; cli/Cargo.toml: added grove-explore-core dep",
+        "cli/src/mcp.rs: imports → grove_explore_core; grove_cfg.explore (Value) deserialized via serde_json::from_value",
+        "cli/src/init.rs: ExploreConfig import → grove_explore_core; converts ExploreConfig→Value via serde_json::to_value",
+        "cli/src/{tap.rs,config_tui/mod.rs,model.rs,update.rs,trace_tui/model.rs}: all explore imports repointed to grove_explore_core",
+        "All 335 tests pass; clippy clean; cargo build --release --locked passes",
+        "cargo tree -p grove-cst shows NO explore dependency (postcondition verified)",
+        "All plan advisories addressed: complete CLI inventory updated, NoopReporter repointed, Value conversions added"
+      ],
+      "files_changed": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "cli/Cargo.toml",
+        "cli/src/config_tui/mod.rs",
+        "cli/src/config_tui/model.rs",
+        "cli/src/config_tui/update.rs",
+        "cli/src/init.rs",
+        "cli/src/mcp.rs",
+        "cli/src/tap.rs",
+        "cli/src/trace_tui/model.rs",
+        "core/src/config.rs",
+        "core/src/doctor.rs",
+        "core/src/lib.rs",
+        "explore/Cargo.toml",
+        "explore/src/lib.rs",
+        "explore/src/agent.rs",
+        "explore/src/client.rs",
+        "explore/src/config.rs",
+        "explore/src/discovery.rs",
+        "explore/src/grounding.rs",
+        "explore/src/health.rs",
+        "explore/src/steering.rs",
+        "explore/src/toolset.rs",
+        "explore/src/trace.rs",
+        "explore/src/wire.rs",
+        "explore/src/prompts/explore_v2.system.md"
+      ],
+      "verdict": "n/a",
+      "written_at": "2025-07-20T10:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Independently reviewed extraction of core/src/explore/ into a new grove-explore-core crate and the opaque serde_json::Value seam for GroveConfig.explore.",
+      "key_changes": [
+        "Byte-identity verified via diff vs git HEAD: 7 modules+prompt identical; agent/client/config only mechanical use-path/doc-link edits; toolset sole change crate::ops -> grove_core::ops.",
+        "Postcondition holds: cargo tree -p grove-cst | grep explore empty; grove-cst-cli gains grove-explore-core v0.4.1. Circular dep broken by opaque Value seam.",
+        "core config.rs/lib.rs/doctor.rs import no explore types; doctor inlines Read/Glob/Grep + field-presence checks; residual probe mentions are comments only.",
+        "CLI limited to import repointing + serde_json from_value/to_value at 4 boundaries; mcp.rs warns+falls back to Surface::Standard on malformed Value, no panic.",
+        "Re-ran locally: clippy -D warnings clean; cargo test --release --locked = 335 passed 0 failed (matches PROGRESS); new crate files end with trailing newline.",
+        "steering.rs include_str! prompts path resolves post-move; lib.rs re-export surface mirrors old mod.rs exactly; all 12 acceptance criteria satisfied.",
+        "ADVISORY: stale intra-doc link cli/src/config_tui/model.rs:107 grove_core::explore::discover_engines -> should be grove_explore_core; clippy/build miss it, cargo doc warns.",
+        "ADVISORY (per plan): migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; malformed legacy files migrate silently. Documented.",
+        "COSMETIC: PROGRESS test-evidence swaps grove-cst / grove-cst-cli labels on the 135/112 suites; numbers correct.",
+        "Writeback: added Workspace Structure section to stack-checklist.md (crate-layering non-dep, opaque-Value seam + Eq->PartialEq, byte-identical extraction)."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-02-14T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that core/src/explore/ was correctly extracted into grove-explore-core workspace crate, with GroveConfig.explore as opaque serde_json::Value and all 6 acceptance criteria satisfied.",
+      "key_changes": [
+        "AC1 PASS: explore/ crate has all 11 modules + prompt; lib.rs re-exports full public surface mirroring old mod.rs boundary; crate named grove-explore-core.",
+        "AC2 PASS: core/src/explore/ directory absent; core/src/lib.rs has no pub mod explore; cargo tree -p grove-cst | grep explore returns empty.",
+        "AC3 PASS: GroveConfig.explore is Option<serde_json::Value> in config.rs:93; no ExploreConfig/Provider/Steering imports in core; migrate_from_legacy_explore is pure JSON key-rename.",
+        "AC4 PASS: grounding.rs, steering.rs, wire.rs, prompts/explore_v2.system.md byte-identical; toolset.rs has 1 non-path change (crate::ops -> grove_core::ops); agent.rs has 2 test use-path adjustments.",
+        "AC5 PASS: CLI import repointing verified in all 7 files: mcp.rs, init.rs, tap.rs, config_tui/{mod.rs,model.rs,update.rs}, trace_tui/model.rs; serde_json from_value/to_value at the 4 Value boundaries.",
+        "AC6 PASS: 54 explore unit tests pass; full workspace 335 passed 0 failed; clippy -D warnings clean; cargo build --release --locked passes; all 12 explore src files end with trailing newline.",
+        "ADVISORY (non-blocking): Stale intra-doc link at cli/src/config_tui/model.rs:107 — grove_core::explore::discover_engines should be grove_explore_core; build/clippy don't fail.",
+        "ADVISORY (non-blocking): migrate_from_legacy_explore defers Provider/Steering validation to CLI deserialize; documented trade-off."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-07-16T12:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    }
+  }
+}

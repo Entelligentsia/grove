@@ -1,0 +1,133 @@
+{
+  "taskId": "GROVE-S04-T10",
+  "sprintId": "GROVE-S04",
+  "title": "Gate test (a) — full sidebench re-run on the split binary (user-supervised rig)",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T10",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T02",
+    "GROVE-S04-T05"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Prepare the split-binary gate test: fresh release builds, a fix for the now-broken is-grep-enough sidebench harness pointing, and the handoff/write-up scaffold for the user-supervised 347-case reference re-run against the 80.6 baseline.",
+      "key_changes": [
+        "No grove source changes — T01/T02/T03/T05/T09 already shipped the split; this task rebuilds release binaries as the gate-test artifact.",
+        "Research finding: is-grep-enough/studies/fastcontext-sidebench/run-grove-explore.sh is the only harness that actually drives the compiled grove-explore MCP agent loop end-to-end.",
+        "Research finding: grove-explore-model/scripts/run_eval.py is the literal source of the 347-case/80.6 reference number but bypasses the explore MCP tool entirely, shelling straight to grove CLI verbs.",
+        "Cross-check: explore/src/prompts/explore_v2.system.md is byte-identical to grove-explore-model/prompts/explore-v2.system.txt, confirming ADR 0004's byte-identical reference-harness claim.",
+        "run-grove-explore.sh's MCP launch config uses 'grove serve --explore', which T03 turned into a hard error; fix is a binary+args swap to 'grove-explore serve' (its default subcommand).",
+        "Recommendation: pin grove-explore-model's question set/model config, run via fastcontext-sidebench against the compiled binary — flagged for user/architect confirmation, not assumed.",
+        ".grove/config.json explore section format is unaffected (opaque passthrough per T01) — no harness config-shape changes needed beyond the server launch command.",
+        "Harness-pointing fix is prepared here but commits in is-grep-enough, not this repo, per the task's cross-repo coordination note.",
+        "Actual rig execution (llama.cpp serving base-q4-v2-hf, sidebench re-run) is user-supervised per D1 and out of scope for unattended completion in this plan."
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PLAN.md",
+      "written_at": "2026-07-21T05:31:21.245Z"
+    },
+    "review_plan": {
+      "objective": "Review the GROVE-S04-T10 plan (split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing fix, user-supervised 347-case re-run handoff against the 80.6 reference).",
+      "key_changes": [
+        "VERIFIED: grove serve --explore is a hard error post-T03 (cli/src/main.rs:405-409); old surface unusable.",
+        "VERIFIED: grove-explore serve <repo> is the default subcommand; exposes 'explore' tool so mcp__grove__explore is preserved across the split.",
+        "VERIFIED: .grove/config.json[explore] is opaque Option<serde_json::Value> (core/src/config.rs:93); grove-explore serve_main reads it identically to old path — harness config writes stay compatible.",
+        "VERIFIED: explore prompts byte-identical (1818 B both repos), confirming ADR 0004's byte-identical claim.",
+        "VERIFIED: registry.jsonl base-q4-v2-hf holds 80.6/347, Q4_K_M, serve params matching the plan's handoff command.",
+        "VERIFIED: run-grove-explore.sh:45 has the exact MCP config quoted; the two-harness research finding is accurate.",
+        "Plan defers the scope interpretation (fastcontext-sidebench vs grove-explore-model) to user confirmation, not silent assumption.",
+        "Plan respects D1 role boundary: prepares binaries + harness fix + handoff, no unattended rig execution.",
+        "ADVISORY: harness fix must preserve MCP server key 'grove' or --allowedTools filter silently drops the tool — false-pass risk.",
+        "ADVISORY: recommended scope (347 questions via fastcontext-sidebench) needs harness work beyond the listed binary+args swap.",
+        "ADVISORY: run-grove-explore.sh:6 GROVE variable needs a grove-explore companion/repoint."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "PLAN_REVIEW.md",
+      "written_at": "2026-07-21T05:34:36.592Z"
+    },
+    "implementation": {
+      "objective": "Prepare ADR 0004's split-binary gate test (a): rebuild release binaries, fix the is-grep-enough harness pointing, pin the reference combination, surface the harness-scope question, and hand off the user-supervised 347-case re-run vs. 80.6.",
+      "key_changes": [
+        "Rebuilt/verified target/release/grove (0.4.1) and grove-explore (0.4.1) off main; no grove source changed (git diff --stat empty for cli/explore/grove-explore/core).",
+        "Confirmed `grove serve --explore` is a hard error post-T03 (exit 1, points to `grove-explore serve`).",
+        "Confirmed `grove-explore serve <path>` is the correct replacement; preserves MCP server key `grove` and tool `explore` (mcp__grove__explore).",
+        "Prepared corrected patch for is-grep-enough's run-grove-explore.sh (binary+args swap); verified `git apply --check` passes; did NOT apply or commit it there.",
+        "Saved patch as engineering/sprints/GROVE-S04/GROVE-S04-T10/harness-fix.patch for user review.",
+        "Pinned registry.jsonl entry base-q4-v2-hf (347-case, mean 80.6, Q4_K_M) and documented exact llama-server + sidebench handoff commands.",
+        "Surfaced harness-identity scope question via interactive checkpoint; human answered (source=user): defer the run to a follow-up.",
+        "cargo test --release --locked: 344 passed, 0 failed across all workspace crates + doc-tests.",
+        "cargo clippy --all-targets --workspace -- -D warnings: no warnings.",
+        "PROGRESS.md records deferred-run status; no pass/fail claim made against 80.6 since no run occurred this phase.",
+        "Status transitioned planned -> plan-approved -> implementing -> implemented (review-plan had not moved the status field despite an approved verdict)."
+      ],
+      "files_changed": [
+        "engineering/sprints/GROVE-S04/GROVE-S04-T10/harness-fix.patch",
+        "engineering/sprints/GROVE-S04/GROVE-S04-T10/PROGRESS.md"
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PROGRESS.md",
+      "written_at": "2026-07-21T06:59:56.806Z"
+    },
+    "code_review": {
+      "objective": "Review the GROVE-S04-T10 implementation (split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing patch, reference-combination pin, user-supervised 347-case re-run handoff vs 80.6).",
+      "key_changes": [
+        "No grove source changed — git diff --stat empty for cli/explore/grove-explore/core; mechanical rebuild + handoff task.",
+        "Release binaries verified: grove 0.4.1, grove-explore 0.4.1; both present and start cleanly.",
+        "grove serve --explore confirmed hard error (exit 1, correct replacement message) — regression guard intact.",
+        "Harness patch correct: GROVE variable repointed to grove-explore, args swapped to [serve, $clone], MCP server key 'grove' preserved — addresses both plan-review advisories.",
+        "Harness patch applies cleanly to is-grep-enough (git apply --check re-verified); not applied/committed — cross-repo boundary respected.",
+        "registry.jsonl base-q4-v2-hf verified: holdout_mean 80.6, holdout_n 347, quant Q4_K_M — matches handoff commands.",
+        "Prompt byte-identity cross-checked: explore_v2.system.md == explore-v2.system.txt — ADR 0004 claim confirmed.",
+        "Scope question surfaced to genuine human checkpoint (source=user answered=true): defer the rig run — not silently assumed.",
+        "cargo test --release --locked independently re-run: 344 passed, 0 failed — matches PROGRESS exactly.",
+        "cargo clippy --all-targets --workspace -- -D warnings independently re-run: no warnings.",
+        "No pass/fail fabricated against 80.6 — PROGRESS explicitly states comparison table not yet available; no run occurred.",
+        "Advisory: actual gate test (AC3 score vs 80.6) remains unperformed by user decision; sprint closure gated on the follow-up run."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "CODE_REVIEW.md",
+      "written_at": "2026-07-21T07:02:46.381Z"
+    },
+    "validation": {
+      "objective": "Validate GROVE-S04-T10's prep-for-gate-test deliverable (release rebuild, is-grep-enough harness-pointing patch, pinned reference combination, D1 checkpoint) against TASK_PROMPT AC, independently re-verifying build/patch/test/lint claims.",
+      "key_changes": [
+        "AC1 harness-pointing PASS: patch re-inspected directly — GROVE var repointed, args swapped to [serve,$clone], MCP key 'grove' preserved (both plan-review advisories addressed in the actual diff).",
+        "AC2 pinned reference combination: documented/PASS as precondition; not yet executed (no run occurred).",
+        "AC3 score matches 80.6: NOT YET SATISFIED — no run occurred; PROGRESS.md correctly makes no fabricated pass/fail claim.",
+        "AC4 run recorded in evidence: NOT YET SATISFIED — nothing to record, no run occurred.",
+        "AC5 D1 roles honored PASS: genuine human checkpoint (source=user answered=true) chose 'defer to follow-up', not silently assumed.",
+        "Independently re-verified: grove 0.4.1 / grove-explore 0.4.1 binaries current and runnable.",
+        "Independently re-verified: `grove serve --explore` is a hard error (exit 1) pointing to `grove-explore serve`, matching the patch's replacement command.",
+        "Independently re-verified: git diff --stat HEAD -- cli/ explore/ grove-explore/ core/ is empty — zero source regression surface.",
+        "Independently re-run: cargo test --release --locked -> 344 passed, 0 failed, matches PROGRESS.md exactly.",
+        "Independently re-run: cargo clippy --all-targets --workspace -- -D warnings -> clean.",
+        "is-grep-enough checkout absent from this sandbox; cross-repo git apply --check claim could not be independently re-executed (accepted sandbox limitation, not an implementation gap).",
+        "Sprint requirement #10 / D1's literal bar (score vs 80.6, evidence recorded) remains open and is flagged as a blocking item for sprint closure, not waved through."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-01-01T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on GROVE-S04-T10's split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing patch, pinned reference combination, and user-supervised rig handoff.",
+      "key_changes": [
+        "No grove source changed — mechanical rebuild + cross-repo handoff; zero regression surface (git diff --stat empty for cli/explore/grove-explore/core).",
+        "Split-binary architecture correct: grove serve --explore is a hard error (exit 1), grove-explore serve is the replacement preserving MCP key 'grove' and tool 'explore'.",
+        "Harness patch correct: GROVE repointed to grove-explore, args [serve, $clone], MCP key preserved — both plan-review advisories addressed.",
+        "Cross-repo boundary respected: patch saved as artifact, not applied/committed in is-grep-enough; git apply --check passes.",
+        "Byte-identity claim confirmed: explore_v2.system.md == explore-v2.system.txt (1818 B both repos) — ADR 0004 no-inner-loop-change guarantee has code-level backstop.",
+        "D1 role boundary honored: genuine human checkpoint (source=user answered=true) deferred the rig run — not silently assumed.",
+        "AC3 (score matches 80.6) and AC4 (run recorded) NOT YET SATISFIED — no run occurred; blocking items for sprint closure, not implementation defects.",
+        "Task unattended scope complete: binaries built/verified, harness pointing prepared, reference combination pinned, handoff documented.",
+        "cargo test --release --locked: 344 passed, 0 failed; cargo clippy clean — both independently re-verified by code-review and validation.",
+        "No deployment impact: no version bump, no distribution change, no migration — local release binaries + cross-repo patch artifact only.",
+        "BLOCKING FOLLOW-UP: 347-case sidebench re-run must land (score vs 80.6, evidence recorded) before GROVE-S04 can close."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T07:08:20.125Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # Architecture Context Pack
 
-Built: 2026-07-04T20:43:55.088Z
-Source hash: sha256:c68b3b15e3cc6d46309955be8e6798d593d6f495bb7df4304c9b0a63e3f5c675
+Built: 2026-07-21T07:08:40.575Z
+Source hash: sha256:58c8424bf5daf1bf48270f937ddc49178b93ca1c31ed3dd6f46f765fa90bdc1b
 
 ## Document summaries
 
@@ -31,9 +31,9 @@ Review items derived from the grove technology stack and testing approach. Use t
 
 - engineering/architecture/INDEX.md — Architecture (15 lines)
 - engineering/architecture/database.md — Database (122 lines)
-- engineering/architecture/deployment.md — Deployment (80 lines)
+- engineering/architecture/deployment.md — Deployment (81 lines)
 - engineering/architecture/entity-model.md — Entity Model (171 lines)
 - engineering/architecture/processes.md — Processes (87 lines)
 - engineering/architecture/routing.md — Routing (86 lines)
-- engineering/architecture/stack-checklist.md — Stack Checklist (65 lines)
+- engineering/architecture/stack-checklist.md — Stack Checklist (73 lines)
 - engineering/architecture/stack.md — Stack (67 lines)

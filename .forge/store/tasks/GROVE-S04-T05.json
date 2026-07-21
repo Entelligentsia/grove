@@ -1,0 +1,158 @@
+{
+  "taskId": "GROVE-S04-T05",
+  "sprintId": "GROVE-S04",
+  "title": "Move config/trace TUIs + tap to grove-explore; forwarding shims + string sweep",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T05",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T02"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Move config_tui, trace_tui, and tap.rs wholesale to grove-explore as grove-explore config/tap subcommands, add forwarding shims in the grove CLI, fix init.rs first-run TUI call, preserve GroveConfig.mode on save, and sweep single-server user strings.",
+      "key_changes": [
+        "New grove-explore/Cargo.toml workspace crate with ratatui+crossterm deps; removes both from cli/Cargo.toml and removes the [[bin]] grove-explore block.",
+        "New grove-explore/src/main.rs dispatches serve/config/tap subcommands; serve becomes explicit (was a positional path arg).",
+        "Move 9 files verbatim from cli/src/{config_tui,trace_tui,tap.rs} to grove-explore/src/; update crate-internal references.",
+        "AC4 removal: drop grove_mode + explore_active from App; remove mode-badge, inert-render guards, and 4 now-trivial unit tests.",
+        "AC5 fix (blocker 2): save path re-reads mode from GroveConfig::load(root) before writing — mirrors harnesses pattern; mode never forced to McpLlm.",
+        "New unit test config_round_trip_preserves_mode_and_harnesses: builds from config.json with mode=mcp, simulates save, asserts mode==Mcp and harnesses preserved.",
+        "AC3 string sweep: tap.rs user strings updated from explore.json/grove-serve to config.json/grove-explore; doc strings updated.",
+        "cli/src/main.rs: remove 3 mod decls; Config and Tap match arms become exec shims printing deprecation note before forwarding.",
+        "cli/src/init.rs fix (blocker 1): replace crate::config_tui::run() with find_explore_binary() exec of grove-explore config; fix stale comment.",
+        "cli/tests/cli.rs: replace CARGO_BIN_EXE_grove-explore with grove_explore_bin() helper; update tap tests to seed/assert config.json.",
+        "5 new integration tests: shim prints new spelling (config+tap), grove-explore config non-TTY fails fast, grove-explore tap enables config.json, init absent grove-explore.",
+        "cargo tree check: ratatui/crossterm absent from grove-cst-cli dep tree; present in grove-explore-bin dep tree (AC6)."
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PLAN.md",
+      "written_at": "2026-07-20T11:17:26.664Z"
+    },
+    "review_plan": {
+      "objective": "Reviewed the revised plan to move config/trace TUIs + tap into a new grove-explore workspace crate with forwarding shims and an explore.json string sweep.",
+      "key_changes": [
+        "Blocker 1 fix verified: init.rs:136 does call crate::config_tui::run; Step 8a's find_explore_binary() exec (helper real at init.rs:597) prevents the compile break (AC7).",
+        "Blocker 2 fix verified: config_tui/mod.rs:103 writes mode: app.grove_mode; Step 6 re-reads existing.mode from disk mirroring harnesses pattern, satisfying AC5 (mode preserved, not forced McpLlm).",
+        "Dependency completeness verified: moved files import only anyhow, crossterm, grove_core, grove_explore_core, ratatui, serde_json (+serde) — all present in new grove-explore/Cargo.toml.",
+        "Wholesale-move premise confirmed: zero crate::{ops,engine,registry,init,serve} references in moved files — no dangling coupling.",
+        "String sweep targets match on-disk strings at tap.rs:24/26-27/33, trace_tui/mod.rs:4, config_tui/view.rs:90; GroveConfig shape matches core/src/config.rs:82.",
+        "Advisory: update.rs has ~12 explore_active guards (not just Save) — compiler-enforced removal via field deletion, so AC7 guarantees completeness.",
+        "Advisory: Step 8a first-run guard still keys on explore.json (pre-existing, not a regression); ensure non-interactive init paths seed explore.json to avoid non-TTY exec failure.",
+        "Advisory: Step 2 must implement Option<Cmd> -> Serve fallback so bare grove-explore (no subcommand, from .mcp.json) still serves; keep an assertion for it."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "PLAN_REVIEW.md",
+      "written_at": "2026-07-20T11:21:11.551Z"
+    },
+    "implementation": {
+      "objective": "Move config/trace TUIs + tap to grove-explore workspace crate; add forwarding shims in grove CLI; fix init.rs first-run TUI call; preserve GroveConfig.mode on save; string sweep; fix AC7 cold-target CI blocker.",
+      "key_changes": [
+        "grove-explore/Cargo.toml: new workspace crate with ratatui+crossterm deps; serve/config/tap subcommands; bare invocation defaults to Serve.",
+        "Moved 9 files verbatim from cli/src/{config_tui,trace_tui,tap.rs} to grove-explore/src/; deleted originals and cli/src/bin/grove_explore.rs.",
+        "AC4: grove_mode/explore_active fields deleted from config_tui/model.rs; mode badge removed from view.rs; 4 inert unit tests deleted from update.rs.",
+        "AC5: config_tui/mod.rs save path re-reads mode+harnesses via GroveConfig::load(root); config_round_trip_preserves_mode_and_harnesses asserts mode==Mcp.",
+        "AC3: tap.rs does GroveConfig read-modify-write to .grove/config.json; all user hint strings updated; no explore.json refs; trace_tui string sweep complete.",
+        "AC2: cli/src/main.rs Config+Tap match arms print deprecation note before exec-forwarding to grove-explore; shim works even when binary absent.",
+        "init.rs: first-run TUI call replaced with find_explore_binary() exec of grove-explore config (fixes blocker 1).",
+        "AC7 fix: grove_explore_bin() rewritten with std::sync::Once + on-demand cargo build --locked -p grove-explore-bin; detects release vs debug; respects $CARGO.",
+        "5 new integration tests added: config shim, tap shim, config non-TTY, tap enables config.json, init absent grove-explore.",
+        "Cold-target proof: rm grove-explore → cargo test --release --locked -p grove-cst-cli --test cli → 42/42 (Compiling grove-explore-bin mid-run).",
+        "Full suite: cargo test --release --locked --workspace → 340 passed, 0 failed.",
+        "cargo clippy --all-targets --workspace -- -D warnings → clean (exit 0); AC6: ratatui/crossterm absent from grove-cst-cli dep tree."
+      ],
+      "files_changed": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "cli/Cargo.toml",
+        "cli/src/main.rs",
+        "cli/src/init.rs",
+        "cli/tests/cli.rs",
+        "grove-explore/Cargo.toml",
+        "grove-explore/src/main.rs",
+        "grove-explore/src/config_tui/mod.rs",
+        "grove-explore/src/config_tui/model.rs",
+        "grove-explore/src/config_tui/update.rs",
+        "grove-explore/src/config_tui/view.rs",
+        "grove-explore/src/tap.rs",
+        "grove-explore/src/trace_tui/mod.rs",
+        "grove-explore/src/trace_tui/model.rs",
+        "grove-explore/src/trace_tui/update.rs",
+        "grove-explore/src/trace_tui/view.rs",
+        "cli/src/bin/grove_explore.rs",
+        "cli/src/config_tui/mod.rs",
+        "cli/src/config_tui/model.rs",
+        "cli/src/config_tui/update.rs",
+        "cli/src/config_tui/view.rs",
+        "cli/src/tap.rs",
+        "cli/src/trace_tui/mod.rs",
+        "cli/src/trace_tui/model.rs",
+        "cli/src/trace_tui/update.rs",
+        "cli/src/trace_tui/view.rs"
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PROGRESS.md",
+      "written_at": "2026-07-20T13:04:34.501Z"
+    },
+    "code_review": {
+      "objective": "Re-review the config/trace-TUI + tap move to grove-explore-bin after the prior AC7 cold-target Revision Required; verify every AC independently against the on-disk tree.",
+      "key_changes": [
+        "AC7 blocker RESOLVED and independently reproduced: rm target/release/grove-explore, then cargo test -p grove-cst-cli --test cli triggered 'Compiling grove-explore-bin' mid-run and passed 42/42.",
+        "grove_explore_bin() fix uses std::sync::Once + on-demand cargo build --locked -p grove-explore-bin, honours $CARGO, detects release/debug, bin.exists() short-circuits warm runs.",
+        "Full workspace: cargo test --release --locked --workspace = 340 passed, 0 failed. Clippy --all-targets --workspace -D warnings clean (exit 0).",
+        "AC1: config_tui/trace_tui/tap moved verbatim to grove-explore/src; main.rs dispatches serve/config/tap; bare invocation defaults to Serve.",
+        "AC2: cli/src/main.rs Config/Tap arms print new-spelling deprecation note then exec-forward via find_explore_binary(); graceful actionable failure when binary absent.",
+        "AC3: tap.rs GroveConfig read-modify-write to config.json preserving mode/harnesses; hint says 'restart grove-explore'; no user-facing explore.json strings (only migration comments).",
+        "AC4: grove_mode/explore_active fields deleted from model.rs; mode badge + explore-notice row + inert guards removed from view.rs; only AC4 doc-comments remain.",
+        "AC5: config_tui/mod.rs save re-reads mode AND harnesses from disk before write; config_round_trip_preserves_mode_and_harnesses asserts readback.mode == Mode::Mcp.",
+        "AC6: cargo tree confirms ratatui/crossterm absent from grove-cst-cli, present in grove-explore-bin.",
+        "init.rs first-run fix: replaced crate::config_tui::run with find_explore_binary() exec of grove-explore config; prior 'grove tap'/'grove serve' string advisories also addressed.",
+        "Advisory (non-blocking): round-trip test re-implements the save sequence inline rather than driving the real event_loop Save arm; consider extracting a shared helper.",
+        "Advisory (non-blocking): init.rs:136 first-run guard still keys on .grove/explore.json sentinel (pre-existing, acceptable during one-release deprecation window)."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "CODE_REVIEW.md",
+      "written_at": "2026-07-20T13:11:02.065Z"
+    },
+    "validation": {
+      "objective": "Validate all 7 acceptance criteria for moving config/trace TUIs + tap to grove-explore, forwarding shims, string sweep, mode preservation, and dependency isolation.",
+      "key_changes": [
+        "AC1 PASS: config_tui/trace_tui/tap moved to grove-explore/src; engine picker/model dropdown/tap toggle/trace browser all present; 42 grove-explore-bin unit tests pass.",
+        "AC2 PASS: grove config and grove tap shims both eprintln the new spelling unconditionally; exec-forward to grove-explore; shim tests pass.",
+        "AC3 PASS: tap.rs user strings say 'restart the grove-explore server'; no explore.json in user-facing messages; trace_tui clean.",
+        "AC4 PASS: grove_mode/explore_active fields absent from model.rs; mode badge and inert guards removed from view.rs; zero occurrences in update.rs.",
+        "AC5 PASS: config_tui/mod.rs save re-reads mode+harnesses from GroveConfig::load(root); config_round_trip_preserves_mode_and_harnesses asserts mode==Mcp.",
+        "AC6 PASS: cargo tree -p grove-cst-cli shows no ratatui/crossterm; grove-explore-bin shows both; cli/Cargo.toml clean.",
+        "AC7 PASS: 340 tests pass, 0 failed. Clippy clean. Cold-target: rm grove-explore binary then 'Compiling grove-explore-bin' fires mid-run, tests pass.",
+        "init.rs blocker 1 PASS: first-run TUI call replaced with find_explore_binary() exec; no crate::config_tui::run reference.",
+        "5 new integration tests pass: config shim, tap shim, config non-TTY, tap enables config.json, init absent grove-explore.",
+        "No regressions: 42 pre-existing cli integration tests continue to pass.",
+        "Advisory (non-blocking): round-trip test re-implements save inline rather than exercising real event_loop Save arm.",
+        "Advisory (non-blocking): init.rs first-run guard still keys on explore.json sentinel (pre-existing, one-release deprecation window)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T13:17:00.498Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on moving config/trace TUIs + tap to the grove-explore workspace crate with forwarding shims, string sweep, and TUI dependency isolation.",
+      "key_changes": [
+        "All 7 ACs re-confirmed by independent code review (approved) and validation (approved: 340 tests passed, 0 failed; clippy --all-targets --workspace -D warnings clean).",
+        "On-disk state verified: grove-explore/src/ holds config_tui, trace_tui, tap.rs, main.rs; cli/Cargo.toml free of ratatui/crossterm; Cargo.toml workspace members include grove-explore.",
+        "AC6 dependency isolation is the key architectural win — heavy TUI deps (ratatui/crossterm) no longer bloat the grove CLI binary.",
+        "AC2 backward compatibility: grove config/tap forwarding shims remain one release, each printing the new spelling whether or not grove-explore is present.",
+        "AC5 config ownership: save path re-reads mode+harnesses from on-disk GroveConfig before writing, preventing guest-writer skew; covered by round-trip test.",
+        "AC4 ADR-0002 alignment: mode-gated inert-render path removed as moot; string sweep drops deprecated .grove/explore.json user-facing references.",
+        "Prior AC7 cold-target CI blocker resolved and independently reproduced (grove-explore-bin compiles mid-run; 42/42 CLI suite passes).",
+        "Deployment impact minimal: rides next release train, no migration/regeneration, no security scan; CHANGELOG should name the shim removal release.",
+        "Follow-up: extract the save-path GroveConfig-rebuild invariant into a shared helper so the round-trip test drives the real event_loop Save arm.",
+        "Follow-up: migrate init.rs:136 first-run sentinel off .grove/explore.json to a config.json-based sentinel when explore.json support is dropped.",
+        "Follow-up: schedule deletion of the grove config/tap forwarding shims for the named removal release."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-06-12T00:00:00Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

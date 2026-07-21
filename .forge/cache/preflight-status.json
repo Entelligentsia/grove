@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "forgeRoot": "/home/boni/.claude/plugins/cache/forge/forge/1.6.4",
+  "forgeRoot": "/home/boni/.claude/plugins/cache/forge/forge/1.6.13",
   "sprintId": null,
   "configReconciled": true,
   "manifestState": {
@@ -8,14 +8,15 @@
     "reason": "no generation-manifest in instance (informational)"
   },
   "calibrationFresh": {
-    "fresh": true,
-    "lastCalibrated": "2026-06-30T13:42:39.282Z"
+    "fresh": false,
+    "suggest": "/forge:calibrate",
+    "reason": "masterIndexHash drift since last calibration"
   },
-  "masterIndexHash": "c9b0b32876338a16e898c09906d440d16222101d0551fd60fa47cbcf6cb83454",
-  "configMtime": 1783055907039.4226,
+  "masterIndexHash": "be01ceabdb9c517ac53297deb6f21684b5eb2039574c0424f05daa2f46c5a272",
+  "configMtime": 1784446219784.249,
   "structureOk": null,
-  "generatedAt": "2026-07-03T05:19:56.881Z",
+  "generatedAt": "2026-07-20T04:05:40.647Z",
   "warnings": [
-    "structure check error: Cannot find module '/home/boni/.claude/plugins/cache/forge/forge/1.6.4/tools/check-structure.cjs'\nRequire stack:\n- /home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload/tools/forge-preflight.cjs"
+    "structure check error: Cannot find module '/home/boni/.claude/plugins/cache/forge/forge/1.6.13/tools/check-structure.cjs'\nRequire stack:\n- /home/boni/.nvm/versions/node/v24.3.0/lib/node_modules/@entelligentsia/forgecli/dist/forge-payload/tools/forge-preflight.cjs"
   ]
 }

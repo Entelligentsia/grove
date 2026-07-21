@@ -20,6 +20,7 @@ Tracks GitHub issue #50. Migrate the binary-only crate to a virtual workspace: c
 | --------------------------------------------- | ------------------------------------ |
 | [Sprint Plan](SPRINT_PLAN.md)                 | Sprint scope and task definitions    |
 | [Sprint Requirements](SPRINT_REQUIREMENTS.md) | Requirements and acceptance criteria |
+| [Cost Report](COST_REPORT.md)                 | Token usage and cost analysis        |
 
 ## Tasks
 
