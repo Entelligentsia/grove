@@ -1,0 +1,19 @@
+{
+  "objective": "Review the GROVE-S04-T10 implementation (split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing patch, reference-combination pin, user-supervised 347-case re-run handoff vs 80.6).",
+  "key_changes": [
+    "No grove source changed — git diff --stat empty for cli/explore/grove-explore/core; mechanical rebuild + handoff task.",
+    "Release binaries verified: grove 0.4.1, grove-explore 0.4.1; both present and start cleanly.",
+    "grove serve --explore confirmed hard error (exit 1, correct replacement message) — regression guard intact.",
+    "Harness patch correct: GROVE variable repointed to grove-explore, args swapped to [serve, $clone], MCP server key 'grove' preserved — addresses both plan-review advisories.",
+    "Harness patch applies cleanly to is-grep-enough (git apply --check re-verified); not applied/committed — cross-repo boundary respected.",
+    "registry.jsonl base-q4-v2-hf verified: holdout_mean 80.6, holdout_n 347, quant Q4_K_M — matches handoff commands.",
+    "Prompt byte-identity cross-checked: explore_v2.system.md == explore-v2.system.txt — ADR 0004 claim confirmed.",
+    "Scope question surfaced to genuine human checkpoint (source=user answered=true): defer the rig run — not silently assumed.",
+    "cargo test --release --locked independently re-run: 344 passed, 0 failed — matches PROGRESS exactly.",
+    "cargo clippy --all-targets --workspace -- -D warnings independently re-run: no warnings.",
+    "No pass/fail fabricated against 80.6 — PROGRESS explicitly states comparison table not yet available; no run occurred.",
+    "Advisory: actual gate test (AC3 score vs 80.6) remains unperformed by user decision; sprint closure gated on the follow-up run."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "CODE_REVIEW.md"
+}

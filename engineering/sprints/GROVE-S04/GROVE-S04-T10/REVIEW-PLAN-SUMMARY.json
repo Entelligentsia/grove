@@ -1,0 +1,18 @@
+{
+  "objective": "Review the GROVE-S04-T10 plan (split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing fix, user-supervised 347-case re-run handoff against the 80.6 reference).",
+  "key_changes": [
+    "VERIFIED: grove serve --explore is a hard error post-T03 (cli/src/main.rs:405-409); old surface unusable.",
+    "VERIFIED: grove-explore serve <repo> is the default subcommand; exposes 'explore' tool so mcp__grove__explore is preserved across the split.",
+    "VERIFIED: .grove/config.json[explore] is opaque Option<serde_json::Value> (core/src/config.rs:93); grove-explore serve_main reads it identically to old path — harness config writes stay compatible.",
+    "VERIFIED: explore prompts byte-identical (1818 B both repos), confirming ADR 0004's byte-identical claim.",
+    "VERIFIED: registry.jsonl base-q4-v2-hf holds 80.6/347, Q4_K_M, serve params matching the plan's handoff command.",
+    "VERIFIED: run-grove-explore.sh:45 has the exact MCP config quoted; the two-harness research finding is accurate.",
+    "Plan defers the scope interpretation (fastcontext-sidebench vs grove-explore-model) to user confirmation, not silent assumption.",
+    "Plan respects D1 role boundary: prepares binaries + harness fix + handoff, no unattended rig execution.",
+    "ADVISORY: harness fix must preserve MCP server key 'grove' or --allowedTools filter silently drops the tool — false-pass risk.",
+    "ADVISORY: recommended scope (347 questions via fastcontext-sidebench) needs harness work beyond the listed binary+args swap.",
+    "ADVISORY: run-grove-explore.sh:6 GROVE variable needs a grove-explore companion/repoint."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "PLAN_REVIEW.md"
+}

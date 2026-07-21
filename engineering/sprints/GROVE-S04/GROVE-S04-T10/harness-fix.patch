@@ -1,0 +1,30 @@
+--- a/studies/fastcontext-sidebench/run-grove-explore.sh
++++ b/studies/fastcontext-sidebench/run-grove-explore.sh
+@@ -1,9 +1,10 @@
+ #!/usr/bin/env bash
+-# Native grove `explore` delegation arm (grove 0.3.0, Rust core::explore).
++# Native grove-explore delegation arm (grove-explore 0.4.1, split from `grove` in
++# GROVE-S04; the LLM-delegating explore surface now lives in its own binary).
+ # Outer sonnet delegates all exploration to `mcp__grove__explore` (qwen3.5:4b inner).
+ # Usage: run-grove-explore.sh <repo> <rung> <steering>
+ set -uo pipefail
+-GROVE=/home/boni/src/grove-engineering/grove/target/release/grove
++GROVE=/home/boni/src/grove-engineering/grove/target/release/grove-explore
+ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ TB_ROOT="$(cd "$here/../.." && pwd)"
+ OUT="$here/out-grove"; mkdir -p "$OUT"
+@@ -39,10 +40,12 @@
+ json.dump(c,open(p,"w"),indent=2)
+ PY
+ 
+-# per-cell mcp config: grove serve --explore, rooted at the repo
++# per-cell mcp config: grove-explore serve, rooted at the repo
++# (server key stays "grove" — that is what mcp__grove__explore resolves against;
++#  renaming it would silently drop the tool from --allowedTools)
+ cfg="$OUT/$cell.mcp.json"
+ cat > "$cfg" <<JSON
+-{ "mcpServers": { "grove": { "command": "$GROVE", "args": ["serve", "--explore", "$clone"] } } }
++{ "mcpServers": { "grove": { "command": "$GROVE", "args": ["serve", "$clone"] } } }
+ JSON
+ 
+ SYS_STEER='You are running in a restricted environment with NO direct filesystem, shell, or search tools. Your ONLY way to inspect this repository is the explore tool (mcp__grove__explore), a locator that delegates to a code-navigation agent and returns file:line citations. You MUST call explore to answer any question about the code; never answer code-location questions from prior knowledge. Ask a few targeted locator questions, then synthesize. Base your final answer solely on the citations explore returns.'

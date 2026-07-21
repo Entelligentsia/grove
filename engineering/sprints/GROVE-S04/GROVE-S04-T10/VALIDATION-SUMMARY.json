@@ -1,0 +1,20 @@
+{
+  "objective": "Validate GROVE-S04-T10's prep-for-gate-test deliverable (release rebuild, is-grep-enough harness-pointing patch, pinned reference combination, D1 checkpoint) against TASK_PROMPT AC, independently re-verifying build/patch/test/lint claims.",
+  "key_changes": [
+    "AC1 harness-pointing PASS: patch re-inspected directly — GROVE var repointed, args swapped to [serve,$clone], MCP key 'grove' preserved (both plan-review advisories addressed in the actual diff).",
+    "AC2 pinned reference combination: documented/PASS as precondition; not yet executed (no run occurred).",
+    "AC3 score matches 80.6: NOT YET SATISFIED — no run occurred; PROGRESS.md correctly makes no fabricated pass/fail claim.",
+    "AC4 run recorded in evidence: NOT YET SATISFIED — nothing to record, no run occurred.",
+    "AC5 D1 roles honored PASS: genuine human checkpoint (source=user answered=true) chose 'defer to follow-up', not silently assumed.",
+    "Independently re-verified: grove 0.4.1 / grove-explore 0.4.1 binaries current and runnable.",
+    "Independently re-verified: `grove serve --explore` is a hard error (exit 1) pointing to `grove-explore serve`, matching the patch's replacement command.",
+    "Independently re-verified: git diff --stat HEAD -- cli/ explore/ grove-explore/ core/ is empty — zero source regression surface.",
+    "Independently re-run: cargo test --release --locked -> 344 passed, 0 failed, matches PROGRESS.md exactly.",
+    "Independently re-run: cargo clippy --all-targets --workspace -- -D warnings -> clean.",
+    "is-grep-enough checkout absent from this sandbox; cross-repo git apply --check claim could not be independently re-executed (accepted sandbox limitation, not an implementation gap).",
+    "Sprint requirement #10 / D1's literal bar (score vs 80.6, evidence recorded) remains open and is flagged as a blocking item for sprint closure, not waved through."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-01-01T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

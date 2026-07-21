@@ -1,0 +1,16 @@
+{
+  "objective": "Prepare the split-binary gate test: fresh release builds, a fix for the now-broken is-grep-enough sidebench harness pointing, and the handoff/write-up scaffold for the user-supervised 347-case reference re-run against the 80.6 baseline.",
+  "key_changes": [
+    "No grove source changes — T01/T02/T03/T05/T09 already shipped the split; this task rebuilds release binaries as the gate-test artifact.",
+    "Research finding: is-grep-enough/studies/fastcontext-sidebench/run-grove-explore.sh is the only harness that actually drives the compiled grove-explore MCP agent loop end-to-end.",
+    "Research finding: grove-explore-model/scripts/run_eval.py is the literal source of the 347-case/80.6 reference number but bypasses the explore MCP tool entirely, shelling straight to grove CLI verbs.",
+    "Cross-check: explore/src/prompts/explore_v2.system.md is byte-identical to grove-explore-model/prompts/explore-v2.system.txt, confirming ADR 0004's byte-identical reference-harness claim.",
+    "run-grove-explore.sh's MCP launch config uses 'grove serve --explore', which T03 turned into a hard error; fix is a binary+args swap to 'grove-explore serve' (its default subcommand).",
+    "Recommendation: pin grove-explore-model's question set/model config, run via fastcontext-sidebench against the compiled binary — flagged for user/architect confirmation, not assumed.",
+    ".grove/config.json explore section format is unaffected (opaque passthrough per T01) — no harness config-shape changes needed beyond the server launch command.",
+    "Harness-pointing fix is prepared here but commits in is-grep-enough, not this repo, per the task's cross-repo coordination note.",
+    "Actual rig execution (llama.cpp serving base-q4-v2-hf, sidebench re-run) is user-supervised per D1 and out of scope for unattended completion in this plan."
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PLAN.md"
+}

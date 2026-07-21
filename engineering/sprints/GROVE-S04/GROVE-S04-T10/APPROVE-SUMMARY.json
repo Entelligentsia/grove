@@ -1,0 +1,19 @@
+{
+  "objective": "Architectural sign-off on GROVE-S04-T10's split-binary gate-test prep: release rebuild, is-grep-enough harness-pointing patch, pinned reference combination, and user-supervised rig handoff.",
+  "key_changes": [
+    "No grove source changed — mechanical rebuild + cross-repo handoff; zero regression surface (git diff --stat empty for cli/explore/grove-explore/core).",
+    "Split-binary architecture correct: grove serve --explore is a hard error (exit 1), grove-explore serve is the replacement preserving MCP key 'grove' and tool 'explore'.",
+    "Harness patch correct: GROVE repointed to grove-explore, args [serve, $clone], MCP key preserved — both plan-review advisories addressed.",
+    "Cross-repo boundary respected: patch saved as artifact, not applied/committed in is-grep-enough; git apply --check passes.",
+    "Byte-identity claim confirmed: explore_v2.system.md == explore-v2.system.txt (1818 B both repos) — ADR 0004 no-inner-loop-change guarantee has code-level backstop.",
+    "D1 role boundary honored: genuine human checkpoint (source=user answered=true) deferred the rig run — not silently assumed.",
+    "AC3 (score matches 80.6) and AC4 (run recorded) NOT YET SATISFIED — no run occurred; blocking items for sprint closure, not implementation defects.",
+    "Task unattended scope complete: binaries built/verified, harness pointing prepared, reference combination pinned, handoff documented.",
+    "cargo test --release --locked: 344 passed, 0 failed; cargo clippy clean — both independently re-verified by code-review and validation.",
+    "No deployment impact: no version bump, no distribution change, no migration — local release binaries + cross-repo patch artifact only.",
+    "BLOCKING FOLLOW-UP: 347-case sidebench re-run must land (score vs 80.6, evidence recorded) before GROVE-S04 can close."
+  ],
+  "verdict": "approved",
+  "written_at": "2025-07-21T11:30:00Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

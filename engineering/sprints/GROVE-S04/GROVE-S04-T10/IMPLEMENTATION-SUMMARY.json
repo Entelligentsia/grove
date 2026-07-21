@@ -1,0 +1,22 @@
+{
+  "objective": "Prepare ADR 0004's split-binary gate test (a): rebuild release binaries, fix the is-grep-enough harness pointing, pin the reference combination, surface the harness-scope question, and hand off the user-supervised 347-case re-run vs. 80.6.",
+  "key_changes": [
+    "Rebuilt/verified target/release/grove (0.4.1) and grove-explore (0.4.1) off main; no grove source changed (git diff --stat empty for cli/explore/grove-explore/core).",
+    "Confirmed `grove serve --explore` is a hard error post-T03 (exit 1, points to `grove-explore serve`).",
+    "Confirmed `grove-explore serve <path>` is the correct replacement; preserves MCP server key `grove` and tool `explore` (mcp__grove__explore).",
+    "Prepared corrected patch for is-grep-enough's run-grove-explore.sh (binary+args swap); verified `git apply --check` passes; did NOT apply or commit it there.",
+    "Saved patch as engineering/sprints/GROVE-S04/GROVE-S04-T10/harness-fix.patch for user review.",
+    "Pinned registry.jsonl entry base-q4-v2-hf (347-case, mean 80.6, Q4_K_M) and documented exact llama-server + sidebench handoff commands.",
+    "Surfaced harness-identity scope question via interactive checkpoint; human answered (source=user): defer the run to a follow-up.",
+    "cargo test --release --locked: 344 passed, 0 failed across all workspace crates + doc-tests.",
+    "cargo clippy --all-targets --workspace -- -D warnings: no warnings.",
+    "PROGRESS.md records deferred-run status; no pass/fail claim made against 80.6 since no run occurred this phase.",
+    "Status transitioned planned -> plan-approved -> implementing -> implemented (review-plan had not moved the status field despite an approved verdict)."
+  ],
+  "files_changed": [
+    "engineering/sprints/GROVE-S04/GROVE-S04-T10/harness-fix.patch",
+    "engineering/sprints/GROVE-S04/GROVE-S04-T10/PROGRESS.md"
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PROGRESS.md"
+}
