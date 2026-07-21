@@ -19,3 +19,4 @@
 - [ADR 0001 — Scope-aware & import-edge resolution](adr/0001-scope-aware-and-import-edge-resolution.md)
 - [ADR 0002 — Declared project mode](adr/0002-grove-project-config-and-declared-mode.md)
 - [ADR 0003 — Shared verb rendering in core](adr/0003-shared-verb-rendering-in-core.md)
+- [ADR 0004 — Explore split into grove-explore](adr/0004-explore-split-into-grove-explore.md)

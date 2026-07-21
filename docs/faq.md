@@ -33,7 +33,7 @@ binding), you're in LSP territory, and grove hands off rather than half-does it.
 | cross-file type graph | — | yes (the core of a language server) |
 | Protocol | **MCP** (grove's own JSON-RPC tool schema) | **LSP** (`textDocument/definition`, `hover`, `references`, …) |
 | Consumer | coding agents | IDEs / editors |
-| Languages | **one binary**, all 27 grammars load at runtime from a WASM registry | **one server per language**, usually a heavy language-specific toolchain |
+| Languages | **one engine**, all 27 grammars load at runtime from a WASM registry | **one server per language**, usually a heavy language-specific toolchain |
 | Index | parses on demand (no persistent DB) | a persistent, incrementally-maintained semantic DB |
 
 ### Complementary, not competitive
@@ -68,6 +68,28 @@ grove stays a syntactic shell and lets the model keep doing the semantics.
 No. It's a tree-sitter-powered structural navigation tool for agents — the cheap
 syntactic layer **beneath** where an LSP's semantic intelligence begins. It speaks
 MCP, not LSP; it parses, it doesn't analyze; it locates, it doesn't refactor.
+
+## Why are there two binaries?
+
+`grove` is the structural layer: the CLI and a 7-tool MCP server that returns
+exact bytes, definition skeletons, and reference graphs. It is deterministic,
+fast, and involves no model. **This is the one you want.**
+
+`grove-explore` is an optional locator that delegates "where is X?" to a small
+local LLM and returns `file:line` citations. It needs an inference engine
+configured before it does anything.
+
+They were one binary through 0.3.x, behind a `grove serve --explore` flag. That
+made the structural server carry LLM configuration, health probes, and failure
+modes it had no use for — a project wanting plain structural access still paid
+for machinery it never called. Splitting them means `grove serve` is now
+unconditionally the 7-tool structural surface, with no mode resolution and no
+inference path to fall back to, and the two register as **composable MCP
+servers**: either, or both, never a mode switch on one server.
+
+Register just `grove` with `grove init --as mcp` (the default). Add the locator
+with `grove init --as mcp-llm`, which registers both. See
+[ADR 0004](adr/0004-explore-split-into-grove-explore.md).
 
 ---
 
