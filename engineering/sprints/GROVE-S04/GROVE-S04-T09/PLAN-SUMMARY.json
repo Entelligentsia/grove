@@ -1,0 +1,19 @@
+{
+  "objective": "Rewrite every doc that describes grove's MCP surface to the two-server composition story (grove + grove-explore, composable, not mode-switched) and land ADR 0002/0004 annotations.",
+  "key_changes": [
+    "README.md: rewrite the Advanced > Delegated local-LLM mode section to the two-server story; drop stale explore_delegation_flow.svg embed",
+    "docs/setup.md: rewrite Explore-mode section (both-servers registration, no health fallback) + What init writes table; drop stale svg embed",
+    "docs/mcp.md: add a two-servers/composability section naming grove and grove-explore identities",
+    "docs/introduction.md: correct the four-surfaces table row (grove-explore serve, not serve --explore); drop stale svg embed",
+    "docs/reference.md: correct .grove/config.json mode semantics and grove-explore config/tap spellings",
+    "docs/book.toml + docs/SUMMARY.md: correct description wording; verify sidebar labels still match content",
+    "CLAUDE.md: rewrite architecture block (real four-crate layout, two binaries) and Commands section (serve flags removed, grove-explore verbs, deprecated shims)",
+    "docs/adr/0002: annotate superseded S1/S3 clauses pointing at ADR 0004",
+    "docs/adr/0004: Status -> Accepted; implementation-state note (T01-T08 committed, T10 open, stage 3 gated)",
+    "skills/grove/SKILL.md and dist/npm/README.md: reviewed, already clean, no edit -- findings recorded in PROGRESS.md",
+    "Explicitly out of scope: docs/doctor-command-proposal.md and sibling planning docs, docs/assets/*.svg regeneration, cli/src/init.rs docstring (optional nice-to-have only)",
+    "Ground truth for parity checks: cli/src/init.rs claude_section/agents_section (McpLlm branch) server names, verb spellings, recommended flow"
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PLAN.md"
+}

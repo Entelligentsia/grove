@@ -173,30 +173,38 @@ compiled in. See **[Languages & grammars](docs/languages.md)**.
 ## Advanced
 
 <details>
-<summary><b>Delegated local-LLM mode</b> — one <code>explore</code> tool backed by your own local model (opt-in)</summary>
+<summary><b>grove-explore — a second, composable MCP server</b> — one <code>explore</code> tool backed by your own local model (opt-in)</summary>
 
 <br>
 
-> **Opt-in.** The default grove (the CLI and the standard 7-tool `grove serve`)
-> is unaffected — this mode turns on only when you run `grove init --as mcp-llm`.
-> It is configured in `.grove/config.json`; the config format and the `explore`
-> tool contract are covered by semantic versioning as of 0.3.0.
+> **Opt-in, and a separate server, not a mode.** `grove` (the CLI and the
+> always-structural 7-tool `grove serve`) is unaffected either way.
+> `grove-explore` is its own binary with its own MCP server identity; you
+> register it *alongside* `grove` — never instead of it. `grove init --as
+> mcp-llm` registers both in one step. Configured in `.grove/config.json`; the
+> config format and the `explore` tool contract are covered by semantic
+> versioning as of 0.3.0.
 
-**What it is**: `mcp__grove__explore` is a single MCP tool the outer coding agent
-calls with **one narrow "where is X" question**. Grove's inner Rust explorer
-agent drives a short, bounded tool-calling loop locally — against your configured
-local / OpenAI-compatible LLM (Ollama, llama.cpp) — and returns a short
-explanation plus **validated `file:line` citations**. It is a *locator* (it finds
-WHERE relevant code lives), not a full-analysis oracle: ask a few targeted
-questions and synthesize the results yourself. The outer agent never sees the
-inner tool calls — and never spends its own context on them.
+**What it is**: `mcp__grove-explore__explore` is a single MCP tool the outer
+coding agent calls with **one narrow "where is X" question**. Its inner Rust
+explorer agent drives a short, bounded tool-calling loop locally — against your
+configured local / OpenAI-compatible LLM (Ollama, llama.cpp) — and returns a
+short explanation plus **validated `file:line` citations**. It is a *locator*
+(it finds WHERE relevant code lives), not a full-analysis oracle: ask a few
+targeted questions and synthesize the results yourself. The outer agent never
+sees the inner tool calls — and never spends its own context on them.
 
-![Delegated local-LLM mode](docs/assets/explore_delegation_flow.svg)
+**Composition, not a mode switch.** A project can register `grove` (structural)
+only, `grove-explore` (locator) only, or both — `grove init --as mcp-llm` gives
+you both, and the written steering tells the agent when to reach for each:
+`mcp__grove-explore__explore` for a broad "where is X" sweep before you know
+which file to look in, then `mcp__grove__source` / `mcp__grove__map` directly on
+the cited `file:line` for precision work.
 
 **Setup**:
 ```
-grove init --as mcp-llm   # interactive setup TUI (requires TTY)
-grove config              # revisit / change settings at any time
+grove init --as mcp-llm    # registers BOTH grove and grove-explore, interactive TUI (requires TTY)
+grove-explore config       # revisit / change explore settings at any time
 ```
 
 **Three steering modes** (trade-off in one line each):
@@ -207,30 +215,36 @@ grove config              # revisit / change settings at any time
 | `balanced` | two-phase plan → execute — best grounding and lowest hallucination rate, highest wall-clock |
 | `strict` | grove-first steering prompts — cost/quality sweet spot for smaller models |
 
-Change the active mode at any time with `grove config`.
+Change the active mode at any time with `grove-explore config`.
 
 **Health semantics**:
-- Startup: `grove serve --explore` probes the configured provider (`/models`).
-  - **Healthy** → expose `mcp__grove__explore` only.
-  - **Unhealthy at startup** → transparent fallback: the 7 structural tools
-    (`outline`, `symbols`, `source`, `check`, `callers`, `map`, `definition`)
-    are surfaced instead so the outer agent is never left tool-less.
-- Mid-session loss → `mcp__grove__explore` returns a recoverable `isError`
-  response with a restart hint; the outer agent can retry or degrade gracefully.
+- Startup: `grove-explore serve` probes the configured provider (`/models`).
+  - **Healthy** → the server starts and exposes `mcp__grove-explore__explore`.
+  - **Unhealthy at startup** → a startup *error* naming the fix — the process
+    exits non-zero rather than silently swapping in a different tool surface.
+    The structural `grove` server (if registered) is unaffected either way.
+- Mid-session loss → `mcp__grove-explore__explore` returns a recoverable
+  `isError` response with a restart hint; the outer agent can retry or fall
+  back to the structural tools it already has registered.
 
 **Debugging — see the inner conversation.** Turn on **Tap** (a `tap` flag in
-`.grove/explore.json`, toggled in `grove config` — or just run `grove tap`, which
-flips it on for you). `grove serve --explore` then records each session to a
-per-session JSONL trace under `.grove/traces/`: a header with the calling agent's
-identity, model and mode, then a `call_start` / `turn` / `call_end` stream per
-`explore` call with **token usage and wall time**.
+`.grove/config.json`'s `explore` section, toggled in `grove-explore config` —
+or just run `grove-explore tap`, which flips it on for you). `grove-explore
+serve` then records each session to a per-session JSONL trace under
+`.grove/traces/`: a header with the calling agent's identity, model and mode,
+then a `call_start` / `turn` / `call_end` stream per `explore` call with
+**token usage and wall time**.
 
-Run **`grove tap`** to browse them in a full-screen TUI — drill session → call →
-turn: the session list shows agent, model, call count, total tokens and a live
-marker; opening a call shows its metrics and each turn's request/response. It
-refreshes live, so you can watch a session as it runs. Retention keeps the last
-`trace_retain` sessions (default 50). `grove tap --no-enable` opens the browser
-without changing the config.
+Run **`grove-explore tap`** to browse them in a full-screen TUI — drill
+session → call → turn: the session list shows agent, model, call count, total
+tokens and a live marker; opening a call shows its metrics and each turn's
+request/response. It refreshes live, so you can watch a session as it runs.
+Retention keeps the last `trace_retain` sessions (default 50).
+`grove-explore tap --no-enable` opens the browser without changing the config.
+
+> `grove config` / `grove tap` still work as deprecated forwarding shims to
+> `grove-explore config` / `grove-explore tap` — use the `grove-explore`
+> spelling directly; the shims print a one-line note and forward.
 
 </details>
 

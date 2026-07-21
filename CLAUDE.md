@@ -1,76 +1,112 @@
 # grove — developer guide for Claude
 
 grove gives coding agents **structural, byte-precise, token-cheap access to a
-codebase** via tree-sitter, instead of reading whole files. It is a single Rust
-binary with two faces — a human CLI (`grove <verb>`) and an MCP server
-(`grove serve`) — over one engine. Grammars load at runtime from a WASM registry,
-so new languages need no recompile.
+codebase** via tree-sitter, instead of reading whole files. The engine is one
+Rust library (`grove-cst`) shipped as **two binaries**: `grove` (a human CLI
+(`grove <verb>`) plus an always-structural MCP server, `grove serve`) and
+`grove-explore` (its own MCP server identity — a single LLM-delegating
+`explore` tool, plus its config/trace TUIs and `tap`). The two MCP servers are
+**composable** — a project registers either or both, never a mode switch on
+one server. Grammars load at runtime from a WASM registry, so new languages
+need no recompile.
 
-Read [`VISION.md`](VISION.md) for the product vision and [`README.md`](README.md)
-for usage. This file is the orientation for *continuing development*.
+Read [`VISION.md`](VISION.md) for the product vision, [`README.md`](README.md)
+for usage, and [ADR 0004](docs/adr/0004-explore-split-into-grove-explore.md) for
+why the explore delegate is a separate binary. This file is the orientation for
+*continuing development*.
 
-## Architecture — one engine, two faces
+## Architecture — one engine, two binaries
 
-The engine lives in the `core` crate (published as `grove-cst`); the `cli` crate
-holds the two faces, formatting, TUIs, and harness glue:
+The engine lives in the `core` crate (published as `grove-cst`, zero LLM
+knowledge); `cli` is the `grove` binary (CLI + always-structural MCP server,
+no TUIs); `explore` is the inner explorer library (`grove-explore-core`);
+`grove-explore` is the `grove-explore` binary (its own MCP server + both TUIs +
+`tap`, linking `explore` and `core` in-process):
 
 ```
-core/src/ops.rs        structural operations — the shared engine BOTH faces call
-core/src/engine.rs     wasm load + Query-based tag extraction + check + position helpers
-core/src/registry.rs   grammar resolver, cache-location precedence, catalog/index, lockfile
-core/src/fetch.rs      `grove fetch` — install grammars from the hosted registry
-core/src/ingest.rs     `grove ingest` — build registry artifacts from upstream releases
-core/src/init.rs       grammar provisioning half of `grove init`
+core/src/ops.rs         structural operations — the shared engine every surface calls
+core/src/engine.rs      wasm load + Query-based tag extraction + check + position helpers
+core/src/registry.rs    grammar resolver, cache-location precedence, catalog/index, lockfile
+core/src/fetch.rs       `grove fetch` — install grammars from the hosted registry
+core/src/ingest.rs      `grove ingest` — build registry artifacts from upstream releases
+core/src/init.rs        grammar provisioning half of `grove init`
+core/src/harness.rs     harness adapters — HarnessId {claude-code,cursor,codex,gemini,windsurf,
+                        vscode}: per-agent MCP config path/format/scope + detection; the shared
+                        source of truth for init (writer) and doctor (verifier); MCP_SERVER_KEY
+                        ("grove") / EXPLORE_SERVER_KEY ("grove-explore") name the two registrations
+core/src/config.rs      GroveConfig — .grove/config.json (mode + opaque `explore` JSON section);
+                        core carries no explore/LLM types, just serde_json::Value passthrough
 
-cli/src/main.rs        CLI dispatch (clap) — every verb; thin, delegates to modules
-cli/src/mcp.rs         MCP server — newline-delimited JSON-RPC 2.0 over stdio
-cli/src/init.rs        `grove init [--as …] [--agents …]` — file-writing harness glue;
-                       per-agent registration (JSON/TOML) + shared CLAUDE.md/AGENTS.md steering
-core/src/harness.rs    harness adapters — HarnessId {claude-code,cursor,codex,gemini,windsurf,
-                       vscode}: per-agent MCP config path/format/scope + detection; the shared
-                       source of truth for init (writer) and doctor (verifier)
-cli/src/config_tui/    full-screen ratatui TUI (`grove config` verb) — engine
-                       auto-discovery picker + model-list dropdown
-cli/src/trace_tui/     full-screen ratatui trace browser (`grove tap` verb): session→call→turn
-cli/src/tap.rs         `grove tap` — enable session tracing + launch the trace browser (debug)
-skills/grove/          SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
+cli/src/main.rs         CLI dispatch (clap) — every `grove` verb; `serve` is unconditionally the
+                        7-tool structural surface (--explore/--standard hidden flags now `bail!`
+                        naming `grove-explore serve`); `config`/`tap` are deprecated forwarding
+                        shims that shell out to the sibling `grove-explore` binary
+cli/src/mcp.rs          MCP server — newline-delimited JSON-RPC 2.0 over stdio, 7 tools only;
+                        no Surface enum, no mode resolution, no explore imports
+cli/src/init.rs         `grove init [--as …] [--agents …]` — file-writing harness glue;
+                        per-agent registration (JSON/TOML) for BOTH server keys when mode is
+                        mcp-llm; shared CLAUDE.md/AGENTS.md dual-surface steering; shells out to
+                        `grove-explore config` for the first-run TUI (PATH-aware graceful degrade)
+skills/grove/           SKILL.md — cross-harness skill, routes to MCP-or-CLI (npx skills add)
 
-core/src/explore/      inner explorer engine (mcp-llm mode — opt-in, stable as of 0.3.0)
-  mod.rs               re-exports; public surface is run_explore[_reporting]()
-  config.rs            ExploreConfig — .grove/explore.json serde + atomic save (tap, trace_retain);
-                       defaults to the llama.cpp reference rig (provider=llamacpp, qwen3.5-4b)
-  wire.rs              OpenAI chat wire model (Message/ToolCall/ChatRequest/ChatResponse/Usage) +
-                       tool-call arg normalization; with_explore_sampling() = temp/max_tokens/enable_thinking
-  client.rs            ChatClient transport trait + OpenAiCompatClient + ClientError (thin: transport only)
-  health.rs            health_probe() + list_models() + fetch_models_at() — the {base_url}/models layer
-  discovery.rs         discover_engines() — local engine auto-detect (default ports + /proc process scan)
-  agent.rs             the base-q4-v2-hf reference loop (run_eval.py::run_question): single-phase,
-                       ≤ 12 turns, thrash/token/time backstops, nudge + forced-answer (H1/H2),
-                       retry-on-leak, think ON + progress + trace
-  trace.rs             TraceWriter (per-session JSONL under .grove/traces/) + request/response pretty-printers
-  toolset.rs           the reference toolset — base Glob/Grep/Read (Claude schemas) + six
-                       mcp__grove__{outline,symbols,source,callers,map,definition}; grove obs are
-                       in-process `--json`; is_empty_obs() for thrash accounting
-  steering.rs          the single flat v2 system prompt (bare-location-line contract) +
-                       nudge/forced/leak-retry messages (no merit/plan-first/strict arms)
-  grounding.rs         neutralize_xml + strip-leak-lines + optional <final_answer> unwrap +
-                       FS-validation of location-line paths (drops hallucinated paths)
-  prompts/             explore_v2.system.md — the v2 system prompt, embedded verbatim (include_str!)
+explore/src/            inner explorer engine crate (`grove-explore-core`) — moved wholesale out
+                        of core/src/explore/; same module list, new crate boundary
+  lib.rs                re-exports; public surface is run_explore[_reporting]()
+  config.rs             ExploreConfig — the `.grove/config.json` `explore` section's typed shape
+                        (tap, trace_retain); defaults to the llama.cpp reference rig
+                        (provider=llamacpp, qwen3.5-4b)
+  wire.rs               OpenAI chat wire model (Message/ToolCall/ChatRequest/ChatResponse/Usage) +
+                        tool-call arg normalization; with_explore_sampling() = temp/max_tokens/enable_thinking
+  client.rs             ChatClient transport trait + OpenAiCompatClient + ClientError (thin: transport only)
+  health.rs             health_probe() + list_models() + fetch_models_at() — the {base_url}/models layer;
+                        an unhealthy probe is now a hard startup error in grove-explore, not a fallback
+  discovery.rs          discover_engines() — local engine auto-detect (default ports + /proc process scan)
+  agent.rs              the base-q4-v2-hf reference loop (run_eval.py::run_question): single-phase,
+                        ≤ 12 turns, thrash/token/time backstops, nudge + forced-answer (H1/H2),
+                        retry-on-leak, think ON + progress + trace
+  trace.rs              TraceWriter (per-session JSONL under .grove/traces/) + request/response pretty-printers
+  toolset.rs            the reference toolset — base Glob/Grep/Read (Claude schemas) + six
+                        mcp__grove__{outline,symbols,source,callers,map,definition}; grove obs are
+                        in-process `--json`; is_empty_obs() for thrash accounting
+  steering.rs           the single flat v2 system prompt (bare-location-line contract) +
+                        nudge/forced/leak-retry messages (no merit/plan-first/strict arms)
+  grounding.rs          neutralize_xml + strip-leak-lines + optional <final_answer> unwrap +
+                        FS-validation of location-line paths (drops hallucinated paths)
+  prompts/              explore_v2.system.md — the v2 system prompt, embedded verbatim (include_str!)
+
+grove-explore/src/main.rs     the `grove-explore` binary: Serve (own MCP server identity, startup
+                              health gate — config load → explore deser → health_probe, each
+                              process::exit(1) before the serve loop; never falls back) / Config /
+                              Tap verbs — these are the CANONICAL spellings
+grove-explore/src/config_tui/ full-screen ratatui TUI (`grove-explore config`) — engine
+                              auto-discovery picker + model-list dropdown (moved from cli/src/)
+grove-explore/src/trace_tui/  full-screen ratatui trace browser (`grove-explore tap`):
+                              session→call→turn (moved from cli/src/)
+grove-explore/src/tap.rs      `grove-explore tap` — enable session tracing + launch the trace
+                              browser (debug) (moved from cli/src/)
 ```
 
-**mcp-llm mode is opt-in** (stable as of 0.3.0). The inner harness is the
-**`base-q4-v2-hf` reference combination** (interim winner in
-`grove-explore-model/experiments/registry.jsonl`, 80.6 on the 347-case holdout,
-served on **llama.cpp**): the flat v2 prompt whose output contract is **bare
-location lines** (`lang:path#symbol@line`), the reference tool vocabulary, and the
-`run_eval.py` harness discipline (H1/H2/H3/H5 + retry-on-leak). The `Steering`
-config field is retained for back-compat but no longer selects a prompt arm. The
-default CLI + 7-tool `grove serve` remain the primary surface.
+**mcp-llm is opt-in** (stable as of 0.3.0) and now means "register **both**
+servers", not "switch `grove serve`'s surface" (ADR 0002 amended by ADR 0004
+§2). The inner harness is the **`base-q4-v2-hf` reference combination** (interim
+winner in `grove-explore-model/experiments/registry.jsonl`, 80.6 on the
+347-case holdout, served on **llama.cpp**): the flat v2 prompt whose output
+contract is **bare location lines** (`lang:path#symbol@line`), the reference
+tool vocabulary, and the `run_eval.py` harness discipline (H1/H2/H3/H5 +
+retry-on-leak). The `Steering` config field is retained for back-compat but no
+longer selects a prompt arm. `grove serve` (always structural) and
+`grove-explore serve` (always the locator) are equal, composable surfaces —
+neither is more "primary" than the other at the server-identity level, though
+the 7-tool structural surface is what most projects register by default
+(`grove init --as mcp`).
 
-Data flow: `main`/`mcp` → `ops` → `engine` (+ `registry` for grammar resolution).
-For mcp-llm mode: `mcp.rs` → `core::explore::run_explore` → inner loop → answer.
-**Never put engine logic in `main` or `mcp`** — they only format. `ops` returns
-typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP server emits JSON.
+Data flow: `cli/src/main.rs`/`mcp.rs` → `ops` → `engine` (+ `registry` for
+grammar resolution) — the `grove` binary never links the `explore` crate.
+`grove-explore`: `grove-explore/src/main.rs` → `explore::run_explore` → inner
+loop → answer, linking `core`'s `ops` in-process for its own tool calls (no MCP
+hop). **Never put engine logic in `main` or `mcp`** — they only format. `ops`
+returns typed `Symbol`/`Defect`/etc.; the CLI prints tables, the MCP servers
+emit JSON.
 
 ## The tool surface (7 tools, the agent loop)
 
@@ -131,22 +167,35 @@ grove check   <file>
 grove callers <name> [-d <dir>]
 grove map     <dir> [--kind K] [--name SUB]
 grove definition <name> [-d <dir>] | --at <file:line:col>   # line/col 1-based
-grove serve                         # MCP server over stdio
+grove serve [path]                  # MCP server over stdio; ALWAYS the 7-tool structural surface
+                                     # --explore/--standard are removed: hidden flags that `bail!`,
+                                     # naming `grove-explore serve` as the replacement
 
 # setup / registry
 grove init [path] [--as mcp|skill|both|mcp-llm] [--agents auto|all|<csv>] [--dry-run]  # provision grammars + chosen harness glue
                    # --agents selects which coding agents to wire (claude-code,cursor,codex,gemini,windsurf,vscode)
-grove config [path]                 # open the explore config TUI (requires TTY); engine discovery + Tap toggle + model dropdown
-grove serve [path] [--explore] [--standard]  # MCP server; mode flags override config
-grove tap [path] [--no-enable]      # enable session tracing (.grove/traces/) + browse it in a TUI
+                   # --as mcp-llm registers BOTH grove and grove-explore in the harness
 grove fetch [langs...] [--force]    # install grammars into the OS cache
 grove languages                     # list registry languages
 grove registry                      # show resolved registry root + search order
 grove lock                          # write grove.lock (version + wasm sha256)
 
+# deprecated shims — forward to the sibling grove-explore binary, print a note
+grove config [path]                 # → `grove-explore config`
+grove tap [path] [--no-enable]      # → `grove-explore tap`
+
 # registry maintainer
 grove ingest [langs...] [--sources registry-sources.json] [--out registry]
 grove index  [dir] [--release-base <url>] [-o index.json]
+```
+
+```
+# grove-explore — its own MCP server identity + TUIs (canonical verb spellings)
+grove-explore serve [path]           # MCP server over stdio; ALWAYS the explore surface;
+                                      # unhealthy provider at startup = hard exit(1), no fallback
+grove-explore config [path]          # open the explore config TUI (requires TTY); engine
+                                      # discovery + Tap toggle + model dropdown
+grove-explore tap [path] [--no-enable]  # enable session tracing (.grove/traces/) + browse in a TUI
 ```
 
 ## Build / test / run

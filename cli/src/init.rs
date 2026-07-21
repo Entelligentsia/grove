@@ -35,10 +35,11 @@ pub enum Target {
     Skill,
     /// Both of the above.
     Both,
-    /// Register grove in explore-mode (`.mcp.json` with `serve --explore`) + sentinel
-    /// steering blocks in `CLAUDE.md` and `AGENTS.md` directing the agent through
-    /// `mcp__grove__explore`. Runs the config TUI on first init (when
-    /// `.grove/explore.json` is absent); skips TUI on re-runs and `--dry-run`.
+    /// Register BOTH `grove` and `grove-explore` in `.mcp.json` + dual-surface
+    /// steering blocks in `CLAUDE.md` and `AGENTS.md` naming `mcp__grove__*` and
+    /// `mcp__grove-explore__explore`. Shells out to `grove-explore config` for the
+    /// first-run TUI (when `.grove/config.json`'s explore section is absent);
+    /// skips it on re-runs and `--dry-run`.
     McpLlm,
     /// Grammars + `grove.lock` only — no `.mcp.json`, no CLAUDE.md steering.
     /// For embedding hosts (e.g. an editor or agent runtime) that register

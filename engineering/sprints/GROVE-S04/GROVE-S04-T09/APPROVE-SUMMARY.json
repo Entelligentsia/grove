@@ -1,0 +1,19 @@
+{
+  "objective": "Architectural sign-off on GROVE-S04-T09 docs restructure rewriting every MCP-surface doc to the two-server composition story (grove + grove-explore, composable not mode-switched) with ADR 0002/0004 annotations.",
+  "key_changes": [
+    "Architecture alignment verified: Cargo.toml members [core,explore,cli,grove-explore] match CLAUDE.md four-crate/two-binary block; docs now describe shipped T01-T08 code.",
+    "ADR trail correct: ADR 0004 Status=Accepted with accurate T01-T08/T10/stage-3 state; ADR 0002 carries additive annotations at L95 (S1) and L122 (S3) pointing at ADR 0004 S2, body intact.",
+    "Ground-truth parity (AC2): docs name identical server identities, verb spellings (grove-explore serve/config/tap), and 3-step delegation flow as cli/src/init.rs McpLlm branches.",
+    "Stale-language sweep clean: zero serve --explore/--standard hits in scope prose; only ADR history, unlinked SVGs, and out-of-scope doctor-command-proposal hit.",
+    "Doc-only: sole .rs change is a 5-line rustdoc comment on Target::McpLlm, no behavior change; cargo test and clippy -D warnings green, mdbook build clean.",
+    "No cross-cutting concerns: no other module/crate/runtime touched; docs retire the stale mode-switch narrative that contradicted ADR 0004.",
+    "Deprecated-shim framing (grove config/tap -> grove-explore config/tap) documented consistently across README, setup, reference, CLAUDE.md, matching actual shim behavior.",
+    "Operational impact: none - no deployment, version bump, migration, regeneration, or security scan; docs ride the same release as the rest of GROVE-S04.",
+    "Advisory: PROGRESS.md undercounts SUMMARY.md change (T09 added ADR 0004 sidebar entry); resulting content correct and required by AC5.",
+    "Advisory: docs/setup.md 'three faces' phrasing scoped to --as mcp|skill|both trio, not in conflict with any AC.",
+    "Follow-up: stale docs/assets/*.svg now unlinked - regenerate or delete in a future task; deferred by this task's explicit scope.",
+    "Follow-up: GROVE-S04-T10 gate test remains the open task closing explore-split acceptance; this task documents it as the open gate."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

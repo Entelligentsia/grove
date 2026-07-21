@@ -1,0 +1,15 @@
+{
+  "objective": "Verified the GROVE-S04-T09 docs-restructure implementation against the approved plan and init.rs ground truth; reproduced all test/lint/build evidence independently.",
+  "key_changes": [
+    "All 6 ACs verified: README/setup/mcp two-server story, init.rs parity (claude_section L924 + agents_section L847), sweep clean, CLAUDE.md+ADRs correct, mdbook builds, cargo test green.",
+    "Independent grep sweep: zero serve --explore / mode badge / inert hits in any in-scope prose file; only excluded categories (ADR history, doctor-command-proposal planning doc) hit.",
+    "init.rs rustdoc edit (only .rs change) is 4-line doc-comment on Target::McpLlm, no behavior change; cargo test 139+65+43+42+54+1+0 passed, clippy clean.",
+    "ADR 0002 §1/§3 annotations are additive blockquotes, historical body intact; ADR 0004 Status→Accepted with accurate T01-T08/T10/stage-3 implementation state.",
+    "CLAUDE.md architecture block + Commands section rewritten to real 4-crate/two-binary layout; deprecated-shim framing consistent across README/setup/reference/CLAUDE.md.",
+    "Advisory: PROGRESS.md misreports SUMMARY.md — claims no edit, but T09 added the ADR 0004 sidebar entry (file was untracked before). The change itself is correct and necessary.",
+    "Advisory: skills/grove/SKILL.md sweep detail slightly off (PROGRESS cites a hit that grep doesn't find); conclusion (clean) verified correct.",
+    "Advisory: docs/setup.md line 28 'three faces' mildly imprecise with two MCP servers but contextually acceptable (describes the --as mcp|skill|both trio)."
+  ],
+  "verdict": "approved",
+  "artifact_ref": "CODE_REVIEW.md"
+}

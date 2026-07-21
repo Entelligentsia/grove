@@ -92,6 +92,11 @@ Three independent changes, each keyed off the declared `mode`:
 
 ### 1 — `serve` reads the declared mode
 
+> **Superseded by [ADR 0004](0004-explore-split-into-grove-explore.md) §2.**
+> `serve` no longer selects a surface at all — `grove serve` is unconditionally
+> the 7-tool structural surface, and there is nothing left for a mode to
+> select. The explore surface moved to its own `grove-explore serve` binary.
+
 `determine_surface` (`mcp.rs`) changes its trigger from
 `explore.json.exists()` to `config.mode == mcp-llm`. The `--explore` / `--standard`
 flags remain as runtime overrides. This one change ends the stickiness: after
@@ -113,6 +118,12 @@ on-disk harness matches `new_mode` exactly, cleaning up `old_mode`'s residue
 the one place that maps `mode → on-disk harness state`.
 
 ### 3 — the `config` TUI becomes display-consistent (read-only on mode)
+
+> **Moot per [ADR 0004](0004-explore-split-into-grove-explore.md) §2.** With no
+> surface switching on mode, the explore config is always live for the
+> `grove-explore` server — there is no inert/greyed state to render. Any badge
+> should reflect whether `grove-explore` is registered in the harness, not the
+> declared `mode`. The TUI itself moved to `grove-explore config`.
 
 The TUI does **not** gain a mode selector — changing mode stays the job of
 `grove init --as`. It only gains read awareness so it never implies explore

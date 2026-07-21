@@ -1,0 +1,16 @@
+{
+  "objective": "Independently validated all 6 GROVE-S04-T09 acceptance criteria: two-server composition story in README/setup/mcp, init.rs parity, stale-language sweep, CLAUDE.md+ADR annotations, SUMMARY/book.toml+mdbook build, cargo test green.",
+  "key_changes": [
+    "AC1 PASS: README/setup.md/mcp.md all describe composition-not-mode-switch with register-either-or-both framing, verified by direct read.",
+    "AC2 PASS: re-read cli/src/init.rs claude_section/agents_section McpLlm branches (L847-1000); docs use identical server identities, verb spellings, 3-step flow.",
+    "AC3 PASS: fresh grep sweep for serve --explore/--standard, mode badge, inert, health-fallback — zero hits outside ADR history, unlinked SVGs, and the explicit out-of-scope doctor-command-proposal.md.",
+    "AC4 PASS: CLAUDE.md architecture matches real 4-crate/ls-verified workspace; ADR 0002 SS1/SS3 annotated pointing at ADR 0004; ADR 0004 Status=Accepted with exact T01-T08/T10/stage-3 wording.",
+    "AC5 PASS: book.toml description updated; SUMMARY.md sidebar consistent; independently ran mdbook build from docs/ - clean, no warnings.",
+    "AC6 PASS: reproduced cargo test --release --locked (139+65+43+42+54+1+0 passed, 0 failed) and cargo clippy -D warnings (clean); git diff init.rs is a 5-line rustdoc comment only, no behavior change.",
+    "Regression check: git status file list confined to plan's declared files plus forge/engineering bookkeeping; no unexpected source touched.",
+    "Two non-blocking advisories carried forward from CODE_REVIEW.md (SUMMARY.md provenance labeling nit, setup.md 'three faces' phrasing) - neither violates any acceptance criterion."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-21T00:00:00Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

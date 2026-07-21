@@ -13,20 +13,22 @@ consumer.
 
 ## One engine, four surfaces
 
-![One engine, four surfaces diagram](assets/grove_architecture_surfaces.svg)
-
-grove is a single Rust binary and a library over one engine. You can reach it
-four ways:
+grove is a library (`grove-cst`) over one structural engine, shipped as **two
+binaries** — `grove` (CLI + the always-structural MCP server) and
+`grove-explore` (its own MCP server, the LLM-delegating locator). You can
+reach the engine four ways:
 
 | Surface | What it is | Start here |
 |---|---|---|
 | **CLI** | `grove <verb>` — the seven tools at your shell, human tables or `--json` | [CLI & the seven tools](tools.md) |
-| **MCP: standard** | `grove serve` — the same seven tools to a coding agent over stdio | [MCP: standard server](mcp.md) |
-| **MCP: explore** | `grove serve --explore` — a single delegated `explore` locator backed by a local LLM | [MCP: explore mode](setup.md) |
+| **MCP: structural** | `grove serve` — the same seven tools to a coding agent over stdio | [MCP: standard server](mcp.md) |
+| **MCP: explore** | `grove-explore serve` — a single delegated `explore` locator backed by a local LLM, its own server identity, composable alongside `grove serve` | [MCP: explore mode](setup.md) |
 | **Library** | `grove-cst` on crates.io — `use grove_core::ops` in your own Rust | [Use grove as a library](library.md) |
 
-All four call the same `ops` engine, so a human at the shell, an agent over MCP,
-and your own program see identical results.
+The CLI, MCP structural, and Library surfaces all call the same `ops` engine, so
+a human at the shell, an agent over MCP, and your own program see identical
+results. MCP structural and MCP explore are two separate servers a project can
+register independently or together — not a mode switch on one server.
 
 ## Get going
 

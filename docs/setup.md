@@ -30,36 +30,46 @@ grove has one engine behind three faces: the CLI, the MCP server, and a
 grove init --as mcp      # default — .mcp.json + CLAUDE.md + grove.lock
 grove init --as skill    # grammars + grove.lock only; install the skill separately
 grove init --as both     # MCP wiring and grammars, for skill + MCP side by side
-grove init --as mcp-llm  # explore-mode: .mcp.json (serve --explore) + CLAUDE.md + AGENTS.md
+grove init --as mcp-llm  # both servers: grove (structural) + grove-explore (locator) + CLAUDE.md + AGENTS.md
 ```
 
 ## Explore-mode — `grove init --as mcp-llm`
 
-> **Opt-in.** The `.grove/config.json` config format and the `explore` tool
-> contract are covered by semantic versioning as of 0.3.0. The standard
-> `--as mcp|skill|both` targets and the 7-tool `grove serve` are unaffected.
+> **Opt-in, and a second server, not a mode.** The `.grove/config.json` config
+> format and the `explore` tool contract are covered by semantic versioning as
+> of 0.3.0. The standard `--as mcp|skill|both` targets and the always-structural
+> 7-tool `grove serve` are unaffected either way — `grove-explore` is a
+> separate binary with its own MCP server identity that you register
+> *alongside* `grove`, never instead of it.
 
-![Standard vs. Explore mode comparison](assets/mcp_explore_comparison.svg)
-
-`--as mcp-llm` wires grove in **explore-mode**: instead of exposing the 7
-structural tools directly, the MCP server surfaces a single `explore` tool
-backed by a local LLM (configured via `.grove/explore.json`). The outer agent
-asks `mcp__grove__explore` narrow *where-is* questions; the inner explorer
-locates the code with grove's tree-sitter + text tools and returns validated
-`file:line` citations. If the provider is unhealthy at startup, grove falls back
-to the standard 7 structural tools.
+`--as mcp-llm` registers **both servers** in `.mcp.json`: `grove` (the 7-tool
+structural surface, unconditionally) and `grove-explore` (a single `explore`
+tool backed by a local LLM, configured via `.grove/config.json`'s `explore`
+section). The outer agent asks `mcp__grove-explore__explore` narrow *where-is*
+questions and uses `mcp__grove__source` / `mcp__grove__map` directly on the
+cited `file:line` for precision work — the two surfaces compose. If the
+explore provider is unhealthy at startup, `grove-explore serve` fails to start
+with an actionable error; there is no fallback that swaps in a different tool
+surface, and the `grove` structural server is unaffected either way.
 
 What it writes:
 
-- **`.mcp.json`** — registers `grove serve --explore` (explore-mode MCP server).
-- **`CLAUDE.md`** — steering block directing the agent to `mcp__grove__explore`;
-  describes automatic fallback to the 7 structural tools when the provider is down.
-- **`AGENTS.md`** — harness-neutral steering for non-Claude harnesses (Codex, Cline, etc.).
+- **`.mcp.json`** — registers **two** MCP servers: `grove` (`grove serve`) and
+  `grove-explore` (`grove-explore serve`).
+- **`CLAUDE.md`** — dual-surface steering block naming both servers
+  (`mcp__grove__*` and `mcp__grove-explore__explore`) and the recommended
+  delegation flow: narrow `explore` question → `source`/`map` on the cited
+  `file:line` → synthesize.
+- **`AGENTS.md`** — the same dual-surface steering, harness-neutral, for
+  non-Claude harnesses (Codex, Cline, etc.).
 
-**First-run TUI**: on the first `grove init --as mcp-llm`, an interactive
-terminal is required — the config TUI launches to collect the provider, base URL,
-and model, saving them to `.grove/explore.json`. Re-runs (when `explore.json`
-already exists) work without a TTY.
+**First-run TUI**: on the first `grove init --as mcp-llm`, `init` shells out to
+`grove-explore config` to collect the provider, base URL, and model (requires
+an interactive terminal), saving them to `.grove/config.json`. Re-runs (when
+the config already exists) work without a TTY. When the `grove-explore` binary
+isn't found on `PATH`, `init` degrades gracefully — it still registers the
+server and prints the follow-up command (`grove-explore config`) instead of
+failing the init.
 
 ```bash
 grove init --as mcp-llm --dry-run   # print planned writes without creating files

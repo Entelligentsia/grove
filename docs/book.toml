@@ -1,7 +1,7 @@
 [book]
 title = "grove documentation"
 authors = ["Entelligentsia"]
-description = "Structural, byte-precise, token-cheap codebase access for coding agents — a Rust library, a CLI, and two MCP modes over one tree-sitter engine."
+description = "Structural, byte-precise, token-cheap codebase access for coding agents — a Rust library, a CLI, and two composable MCP servers over one tree-sitter engine."
 src = "."
 language = "en"
 
