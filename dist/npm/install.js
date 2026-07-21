@@ -91,11 +91,13 @@ async function main() {
   execFileSync("tar", ["-xf", archive, "-C", vendor], { stdio: "inherit" });
   fs.unlinkSync(archive);
 
-  const binName = isWin ? "grove.exe" : "grove";
-  const bin = path.join(vendor, binName);
-  if (!fs.existsSync(bin)) fail(`binary ${binName} not found after extract`);
-  if (!isWin) fs.chmodSync(bin, 0o755);
-  console.error(`grove: installed ${bin}`);
+  const binNames = isWin ? ["grove.exe", "grove-explore.exe"] : ["grove", "grove-explore"];
+  for (const binName of binNames) {
+    const bin = path.join(vendor, binName);
+    if (!fs.existsSync(bin)) fail(`binary ${binName} not found after extract`);
+    if (!isWin) fs.chmodSync(bin, 0o755);
+    console.error(`grove: installed ${bin}`);
+  }
 }
 
 main().catch((e) => fail(e.message));

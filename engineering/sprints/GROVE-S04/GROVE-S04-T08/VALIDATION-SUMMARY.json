@@ -1,0 +1,17 @@
+{
+  "objective": "Validate the dual-binary packaging implementation against the nine acceptance criteria for version cleanliness, binary outputs, test suite, lint, and documentation.",
+  "key_changes": [
+    "PASS: All 4 Cargo.toml files at version 0.4.1, no 9.9.9 in any version-bearing file",
+    "PASS: grove --version outputs 'grove 0.4.1'",
+    "PASS: grove-explore --version outputs 'grove-explore 0.4.1'",
+    "PASS: cargo test --release --locked --workspace: 97 tests passed, 0 failed",
+    "PASS: cargo clippy --all-targets --workspace --locked -- -D warnings: no warnings",
+    "PASS: PROGRESS.md contains bump-script run/verify/restore/checksum evidence",
+    "PASS: RELEASING.md includes 'Testing the bump script' subsection",
+    "PASS: All JS/shell/YAML/JSON syntax checks pass",
+    "PASS: PROGRESS.md evidence matches independent verification"
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-21T03:42:00.000Z",
+  "artifact_ref": "VALIDATION_REPORT.md"
+}

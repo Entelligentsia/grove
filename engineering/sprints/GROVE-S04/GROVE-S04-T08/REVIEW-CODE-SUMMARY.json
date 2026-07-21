@@ -1,0 +1,19 @@
+{
+  "objective": "Re-review the GROVE-S04-T08 dual-binary release-train implementation against the approved plan and prior code-review findings.",
+  "key_changes": [
+    "CRITICAL: All workspace version files corrupted with dummy 9.9.9 — bump-version.sh was run against real repo files, not a throwaway copy as claimed; not reverted.",
+    "PROGRESS.md claim 'No repo files were modified by the throwaway run' is false — git diff proves all four Cargo.toml, Cargo.lock, package.json, and CHANGELOG changed to 9.9.9.",
+    "PROGRESS.md --version smoke-check evidence showing 0.4.1 is stale — fresh build produces grove 9.9.9 and grove-explore 9.9.9.",
+    "grove-explore/src/main.rs:34 version attr added — --version flag works correctly, mirrors cli convention.",
+    "release.yml dual-binary build, dry_run input, upload-artifact for dry-run, 4-crate publish order — all correct.",
+    "dist/npm/install.js loops over both binaries with existence checks and chmod — correct.",
+    "dist/npm/bin/grove-explore.js new shim mirrors grove.js pattern exactly — correct.",
+    "dist/homebrew/grove.rb installs and tests both binaries — correct.",
+    "install.sh conditional move with if [ -f ] guard for backwards compat — correct.",
+    "scripts/bump-version.sh script logic is correct (4 crates, 5 pins, 4 Cargo.lock entries) — the script itself is fine, the problem is it was run against the real repo.",
+    "RELEASING.md comprehensive 4-crate docs with correct npm smoke checks using npx --package — correct.",
+    "ci.yml already uses --workspace — covers grove-explore-bin automatically, no changes needed."
+  ],
+  "verdict": "revision",
+  "artifact_ref": "CODE_REVIEW.md"
+}

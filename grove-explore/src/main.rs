@@ -31,7 +31,7 @@ const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"]
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "grove-explore", about = "grove explore surface: MCP server + TUI verbs")]
+#[command(name = "grove-explore", version, about = "grove explore surface: MCP server + TUI verbs")]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,

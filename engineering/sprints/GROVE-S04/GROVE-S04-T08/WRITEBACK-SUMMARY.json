@@ -1,0 +1,12 @@
+{
+  "objective": "Regenerated markdown views from the JSON store: MASTER_INDEX.md for project overview, GROVE-S04 sprint-level INDEX.md with task registry, task INDEX files for all 10 tasks, and architecture context pack.",
+  "key_changes": [
+    "MASTER_INDEX.md — full project index with sprint, task, bug, feature, and event registries",
+    "engineering/sprints/GROVE-S04/INDEX.md — sprint-level task registry and high-level summary",
+    "10 task INDEX.md files (GROVE-S04-T01..T10) — per-task phase history and artifact links",
+    "engineering/sprints/GROVE-S04/COST_REPORT.md — sprint cost and effort metrics from event telemetry",
+    ".forge/cache/context-pack.md and .json — regenerated architecture documentation index"
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-21T09:11:30+05:30"
+}

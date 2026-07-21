@@ -1,0 +1,27 @@
+{
+  "objective": "Close code-review revision: verify version files at 0.4.1, produce fresh forced-rebuild evidence, run bump-version.sh with checksum restore, add 'Testing the bump script' to RELEASING.md, write non-stale PROGRESS.md.",
+  "key_changes": [
+    "Verified all four Cargo.toml, Cargo.lock, package.json, and CHANGELOG.md are at 0.4.1 — no 9.9.9 in any file.",
+    "Forced rebuild (touch main.rs files): `grove 0.4.1` and `grove-explore 0.4.1` confirmed from freshly compiled binaries.",
+    "cargo test --release --locked --workspace: 42+54+1 passed, 0 failed.",
+    "cargo clippy --all-targets --workspace --locked -- -D warnings: warning-clean.",
+    "bump-version.sh 9.9.9: 4 crates, 5 pins, 4 lock entries mutated; restored via git checkout HEAD + perl on package.json; sha256 matches before/after.",
+    "YAML/JSON/shell/JS syntax checks on all packaging files: all pass.",
+    "Added 'Testing the bump script' subsection to RELEASING.md with run→verify→restore→checksum protocol.",
+    "Wrote fresh PROGRESS.md with all evidence pairs (command + verbatim output)."
+  ],
+  "files_changed": [
+    ".github/workflows/release.yml",
+    "RELEASING.md",
+    "dist/homebrew/grove.rb",
+    "dist/npm/bin/grove-explore.js",
+    "dist/npm/install.js",
+    "dist/npm/package.json",
+    "grove-explore/src/main.rs",
+    "install.sh",
+    "scripts/bump-version.sh",
+    "engineering/architecture/deployment.md"
+  ],
+  "verdict": "n/a",
+  "artifact_ref": "PROGRESS.md"
+}

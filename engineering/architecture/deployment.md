@@ -33,23 +33,24 @@
 **Workflow**: `.github/workflows/release.yml`
 - **Trigger**: Push tags matching `v*.*.*`
 - **Steps**: checkout → install Rust → cache cargo → build per target → package (tar.gz / zip) → sha256 checksums → upload to GitHub Release via `softprops/action-gh-release@v3`
-- **Assets per target**: `grove-<target>.tar.gz` + `grove-<target>.tar.gz.sha256` (or `.zip` on Windows)
+- **Assets per target**: `grove-<target>.tar.gz` + `grove-<target>.tar.gz.sha256` (or `.zip` on Windows). Each archive now contains both `grove` and `grove-explore` binaries.
 
 ## Distribution Channels
 
 ### GitHub Releases (primary)
-- 5 platform binaries per version
+- 5 platform archives per version, each containing both `grove` and `grove-explore` binaries
 - SHA-256 checksums published alongside each asset
 - Install script / direct download
 
 ### npm (`@entelligentsia/grove`)
-- Thin wrapper: `dist/npm/` contains `package.json`, `bin/grove.js`, `install.js`
-- `postinstall` script downloads the platform binary from GitHub Releases into `vendor/`
+- Thin wrapper: `dist/npm/` contains `package.json`, `bin/grove.js`, `bin/grove-explore.js`, `install.js`
+- `postinstall` script downloads the platform archive from GitHub Releases into `vendor/` and extracts both `grove` and `grove-explore`
+- `package.json` `bin` maps both `grove` and `grove-explore`
 - Requires Node ≥ 24
 
 ### Homebrew
-- Custom formula in `dist/homebrew/grove.rb`
-- Update script: `dist/homebrew/update-formula.sh`
+- Custom formula in `dist/homebrew/grove.rb` installs both `grove` and `grove-explore`
+- Update script: `dist/homebrew/update-formula.sh` reads the same per-target `.sha256` sidecars
 
 ## Grammar Distribution
 

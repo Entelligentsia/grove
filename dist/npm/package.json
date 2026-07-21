@@ -9,13 +9,15 @@
   },
   "license": "MIT",
   "bin": {
-    "grove": "bin/grove.js"
+    "grove": "bin/grove.js",
+    "grove-explore": "bin/grove-explore.js"
   },
   "scripts": {
     "postinstall": "node install.js"
   },
   "files": [
     "bin/grove.js",
+    "bin/grove-explore.js",
     "install.js",
     "README.md"
   ],

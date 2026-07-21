@@ -3,6 +3,13 @@ name: release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and package without publishing"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -45,9 +52,9 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        # Package id is grove-cst-cli; the built binary is still named `grove`
-        # (its [[bin]] name), which the packaging steps below archive.
-        run: cargo build --release --locked -p grove-cst-cli --target ${{ matrix.target }}
+        # Build both release binaries: `grove` from grove-cst-cli and
+        # `grove-explore` from grove-explore-bin.
+        run: cargo build --release --locked -p grove-cst-cli -p grove-explore-bin --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
@@ -55,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           asset="grove-${{ matrix.target }}.tar.gz"
-          tar -C "target/${{ matrix.target }}/release" -czf "$asset" grove
+          tar -C "target/${{ matrix.target }}/release" -czf "$asset" grove grove-explore
           if command -v sha256sum >/dev/null; then
             sha256sum "$asset" > "$asset.sha256"
           else
@@ -68,23 +75,35 @@ jobs:
         run: |
           set -euo pipefail
           asset="grove-${{ matrix.target }}.zip"
-          7z a "$asset" "./target/${{ matrix.target }}/release/grove.exe"
+          7z a "$asset" "./target/${{ matrix.target }}/release/grove.exe" "./target/${{ matrix.target }}/release/grove-explore.exe"
           hash=$(certutil -hashfile "$asset" SHA256 | sed -n '2p' | tr -d ' \r')
           printf '%s  %s\n' "$hash" "$asset" > "$asset.sha256"
 
+      - name: Upload workflow artifacts
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-${{ matrix.target }}
+          path: |
+            grove-${{ matrix.target }}.*
+          if-no-files-found: error
+
       - name: Upload to release
+        if: ${{ !inputs.dry_run }}
         uses: softprops/action-gh-release@v3
         with:
           files: |
             grove-${{ matrix.target }}.*
 
-  # Publish both workspace crates to crates.io. Runs only after every platform
-  # binary built, so a broken build never yields a half-release. Requires the
-  # CARGO_REGISTRY_TOKEN repo secret (a crates.io API token with publish scope).
+  # Publish all four workspace crates to crates.io. Runs only after every
+  # platform binary built, so a broken build never yields a half-release. Skipped
+  # in dry-run mode. Requires the CARGO_REGISTRY_TOKEN repo secret (a crates.io
+  # API token with publish scope).
   publish-crates:
     name: publish to crates.io
     needs: build
     runs-on: ubuntu-latest
+    if: ${{ !inputs.dry_run }}
     steps:
       - uses: actions/checkout@v5
 
@@ -102,22 +121,25 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
           core_v="$(sed -n 's/^version = "\(.*\)"/\1/p' core/Cargo.toml | head -1)"
+          explore_core_v="$(sed -n 's/^version = "\(.*\)"/\1/p' explore/Cargo.toml | head -1)"
           cli_v="$(sed -n 's/^version = "\(.*\)"/\1/p' cli/Cargo.toml | head -1)"
-          echo "tag=$tag  grove-cst=$core_v  grove-cst-cli=$cli_v"
-          if [ "$tag" != "$core_v" ] || [ "$tag" != "$cli_v" ]; then
-            echo "::error::tag v$tag does not match crate versions (grove-cst $core_v, grove-cst-cli $cli_v)"
+          explore_bin_v="$(sed -n 's/^version = "\(.*\)"/\1/p' grove-explore/Cargo.toml | head -1)"
+          echo "tag=$tag  grove-cst=$core_v  grove-explore-core=$explore_core_v  grove-cst-cli=$cli_v  grove-explore-bin=$explore_bin_v"
+          if [ "$tag" != "$core_v" ] || [ "$tag" != "$explore_core_v" ] || [ "$tag" != "$cli_v" ] || [ "$tag" != "$explore_bin_v" ]; then
+            echo "::error::tag v$tag does not match crate versions (grove-cst $core_v, grove-explore-core $explore_core_v, grove-cst-cli $cli_v, grove-explore-bin $explore_bin_v)"
             exit 1
           fi
 
-      - name: Publish grove-cst then grove-cst-cli
+      - name: Publish crates in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          # Library first: grove-cst-cli depends on grove-cst = "=X.Y.Z" and
-          # crates.io resolves that exact pin from the index at publish time.
-          # `cargo publish` blocks until the new version is indexed, so the CLI
-          # publish that follows can resolve it.
+          # Dependency order: library crates first, then the binaries that depend
+          # on them. `cargo publish` blocks until each crate is indexed, so the
+          # next publish can resolve exact-version pins from crates.io.
           cargo publish -p grove-cst --locked
+          cargo publish -p grove-explore-core --locked
           cargo publish -p grove-cst-cli --locked
+          cargo publish -p grove-explore-bin --locked

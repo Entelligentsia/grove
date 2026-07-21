@@ -1,0 +1,17 @@
+{
+  "objective": "Architect approval for dual-binary packaging implementation (release.yml, npm, Homebrew, install.sh) shipping grove and grove-explore.",
+  "key_changes": [
+    "Two-binary architecture correctly implements grove (structural) and grove-explore (mcp-llm) separation.",
+    "Release workflow builds both binaries for all five platform targets with correct 4-crate publish order.",
+    "All distribution channels (npm, Homebrew, curl) ship both binaries with graceful degradation.",
+    "Version consistency verified: all four crates, Cargo.lock, npm package.json at 0.4.1.",
+    "Bump-version.sh handles all twelve version-bearing locations correctly.",
+    "Full test suite (97 tests) and CI-equivalent clippy lint pass.",
+    "RELEASING.md now includes safe bump-script testing protocol.",
+    "No breaking changes; existing grove users unaffected.",
+    "Future: consider automating npm publish and Homebrew tap regeneration."
+  ],
+  "verdict": "approved",
+  "written_at": "2026-07-21T04:02:30.000Z",
+  "artifact_ref": "ARCHITECT_APPROVAL.md"
+}

@@ -1,0 +1,16 @@
+{
+  "objective": "Close the code-review revision by verifying all version files are at 0.4.1, producing a forced-rebuild with fresh --version evidence, exercising bump-version.sh with an explicit restore-and-checksum protocol, and documenting the safe bump-test procedure in RELEASING.md.",
+  "key_changes": [
+    "Verify all 12 version-bearing locations are at 0.4.1 (no 9.9.9 remains); restore from HEAD or targeted edit if any are wrong.",
+    "Force recompile both binaries (touch main.rs files) and confirm grove 0.4.1 and grove-explore 0.4.1 from --version.",
+    "Run cargo test --release --locked --workspace and cargo clippy --all-targets --workspace --locked -- -D warnings; capture fresh output.",
+    "Exercise scripts/bump-version.sh 9.9.9: run, verify 4 crates + 5 pins + 4 Cargo.lock entries mutated, restore with git checkout HEAD + targeted package.json edit, sha256 checksum before/after.",
+    "Run JS/shell/YAML/JSON syntax checks on all packaging files; record output verbatim.",
+    "Add 'Testing the bump script' subsection to RELEASING.md with run→verify→restore→checksum-confirm procedure.",
+    "Write fresh, non-stale PROGRESS.md with all evidence pairs (command + output).",
+    "No changes to release.yml, npm, Homebrew, install.sh, bump-version.sh, or deployment.md — all were assessed correct by code review."
+  ],
+  "verdict": "n/a",
+  "written_at": "2026-07-21T03:10:00.000Z",
+  "artifact_ref": "PLAN.md"
+}

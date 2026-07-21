@@ -75,10 +75,19 @@ tar -C "$tmp" -xzf "$tmp/$asset" || err "extract failed"
 mkdir -p "$INSTALL_DIR"
 mv "$tmp/grove" "$INSTALL_DIR/grove"
 chmod +x "$INSTALL_DIR/grove"
+# Archives from v0.4.1+ also ship grove-explore; older single-binary archives
+# should not abort the install.
+if [ -f "$tmp/grove-explore" ]; then
+  mv "$tmp/grove-explore" "$INSTALL_DIR/grove-explore"
+  chmod +x "$INSTALL_DIR/grove-explore"
+fi
 
-printf 'grove-install: installed to %s/grove\n' "$INSTALL_DIR" >&2
+printf 'grove-install: installed to %s\n' "$INSTALL_DIR" >&2
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) printf 'grove-install: add it to PATH:  export PATH="%s:$PATH"\n' "$INSTALL_DIR" >&2 ;;
 esac
 "$INSTALL_DIR/grove" --version || true
+if [ -f "$INSTALL_DIR/grove-explore" ]; then
+  "$INSTALL_DIR/grove-explore" --version || true
+fi
