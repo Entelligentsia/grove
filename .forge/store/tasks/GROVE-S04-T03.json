@@ -1,0 +1,110 @@
+{
+  "taskId": "GROVE-S04-T03",
+  "sprintId": "GROVE-S04",
+  "title": "grove serve always structural — delete Surface/determine_surface/serve mode flags/health fallback",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T03",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T01"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Delete all bimodal Surface/determine_surface/health-probe machinery from cli/src/mcp.rs so that grove serve unconditionally dispatches the 7-tool structural surface, and remove the now-dead --explore/--standard CLI flags with a clear replacement-naming error.",
+      "key_changes": [
+        "Delete Surface enum and determine_surface function from cli/src/mcp.rs",
+        "Delete open_session_trace, enum_str, explore_instructions, explore_tool_spec, resolve_explore_question, StdoutProgress, progress_token, call_explore_tool from cli/src/mcp.rs",
+        "Remove all grove_explore_core imports and active_mode/GroveConfig/Mode/ModeChoice imports from cli/src/mcp.rs",
+        "Simplify serve() to take only root: &Path (no force_explore/force_standard); drop trace_writer and surface from the loop",
+        "Simplify handle() to take only method/params; hardcode structural paths for initialize/tools-list/tools-call",
+        "Update all handle() call sites in the mcp.rs unit test module to drop &Surface::Standard/None args",
+        "Delete 3 resolve_explore_question unit tests from cli/src/mcp.rs (testing deleted function)",
+        "In cli/src/main.rs: hide --explore/--standard in Cmd::Serve via #[arg(hide=true)]; add bail! guard in dispatch arm naming grove-explore serve as replacement",
+        "Update cli/src/main.rs Cmd::Serve dispatch to call mcp::serve(&path) with no flag args",
+        "In cli/tests/cli.rs: replace explore_mode_unhealthy_provider_falls_back_to_standard_surface with serve_always_serves_structural_surface (no fallback — constant surface)",
+        "Add serve_removed_explore_flag_errors_with_hint integration test for AC2",
+        "Add serve_mcp_llm_config_returns_7_structural_tools integration test for AC3; leave Cargo.toml unchanged (dep prune is T05)"
+      ],
+      "verdict": "n/a",
+      "written_at": "2025-07-22T18:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assess the plan to delete Surface/determine_surface/health-fallback and serve mode flags so grove serve is unconditionally the 7-tool structural surface.",
+      "key_changes": [
+        "Deleted-code inventory matches mcp.rs outline symbol-for-symbol (Surface, determine_surface, open_session_trace, enum_str, explore_* helpers, StdoutProgress, call_explore_tool, 3 tests).",
+        "Verified no dangling refs: enum_str (174-175), SessionMeta (172), ExploreError (387/395) used only inside deleted functions; whole grove_explore_core import block consumed only by deleted code.",
+        "instructions() (structural) is correctly retained as the sole instructions path.",
+        "Signature change is contained: only main.rs:405 calls mcp::serve; plan updates that site.",
+        "Plan correctly preserves active_mode/Mode/ModeChoice in core (Cmd::Doctor at main.rs:291 still uses them); only the mcp.rs import is dropped.",
+        "AC2 covered via hidden #[arg(hide=true)] flags + dispatch bail! + serve_removed_explore_flag_errors_with_hint test.",
+        "AC3 covered via serve_mcp_llm_config_returns_7_structural_tools plus updated bug1_serve_mcp_mode_ignores_stale_explore_json.",
+        "AC4 (not blocking): ratatui/crossterm still used by trace_tui/ and config_tui/, so a Cargo.toml prune here would break the build; deferral to T05 is forced and sanctioned.",
+        "Advisory: plan marks AC4 'N/A' but it satisfies AC4's serve-path half; cargo-tree check is a joint T03+T05 gate and should be tracked.",
+        "Advisory: update Cmd::Serve doc comment (main.rs:182/185/188) which still references .grove/explore.json + removed force flags.",
+        "Advisory: ensure hidden flags still parse in clap so the grove-authored hint fires (assert hint text, not clap's generic error)."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-06-12T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Delete all bimodal Surface/determine_surface/health-probe explore machinery from cli/src/mcp.rs so grove serve unconditionally dispatches the 7-tool structural surface, and remove the dead --explore/--standard CLI flags with a clear replacement-naming error.",
+      "key_changes": [
+        "Removed grove_explore_core import block (7 types) and grove_core::config::{active_mode, GroveConfig, Mode, ModeChoice} from cli/src/mcp.rs",
+        "Deleted enum Surface, fn determine_surface (50 lines), fn open_session_trace, fn enum_str from cli/src/mcp.rs",
+        "Simplified pub fn serve signature: (root, force_explore, force_standard) → (_root) — removed trace_writer, surface, and initialize trace-open block",
+        "Simplified fn handle signature: (method, params, surface, trace) → (method, params) — collapsed match surface branches into direct calls",
+        "Deleted fn explore_instructions, fn explore_tool_spec, EXPLORE_QUESTION_KEYS const, fn resolve_explore_question from cli/src/mcp.rs",
+        "Deleted struct StdoutProgress + impl ProgressReporter, fn progress_token, fn call_explore_tool from cli/src/mcp.rs",
+        "Deleted 3 resolve_explore_question unit tests; updated 7 handle() call sites in mod tests to drop &Surface::Standard, None args",
+        "In cli/src/main.rs: hid --explore and --standard with #[arg(hide=true)]; added bail! guard naming grove-explore serve as replacement; simplified dispatch to mcp::serve(&path)",
+        "Updated Cmd::Serve doc comment to state always-structural invariant",
+        "Replaced explore_mode_unhealthy_provider_falls_back_to_standard_surface with serve_always_serves_structural_surface (asserts no 'falling back' on stderr)",
+        "Added serve_removed_explore_flag_errors_with_hint integration test (AC2)",
+        "Added serve_mcp_llm_config_returns_7_structural_tools integration test (AC3); updated bug1_serve_mcp_mode_ignores_stale_explore_json assertions"
+      ],
+      "files_changed": [
+        "cli/src/mcp.rs",
+        "cli/src/main.rs",
+        "cli/tests/cli.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2025-07-14T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Assess the deletion of Surface/determine_surface/health-fallback and serve mode flags so grove serve is unconditionally the 7-tool structural surface.",
+      "key_changes": [
+        "AC1 verified: grep for explore/Surface/determine_surface in cli/src/mcp.rs returns zero hits; grove_explore_core and config Mode imports removed, ops/registry retained.",
+        "AC1: all 11 explore symbols deleted (Surface, determine_surface, open_session_trace, enum_str, explore_instructions/tool_spec, resolve_explore_question, StdoutProgress, call_explore_tool).",
+        "handle()/serve() signatures simplified; match-surface collapsed to direct calls; 7 test call sites and 3 explore unit tests updated/deleted.",
+        "AC2 verified: hidden --explore/--standard flags still parse; dispatch bail! names grove-explore serve; serve_removed_explore_flag_errors_with_hint passes (both exit non-zero).",
+        "AC3 verified: serve_mcp_llm_config_returns_7_structural_tools + serve_always_serves_structural_surface pass — mcp-llm config yields 7 tools, no explore tool, no 'falling back' stderr.",
+        "AC5 verified: bug1 stale-explore.json regression guard retained/retargeted; replaced test assertion correctly inverted to !contains 'falling back'.",
+        "AC6 verified independently: clippy --all-targets --workspace --locked -D warnings clean; 37 integration + 109 bin unit tests pass.",
+        "AC4 NOT met (ratatui/crossterm still deps via trace_tui/config_tui) but is the sanctioned deferral to T05 per approved PLAN + PLAN_REVIEW; consistent with T05's TUI move.",
+        "Follow-up: AC4 cargo-tree check is a joint T03+T05 gate — must run when T05 lands. Advisory, tracked.",
+        "Minor advisory: cosmetic multi-blank-line runs at mcp.rs:23 and mcp.rs:126; not a gate (CI deliberately omits fmt --check per ci.yml:26-27)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T07:20:14Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that Surface/determine_surface/health-probe explore machinery was deleted from cli/src/mcp.rs, --explore/--standard flags produce a clear replacement error, grove serve unconditionally serves 7 structural tools, and the workspace is clean.",
+      "key_changes": [
+        "AC1 PASS: grep for explore/Surface/determine_surface in mcp.rs returns zero hits; grove_explore_core and Mode imports removed; all 11 explore symbols confirmed deleted.",
+        "AC2 PASS: --explore/--standard flags hidden with #[arg(hide=true)]; dispatch bail! names 'grove-explore serve'; serve_removed_explore_flag_errors_with_hint passes.",
+        "AC3 PASS: serve_mcp_llm_config_returns_7_structural_tools and serve_always_serves_structural_surface pass; mode=mcp-llm yields 7 tools, no explore tool, no fallback stderr.",
+        "AC4 DEFERRED TO T05 (sanctioned): ratatui/crossterm still in cli/Cargo.toml via trace_tui/config_tui; mcp::serve has zero ratatui/crossterm imports; full dep prune is T05 gate.",
+        "AC5 PASS: All 37 integration tests pass; fallback test replaced; bug1 regression guard retained; 7 handle() call sites updated.",
+        "AC6 PASS: 336 total tests pass; clippy --all-targets --workspace --locked -D warnings clean; all 3 changed files end with newline."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-07-16T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "sprintId": "GROVE-S04",
+  "title": "ADR 0004 stages 1-2 — split the explore delegate into grove-explore (crate + surface split, composable MCP servers)",
+  "status": "active",
+  "taskIds": [
+    "GROVE-S04-T01",
+    "GROVE-S04-T02",
+    "GROVE-S04-T03",
+    "GROVE-S04-T04",
+    "GROVE-S04-T05",
+    "GROVE-S04-T06",
+    "GROVE-S04-T07",
+    "GROVE-S04-T08",
+    "GROVE-S04-T09",
+    "GROVE-S04-T10"
+  ],
+  "createdAt": "2026-07-20T00:00:00Z"
+}

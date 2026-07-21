@@ -3,7 +3,7 @@
 # Sprint: .grove/config.json declared mode + grove doctor health check
 
 > Sprint ID: GROVE-S03
-> Status: 🔵 active
+> Status: ✅ completed
 > Execution Mode: sequential
 
 ## Goal
@@ -32,5 +32,5 @@ Consolidates two coupled design docs (docs/adr/0002-grove-project-config-and-dec
 | [GROVE-S03-T04](GROVE-S03-T04/INDEX.md) | reconcile_harness single harness writer + transition-matrix test          | ✅ committed | L        |
 | [GROVE-S03-T05](GROVE-S03-T05/INDEX.md) | config TUI mode badge + inert explore-section rendering                   | ✅ committed | S        |
 | [GROVE-S03-T06](GROVE-S03-T06/INDEX.md) | grove.lock wasm sha256 verify primitive (core)                            | ✅ committed | S        |
-| [GROVE-S03-T07](GROVE-S03-T07/INDEX.md) | grove doctor - core::doctor report + CLI verb (checks, --json, exit code) | ✅ approved  | L        |
+| [GROVE-S03-T07](GROVE-S03-T07/INDEX.md) | grove doctor - core::doctor report + CLI verb (checks, --json, exit code) | ✅ committed | L        |
 

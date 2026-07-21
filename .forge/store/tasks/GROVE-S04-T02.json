@@ -1,0 +1,125 @@
+{
+  "taskId": "GROVE-S04-T02",
+  "sprintId": "GROVE-S04",
+  "title": "grove-explore binary — own MCP server identity, explore tool only, startup health gate",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T02",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T01"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Create a grove-explore binary (second [[bin]] in cli/) exposing a single-tool MCP server (explore only, stdio JSON-RPC 2.0) with a hard startup health gate — unhealthy provider exits non-zero before the loop begins, never falls back.",
+      "key_changes": [
+        "cli/Cargo.toml: add [[bin]] name='grove-explore' path='src/bin/grove_explore.rs'",
+        "cli/src/bin/grove_explore.rs (NEW): self-contained MCP server — clap args, GroveConfig load, health gate (exit 1 on failure), stdio loop, explore-only dispatch",
+        "SERVER_NAME = 'grove-explore'; initialize response serverInfo.name = 'grove-explore'; same protocol versions as grove serve",
+        "Startup health gate sequence: GroveConfig::load -> ExploreConfig deserialization -> health_probe -> enter loop; each step is exit(1) on failure, not fallback",
+        "tools/list always returns [explore_tool_spec()]; no Surface enum needed (surface is fixed)",
+        "tools/call dispatches to run_explore_reporting in-process (no MCP hop); mid-session ProviderDown -> isError:true tool result (preserved)",
+        "Tap/trace support preserved: TraceWriter opened on initialize when cfg.tap is set",
+        "Config source: GroveConfig::load(root) -> grove_cfg.explore deserialized as ExploreConfig (ADR 0002 placement, no file move)",
+        "Integration test 1: fake /models HTTP server (TcpListener port 0) -> smoke test asserting serverInfo.name='grove-explore' and single explore tool",
+        "Integration test 2: port-1 unreachable provider -> assert non-zero exit and stderr contains fix hint",
+        "No version bump; no registration changes (T04/T06); no config file move (Stage 3); grove binary behaviour unchanged",
+        "Workspace green: cargo test --release --locked + cargo clippy --all-targets --workspace --locked -- -D warnings"
+      ],
+      "verdict": "n/a",
+      "written_at": "2025-07-20T12:00:00Z",
+      "artifact_ref": "PLAN.md"
+    },
+    "review_plan": {
+      "objective": "Assess the grove-explore binary plan for feasibility, AC coverage, and grounding against actual code before implementation.",
+      "key_changes": [
+        "All grove_explore_core APIs the bin relies on are confirmed exported (run_explore_reporting, health_probe, HealthError, ExploreConfig, OpenAiCompatClient, TraceWriter, ProgressReporter).",
+        "AC2 correct: plan replaces determine_surface's three fallback arms (config-load, explore-deser, health_probe) with process::exit(1).",
+        "AC3 preserved: call_explore_tool's ProviderDown -> isError:true path replicated verbatim, run_explore_reporting untouched.",
+        "AC5 config shape verified: GroveConfig { mode: mcp-llm, explore: Option<Value> } matches Test 1's direct config.json write (existing fixture at config.rs:607).",
+        "Test 2 grounded: mirrors existing port-1 fallback test; HealthError Display emits 'is the server running / base_url' fix hints for the stderr assertion.",
+        "Placement sound: cli/ has one [[bin]] and no [lib]; a second self-contained [[bin]] inheriting package deps is valid Cargo; CARGO_BIN_EXE_grove-explore resolves.",
+        "Advisory: ~130 lines duplicated from mcp.rs, cleared by T03 — keep T02->T03 ordering tight.",
+        "Advisory: mode gate intentionally skipped (bin is always explore); suggest a one-line comment in main() signalling deliberate omission.",
+        "Advisory: Test 1 fake /models server must serve the configured model name before health_probe's connect timeout."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-06-12T00:00:00Z",
+      "artifact_ref": "PLAN_REVIEW.md"
+    },
+    "implementation": {
+      "objective": "Create the grove-explore binary: a dedicated stdio MCP server exposing only the explore tool, with a hard startup health gate that exits non-zero before the loop if config load, explore-section deserialization, or the provider health probe fails.",
+      "key_changes": [
+        "cli/src/bin/grove_explore.rs (NEW ~260 LOC): self-contained MCP binary with clap Args, startup health gate (3 hard-fail steps), stdio JSON-RPC 2.0 loop, explore-only dispatch",
+        "SERVER_NAME = 'grove-explore' — separate identity from the grove binary",
+        "No Surface enum: the binary is always in explore mode by design",
+        "Hard startup gate: GroveConfig::load → explore deser → health_probe; each step exits(1) on failure, never falls back",
+        "Trace support: TraceWriter opened on initialize when cfg.tap is set (identical to grove serve explore path)",
+        "Mid-session ProviderDown → isError:true tool result (AC3 preserved, identical to mcp.rs)",
+        "run_explore_reporting called directly in-process (AC4, no MCP hop)",
+        "cli/Cargo.toml: [[bin]] name='grove-explore' path='src/bin/grove_explore.rs' added",
+        "cli/tests/cli.rs: grove_explore_single_tool_surface_and_identity — fake /models HTTP server on port 0, smoke test asserts serverInfo.name='grove-explore' and single explore tool",
+        "cli/tests/cli.rs: grove_explore_startup_fails_on_unhealthy_provider — port-1 config, asserts non-zero exit + HealthError hint on stderr + empty stdout",
+        "All 35 integration tests + 301 total workspace tests pass; clippy -D warnings clean"
+      ],
+      "files_changed": [
+        "cli/src/bin/grove_explore.rs",
+        "cli/Cargo.toml",
+        "cli/tests/cli.rs"
+      ],
+      "verdict": "n/a",
+      "written_at": "2025-07-15T00:00:00Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Independently verify the grove-explore binary implementation against PLAN.md and AC1-AC7: own MCP server identity, single explore tool, hard startup health gate.",
+      "key_changes": [
+        "AC1 met: [[bin]] grove-explore; stdio JSON-RPC 2.0 with same SUPPORTED_PROTOCOLS as grove serve; tools/list returns one explore tool; name/schema/result-contract match today's surface.",
+        "AC2 met: main() gate GroveConfig::load -> explore deser -> health_probe, each exit(1) before serve_explore; startup-fail test asserts non-zero exit + stderr hint + empty stdout.",
+        "AC3 met: call_explore_tool ProviderDown -> tool_text(..., true) isError result preserved from mcp.rs.",
+        "AC4 met: run_explore_reporting called directly in-process, no MCP hop or subprocess.",
+        "AC5 met: GroveConfig::load + grove_cfg.explore -> ExploreConfig; no config-file move.",
+        "AC6 met: both integration tests present and pass under my own run.",
+        "AC7 met: I ran build (clean), cargo test --test cli grove_explore (2 passed), clippy --all-targets --workspace --locked -D warnings (clean), newline OK.",
+        "Advisory: ProviderDown message correctly re-pointed to 'restart grove-explore to reconnect' (no structural fallback) — deliberate, not a defect.",
+        "Advisory: explore_tool_spec description is a trimmed copy of mcp.rs; AC1 invariants still satisfied — reconcile in T03 dedup.",
+        "Advisory: Step-2 config error hard-codes 'mode is mcp-llm' without verifying mode; low-impact diagnostic nit for T03.",
+        "No concurrency risk: single-threaded loop; StdoutProgress writes whole lines during run_explore_reporting, before the response line is written."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-06-12T00:00:00Z",
+      "artifact_ref": "CODE_REVIEW.md"
+    },
+    "validation": {
+      "objective": "Validate that the grove-explore binary satisfies AC1-AC7: own MCP server identity, single explore tool, hard startup health gate, in-process explorer call, correct config source, integration test coverage, and workspace green.",
+      "key_changes": [
+        "AC1 PASS: [[bin]] grove-explore present in Cargo.toml; binary built; SUPPORTED_PROTOCOLS identical to mcp.rs; tools/list returns exactly one 'explore' tool; name/schema/result-contract match.",
+        "AC1 NOTE: explore_tool_spec description is a trimmed copy of mcp.rs (code-review advisory, T03 reconcile); name, schema, and result contract are the AC1 contract elements — satisfied.",
+        "AC2 PASS: main() gate fires 4 hard-fail steps (config load, explore presence, deser, health_probe) each exit(1); startup-failure integration test asserts non-zero exit + empty stdout + stderr hint.",
+        "AC3 PASS: call_explore_tool ProviderDown -> Outcome::Ok(tool_text(...,true)) identical structure to mcp.rs; message updated to 'restart grove-explore to reconnect' (deliberate, no fallback surface).",
+        "AC4 PASS: run_explore_reporting called directly in call_explore_tool; no subprocess, no MCP hop.",
+        "AC5 PASS: GroveConfig::load -> grove_cfg.explore -> ExploreConfig deser; ADR 0002 placement preserved, no config file move.",
+        "AC6 PASS: both integration tests pass (smoke: serverInfo.name='grove-explore', 1 tool; startup-fail: non-zero exit + empty stdout + stderr hint).",
+        "AC7 PASS: 337 workspace tests pass, 0 failed; clippy -D warnings clean; all modified files end with newline."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-07-20T17:30:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on the grove-explore binary: a dedicated single-tool stdio MCP server with a hard startup health gate that exits non-zero before the loop rather than falling back.",
+      "key_changes": [
+        "Fits the stack unchanged: second [[bin]] reuses the hand-rolled stdio JSON-RPC 2.0 surface, same SUPPORTED_PROTOCOLS, clap/serde, no new deps.",
+        "Startup health gate (config load -> explore deser -> health_probe, each process::exit(1) before serve_explore) enforces 'never fall back'; test asserts non-zero exit + empty stdout.",
+        "Config source respects ADR 0002: GroveConfig::load -> grove_cfg.explore -> ExploreConfig with no config-file move (Stage 3 deferred by design).",
+        "In-process explorer call (run_explore_reporting) with no MCP hop; mid-session ProviderDown returns isError:true identical to mcp.rs; grove binary behaviour unchanged.",
+        "Independent code-review and validation both green: 337 workspace tests pass, clippy --all-targets --workspace --locked -D warnings clean; AC1-AC7 all met.",
+        "Deployment: grove now emits a SECOND release artifact. npm/Homebrew/install-script/GH-Releases ship one binary; grove-explore packaging is T04/T06 but MUST land before any user-facing release.",
+        "Follow-up: T03 dedup clears ~130 LOC copied from mcp.rs (explore_tool_spec, protocol consts, ProviderDown arm); keep T02->T03 ordering tight."
+      ],
+      "verdict": "approved",
+      "written_at": "2025-06-30T00:00:00Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}

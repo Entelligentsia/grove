@@ -2,7 +2,7 @@
 
 # Cost Report — GROVE-S01
 
-> Generated: 2026-07-04
+> Generated: 2026-07-21
 > Sprint: Refactor grove into a Cargo workspace (grove-core library + grove CLI)
 
 _No token data available for this sprint._

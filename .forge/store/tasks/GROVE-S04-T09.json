@@ -1,0 +1,135 @@
+{
+  "taskId": "GROVE-S04-T09",
+  "sprintId": "GROVE-S04",
+  "title": "Docs restructure — two-server story (README, setup, mcp, steering templates, ADR annotations)",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T09",
+  "estimate": "M",
+  "dependencies": [
+    "GROVE-S04-T04",
+    "GROVE-S04-T06"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Rewrite every doc that describes grove's MCP surface to the two-server composition story (grove + grove-explore, composable, not mode-switched) and land ADR 0002/0004 annotations.",
+      "key_changes": [
+        "README.md: rewrite the Advanced > Delegated local-LLM mode section to the two-server story; drop stale explore_delegation_flow.svg embed",
+        "docs/setup.md: rewrite Explore-mode section (both-servers registration, no health fallback) + What init writes table; drop stale svg embed",
+        "docs/mcp.md: add a two-servers/composability section naming grove and grove-explore identities",
+        "docs/introduction.md: correct the four-surfaces table row (grove-explore serve, not serve --explore); drop stale svg embed",
+        "docs/reference.md: correct .grove/config.json mode semantics and grove-explore config/tap spellings",
+        "docs/book.toml + docs/SUMMARY.md: correct description wording; verify sidebar labels still match content",
+        "CLAUDE.md: rewrite architecture block (real four-crate layout, two binaries) and Commands section (serve flags removed, grove-explore verbs, deprecated shims)",
+        "docs/adr/0002: annotate superseded S1/S3 clauses pointing at ADR 0004",
+        "docs/adr/0004: Status -> Accepted; implementation-state note (T01-T08 committed, T10 open, stage 3 gated)",
+        "skills/grove/SKILL.md and dist/npm/README.md: reviewed, already clean, no edit -- findings recorded in PROGRESS.md",
+        "Explicitly out of scope: docs/doctor-command-proposal.md and sibling planning docs, docs/assets/*.svg regeneration, cli/src/init.rs docstring (optional nice-to-have only)",
+        "Ground truth for parity checks: cli/src/init.rs claude_section/agents_section (McpLlm branch) server names, verb spellings, recommended flow"
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PLAN.md",
+      "written_at": "2026-07-21T04:54:38.229Z"
+    },
+    "review_plan": {
+      "objective": "Assessed the GROVE-S04-T09 docs-restructure plan for feasibility, spec compliance, and testing adequacy against the two-server composition story.",
+      "key_changes": [
+        "All ground-truth claims independently verified: 4-crate workspace, cli/src layout, serve flag bail, config/tap shims, init.rs steering text, ADR statuses, T01-T08 committed/T10 draft.",
+        "Stale content confirmed in README.md, docs/setup.md, docs/introduction.md, docs/reference.md, docs/book.toml, CLAUDE.md — exactly as plan describes.",
+        "skills/grove/SKILL.md and dist/npm/README.md confirmed clean of stale mode-switch language — plan no-edit finding is accurate.",
+        "All 6 acceptance criteria addressed with file-level actions; ADR treatment correct (annotations not rewrites for 0002, status change for 0004).",
+        "Testing strategy appropriate for prose-only task: grep sweep + init.rs parity cross-check + mdbook build + cargo test guard.",
+        "Advisory: introduction.md 'single Rust binary' prose needs correction beyond just the table row.",
+        "Advisory: SUMMARY.md sidebar labels may need updating for honesty even without structural page changes.",
+        "Advisory: setup.md line 33 code-block comment has stale serve --explore — verify code-block comments updated, not just prose."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "PLAN_REVIEW.md",
+      "written_at": "2026-07-21T04:56:52.089Z"
+    },
+    "implementation": {
+      "objective": "Rewrote every doc describing grove's MCP surface to the two-server composition story (grove structural + grove-explore locator, composable not mode-switched) and landed ADR 0002/0004 annotations.",
+      "key_changes": [
+        "README.md: rewrote Advanced > delegated-mode details block to the two-server composition story; dropped stale explore_delegation_flow.svg embed.",
+        "docs/setup.md: rewrote Explore-mode section (both-servers registration in .mcp.json, no health fallback, corrected first-run TUI/degrade behavior); dropped stale mcp_explore_comparison.svg embed.",
+        "docs/mcp.md: added 'Two servers, composable' section naming grove and grove-explore server identities.",
+        "docs/introduction.md: corrected four-surfaces table (grove-explore serve, not serve --explore) and 'single Rust binary' prose; dropped stale grove_architecture_surfaces.svg embed.",
+        "docs/reference.md: corrected .grove/config.json mode semantics (serve is unconditionally structural) and grove-explore config/tap spellings with deprecated-shim note.",
+        "docs/book.toml: 'two MCP modes' -> 'two composable MCP servers'.",
+        "CLAUDE.md: rewrote architecture block to real four-crate layout/two binaries and Commands section (serve flags removed, grove-explore verbs, deprecated shims).",
+        "docs/adr/0002: annotated superseded S1/S3 clauses pointing at ADR 0004, historical text left intact.",
+        "docs/adr/0004: Status -> Accepted; Status of implementation rewritten with T01-T08 committed detail, T10 open gate test, stage 3 not scheduled.",
+        "cli/src/init.rs: nice-to-have one-line rustdoc fix on Target::McpLlm (no behavior change).",
+        "skills/grove/SKILL.md and dist/npm/README.md re-verified clean, no edit needed.",
+        "docs/doctor-command-proposal.md and docs/assets/*.svg left untouched per explicit out-of-scope."
+      ],
+      "files_changed": [
+        "README.md",
+        "docs/setup.md",
+        "docs/mcp.md",
+        "docs/introduction.md",
+        "docs/reference.md",
+        "docs/book.toml",
+        "CLAUDE.md",
+        "docs/adr/0002-grove-project-config-and-declared-mode.md",
+        "docs/adr/0004-explore-split-into-grove-explore.md",
+        "cli/src/init.rs"
+      ],
+      "verdict": "n/a",
+      "artifact_ref": "PROGRESS.md",
+      "written_at": "2026-07-21T05:06:45.299Z"
+    },
+    "code_review": {
+      "objective": "Verified the GROVE-S04-T09 docs-restructure implementation against the approved plan and init.rs ground truth; reproduced all test/lint/build evidence independently.",
+      "key_changes": [
+        "All 6 ACs verified: README/setup/mcp two-server story, init.rs parity (claude_section L924 + agents_section L847), sweep clean, CLAUDE.md+ADRs correct, mdbook builds, cargo test green.",
+        "Independent grep sweep: zero serve --explore / mode badge / inert hits in any in-scope prose file; only excluded categories (ADR history, doctor-command-proposal planning doc) hit.",
+        "init.rs rustdoc edit (only .rs change) is 4-line doc-comment on Target::McpLlm, no behavior change; cargo test 139+65+43+42+54+1+0 passed, clippy clean.",
+        "ADR 0002 §1/§3 annotations are additive blockquotes, historical body intact; ADR 0004 Status→Accepted with accurate T01-T08/T10/stage-3 implementation state.",
+        "CLAUDE.md architecture block + Commands section rewritten to real 4-crate/two-binary layout; deprecated-shim framing consistent across README/setup/reference/CLAUDE.md.",
+        "Advisory: PROGRESS.md misreports SUMMARY.md — claims no edit, but T09 added the ADR 0004 sidebar entry (file was untracked before). The change itself is correct and necessary.",
+        "Advisory: skills/grove/SKILL.md sweep detail slightly off (PROGRESS cites a hit that grep doesn't find); conclusion (clean) verified correct.",
+        "Advisory: docs/setup.md line 28 'three faces' mildly imprecise with two MCP servers but contextually acceptable (describes the --as mcp|skill|both trio)."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "CODE_REVIEW.md",
+      "written_at": "2026-07-21T05:10:27.382Z"
+    },
+    "validation": {
+      "objective": "Independently validated all 6 GROVE-S04-T09 acceptance criteria: two-server composition story in README/setup/mcp, init.rs parity, stale-language sweep, CLAUDE.md+ADR annotations, SUMMARY/book.toml+mdbook build, cargo test green.",
+      "key_changes": [
+        "AC1 PASS: README/setup.md/mcp.md all describe composition-not-mode-switch with register-either-or-both framing, verified by direct read.",
+        "AC2 PASS: re-read cli/src/init.rs claude_section/agents_section McpLlm branches (L847-1000); docs use identical server identities, verb spellings, 3-step flow.",
+        "AC3 PASS: fresh grep sweep for serve --explore/--standard, mode badge, inert, health-fallback — zero hits outside ADR history, unlinked SVGs, and the explicit out-of-scope doctor-command-proposal.md.",
+        "AC4 PASS: CLAUDE.md architecture matches real 4-crate/ls-verified workspace; ADR 0002 SS1/SS3 annotated pointing at ADR 0004; ADR 0004 Status=Accepted with exact T01-T08/T10/stage-3 wording.",
+        "AC5 PASS: book.toml description updated; SUMMARY.md sidebar consistent; independently ran mdbook build from docs/ - clean, no warnings.",
+        "AC6 PASS: reproduced cargo test --release --locked (139+65+43+42+54+1+0 passed, 0 failed) and cargo clippy -D warnings (clean); git diff init.rs is a 5-line rustdoc comment only, no behavior change.",
+        "Regression check: git status file list confined to plan's declared files plus forge/engineering bookkeeping; no unexpected source touched.",
+        "Two non-blocking advisories carried forward from CODE_REVIEW.md (SUMMARY.md provenance labeling nit, setup.md 'three faces' phrasing) - neither violates any acceptance criterion."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-21T00:00:00Z",
+      "artifact_ref": "VALIDATION_REPORT.md"
+    },
+    "approve": {
+      "objective": "Architectural sign-off on GROVE-S04-T09 docs restructure rewriting every MCP-surface doc to the two-server composition story (grove + grove-explore, composable not mode-switched) with ADR 0002/0004 annotations.",
+      "key_changes": [
+        "Architecture alignment verified: Cargo.toml members [core,explore,cli,grove-explore] match CLAUDE.md four-crate/two-binary block; docs now describe shipped T01-T08 code.",
+        "ADR trail correct: ADR 0004 Status=Accepted with accurate T01-T08/T10/stage-3 state; ADR 0002 carries additive annotations at L95 (S1) and L122 (S3) pointing at ADR 0004 S2, body intact.",
+        "Ground-truth parity (AC2): docs name identical server identities, verb spellings (grove-explore serve/config/tap), and 3-step delegation flow as cli/src/init.rs McpLlm branches.",
+        "Stale-language sweep clean: zero serve --explore/--standard hits in scope prose; only ADR history, unlinked SVGs, and out-of-scope doctor-command-proposal hit.",
+        "Doc-only: sole .rs change is a 5-line rustdoc comment on Target::McpLlm, no behavior change; cargo test and clippy -D warnings green, mdbook build clean.",
+        "No cross-cutting concerns: no other module/crate/runtime touched; docs retire the stale mode-switch narrative that contradicted ADR 0004.",
+        "Deprecated-shim framing (grove config/tap -> grove-explore config/tap) documented consistently across README, setup, reference, CLAUDE.md, matching actual shim behavior.",
+        "Operational impact: none - no deployment, version bump, migration, regeneration, or security scan; docs ride the same release as the rest of GROVE-S04.",
+        "Advisory: PROGRESS.md undercounts SUMMARY.md change (T09 added ADR 0004 sidebar entry); resulting content correct and required by AC5.",
+        "Advisory: docs/setup.md 'three faces' phrasing scoped to --as mcp|skill|both trio, not in conflict with any AC.",
+        "Follow-up: stale docs/assets/*.svg now unlinked - regenerate or delete in a future task; deferred by this task's explicit scope.",
+        "Follow-up: GROVE-S04-T10 gate test remains the open task closing explore-split acceptance; this task documents it as the open gate."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "ARCHITECT_APPROVAL.md",
+      "written_at": "2026-07-21T05:15:42.983Z"
+    }
+  }
+}

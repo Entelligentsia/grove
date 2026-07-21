@@ -21,6 +21,12 @@ Review items derived from the grove technology stack and testing approach. Use t
 - [ ] **sha2**: Content hashes must use `sha256:` prefix format (not bare hex)
 - [ ] **ignore**: Directory walks must respect `.gitignore` — verify new walk calls use `WalkBuilder`
 
+## Workspace Structure
+
+- [ ] **Crate layering**: `grove-cst` (core structural lib) must NOT depend on `grove-explore-core` (the mcp-llm subsystem). Verify with `cargo tree -p grove-cst | grep explore` returning empty
+- [ ] **Opaque config sections**: When a core config type (e.g. `GroveConfig`) must carry a section owned by a downstream crate, store it as `Option<serde_json::Value>` (opaque) and let the CLI layer `serde_json::from_value` it — this avoids a circular workspace dep. Note: `serde_json::Value` is not `Eq`, so the container can derive only `PartialEq`
+- [ ] **Module → crate extraction**: Moved modules must stay byte-identical aside from mechanical `use` path changes (`crate::foo` → `super::foo` / `grove_core::foo`). Verify with `diff` against `git show HEAD:<old-path>`. Repoint stale intra-doc links (`[`grove_core::old::path`]`) too — clippy won't catch these
+
 ## Grammar System
 
 - [ ] **WASM loading**: Each grammar is loaded once per process (OnceLock). Verify no grammar leaks between tests
@@ -51,6 +57,7 @@ Review items derived from the grove technology stack and testing approach. Use t
 - [ ] **Test command**: `cargo test --release --locked` — all tests must pass at release optimization
 - [ ] **Grammar tests**: Registry module has unit tests for index building, lock writing, manifest parsing
 - [ ] **Profile defaults**: `Profile::default()` must work (empty `call_kinds` defaults to `["call"]`)
+- [ ] **Cross-crate bin under test**: An integration test in crate A that execs a binary owned by crate B (e.g. cli tests exec `grove-explore`) must NOT resolve it via a hand-rolled `target/<profile>/<bin>` path — `cargo test` does not guarantee a sibling-crate bin is built/hardlinked before A's harness runs, so a bare `cargo test` fails from a cold target. Use `env!("CARGO_BIN_EXE_<name>")` only when the bin lives in the same crate; otherwise build it on demand (a `Once` running `cargo build -p <crate>`, or the `escargot` crate). CI masks this only because it runs `cargo build --workspace` before `cargo test`.
 
 ## Cross-Platform
 
@@ -60,6 +67,7 @@ Review items derived from the grove technology stack and testing approach. Use t
 
 ## Distribution
 
-- [ ] **npm wrapper**: `dist/npm/` must reference correct version and binary name
+- [ ] **npm wrapper**: `dist/npm/` must reference correct version and binary name; `package.json` `bin` must expose every shipped binary (e.g. both `grove` and `grove-explore`)
 - [ ] **Homebrew formula**: `dist/homebrew/grove.rb` must match release tag and sha256
 - [ ] **GitHub Release**: 5 targets, all with checksums. Tag format: `v*.*.*`
+- [ ] **Binary `--version` flag**: Every shipped binary must support `--version` (clap `#[command(version)]`), because `brew test`'s `test do`, `install.sh` smoke echoes, and RELEASING.md smoke checks all call `<bin> --version`. A binary without `version` in its `#[command]` exits 2 with a clap error and breaks `brew test`. Use `npx --package=<pkg>@X.Y.Z <bin> --version` to smoke-test a non-default npm bin (not `npx <pkg> <subcommand>`).

@@ -2,7 +2,7 @@
 
 # grove — Master Index
 
-> Generated: 2026-07-04
+> Generated: 2026-07-21
 
 ## Feature Registry
 
@@ -10,13 +10,29 @@ _[No features yet ↗](features/INDEX.md)_
 
 ## Sprint Registry
 
-| Sprint    | Title                                                                           | Status    | Tasks |
-| --------- | ------------------------------------------------------------------------------- | --------- | ----- |
-| GROVE-S03 | .grove/config.json declared mode + grove doctor health check                    | 🔵 active | 6/7   |
-| GROVE-S02 | grove init --as mcp-llm — local-LLM delegated exploration (mcp__grove__explore) | 🔵 active | 0/7   |
-| GROVE-S01 | Refactor grove into a Cargo workspace (grove-core library + grove CLI)          | 🔵 active | 0/6   |
+| Sprint    | Title                                                                                                               | Status      | Tasks |
+| --------- | ------------------------------------------------------------------------------------------------------------------- | ----------- | ----- |
+| GROVE-S04 | ADR 0004 stages 1-2 — split the explore delegate into grove-explore (crate + surface split, composable MCP servers) | 🔵 active   | 9/10  |
+| GROVE-S03 | .grove/config.json declared mode + grove doctor health check                                                        | ✅ completed | 7/7   |
+| GROVE-S02 | grove init --as mcp-llm — local-LLM delegated exploration (mcp__grove__explore)                                     | 🔵 active   | 0/7   |
+| GROVE-S01 | Refactor grove into a Cargo workspace (grove-core library + grove CLI)                                              | 🔵 active   | 0/6   |
 
 ## Task Registry
+
+### GROVE-S04
+
+| Task                                                      | Title                                                                                                          | Status      | Estimate |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------- | -------- |
+| [GROVE-S04-T01](sprints/GROVE-S04/GROVE-S04-T01/INDEX.md) | Stage 1 — move core/src/explore/ into a new explore/ workspace crate                                           | ✅ committed | L        |
+| [GROVE-S04-T02](sprints/GROVE-S04/GROVE-S04-T02/INDEX.md) | grove-explore binary — own MCP server identity, explore tool only, startup health gate                         | ✅ committed | M        |
+| [GROVE-S04-T03](sprints/GROVE-S04/GROVE-S04-T03/INDEX.md) | grove serve always structural — delete Surface/determine_surface/serve mode flags/health fallback              | ✅ committed | M        |
+| [GROVE-S04-T04](sprints/GROVE-S04/GROVE-S04-T04/INDEX.md) | mcp-llm = register-both — reconcile_harness both-servers column, forward migration, extended transition-matrix | ✅ committed | L        |
+| [GROVE-S04-T05](sprints/GROVE-S04/GROVE-S04-T05/INDEX.md) | Move config/trace TUIs + tap to grove-explore; forwarding shims + string sweep                                 | ✅ committed | M        |
+| [GROVE-S04-T06](sprints/GROVE-S04/GROVE-S04-T06/INDEX.md) | init --as mcp-llm funnel — shell-out to grove-explore config + graceful PATH degrade                           | ✅ committed | M        |
+| [GROVE-S04-T07](sprints/GROVE-S04/GROVE-S04-T07/INDEX.md) | doctor re-keying — explore checks keyed on grove-explore registration, not mode                                | ✅ committed | S        |
+| [GROVE-S04-T08](sprints/GROVE-S04/GROVE-S04-T08/INDEX.md) | Packaging — release.yml/npm/brew ship both binaries; release dry-run                                           | ✅ committed | M        |
+| [GROVE-S04-T09](sprints/GROVE-S04/GROVE-S04-T09/INDEX.md) | Docs restructure — two-server story (README, setup, mcp, steering templates, ADR annotations)                  | ✅ committed | M        |
+| [GROVE-S04-T10](sprints/GROVE-S04/GROVE-S04-T10/INDEX.md) | Gate test (a) — full sidebench re-run on the split binary (user-supervised rig)                                | ✅ approved  | M        |
 
 ### GROVE-S03
 
@@ -28,7 +44,7 @@ _[No features yet ↗](features/INDEX.md)_
 | [GROVE-S03-T04](sprints/GROVE-S03/GROVE-S03-T04/INDEX.md) | reconcile_harness single harness writer + transition-matrix test          | ✅ committed | L        |
 | [GROVE-S03-T05](sprints/GROVE-S03/GROVE-S03-T05/INDEX.md) | config TUI mode badge + inert explore-section rendering                   | ✅ committed | S        |
 | [GROVE-S03-T06](sprints/GROVE-S03/GROVE-S03-T06/INDEX.md) | grove.lock wasm sha256 verify primitive (core)                            | ✅ committed | S        |
-| [GROVE-S03-T07](sprints/GROVE-S03/GROVE-S03-T07/INDEX.md) | grove doctor - core::doctor report + CLI verb (checks, --json, exit code) | ✅ approved  | L        |
+| [GROVE-S03-T07](sprints/GROVE-S03/GROVE-S03-T07/INDEX.md) | grove doctor - core::doctor report + CLI verb (checks, --json, exit code) | ✅ committed | L        |
 
 ### GROVE-S02
 

@@ -1,0 +1,13 @@
+{
+  "sprintId": "GROVE-S04",
+  "taskIndex": 4,
+  "completedTaskIds": [
+    "GROVE-S04-T01",
+    "GROVE-S04-T02",
+    "GROVE-S04-T03",
+    "GROVE-S04-T04"
+  ],
+  "halted": true,
+  "lastError": "revision cap reached for review-code",
+  "savedAt": "2026-07-20T12:22:47.454Z"
+}

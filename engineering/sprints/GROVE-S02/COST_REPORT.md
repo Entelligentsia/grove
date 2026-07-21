@@ -2,7 +2,7 @@
 
 # Cost Report — GROVE-S02
 
-> Generated: 2026-07-04
+> Generated: 2026-07-21
 > Sprint: grove init --as mcp-llm — local-LLM delegated exploration (mcp__grove__explore)
 
 ## Per-Task Totals

@@ -2,7 +2,7 @@
   "taskId": "GROVE-S04-T04",
   "sprintId": "GROVE-S04",
   "title": "mcp-llm = register-both — reconcile_harness both-servers column, forward migration, extended transition-matrix",
-  "status": "approved",
+  "status": "committed",
   "path": "engineering/sprints/GROVE-S04/GROVE-S04-T04",
   "estimate": "L",
   "dependencies": [

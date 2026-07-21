@@ -1,0 +1,127 @@
+{
+  "taskId": "GROVE-S04-T07",
+  "sprintId": "GROVE-S04",
+  "title": "doctor re-keying — explore checks keyed on grove-explore registration, not mode",
+  "status": "committed",
+  "path": "engineering/sprints/GROVE-S04/GROVE-S04-T07",
+  "estimate": "S",
+  "dependencies": [
+    "GROVE-S04-T04"
+  ],
+  "pipeline": "default",
+  "summaries": {
+    "plan": {
+      "objective": "Re-key `grove doctor` so explore checks run only on `grove-explore` registration, add two-registration drift detection plus stale-layout hint, and remove orphaned `--explore`/`--standard` flags conservatively.",
+      "key_changes": [
+        "Re-key explore group trigger from `mode == McpLlm` to `grove-explore` registration in any selected harness.",
+        "Add registration-detection helper scanning all harness configs (Claude, Cursor, Codex, Gemini, Windsurf, VS Code).",
+        "Extend harness-consistency drift matrix for two-registration layout and stale single-registration layout.",
+        "Emit stale-layout hint to re-run `grove init --as mcp-llm` when old `--explore` arg is found.",
+        "Remove `--explore`/`--standard` flags from `grove doctor` and delete force plumbing in `cli/src/main.rs`.",
+        "Keep `ModeChoice::None` and `active_mode` in `core/src/config.rs`; only drop `ForceExplore`/`ForceStandard` variants.",
+        "Leave `core/src/lib.rs` and `cli/src/init.rs` untouched because the conservative path preserves their public API.",
+        "Remove `core/src/config.rs` unit tests covering the deleted force variants.",
+        "Update `core/src/doctor.rs` tests for registration gating, drift rows, and a non-Claude/multi-harness fixture.",
+        "Preserve structural checks, `--json` shape, exit-code gate, and mark the change material for version bump."
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-20T18:21:02.310Z"
+    },
+    "review_plan": {
+      "objective": "Re-assessed the revised GROVE-S04-T07 plan after the prior revision-required verdict, verifying the conservative ModeChoice/active_mode path and the named multi-harness explore-registration fixture.",
+      "key_changes": [
+        "Required Change #1 resolved: §4 takes the conservative path (drop only ForceExplore/ForceStandard, keep ModeChoice::None + active_mode); lib.rs:68 and init.rs:1602/1612 correctly left unmodified.",
+        "Empirically verified the conservative path is clippy-clean: a single-variant enum matched with a single named arm does NOT trip clippy::match_single_binding under -D warnings.",
+        "Required Change #2 resolved: §5 and Testing Strategy now explicitly name a multi-harness/non-Claude mcp-llm fixture (grove-explore registered only in Cursor).",
+        "Building blocks verified present: harness::EXPLORE_SERVER_KEY, expected_explore_args, check_harness_registration, read_grove_args, McpFormat across all 6 harnesses (mcpServers/servers/Codex TOML).",
+        "Current explore trigger is a single 'if mode == McpLlm' arm at the tail of diagnose; re-keying to registration presence is a one-line gate change.",
+        "check_harness_serve_surface already accepts a has_explore_cfg bool; repointing to registration presence is mechanical.",
+        "Crate layering preserved: core (grove-cst) has no grove-explore-core dependency; cli already has it but plan adds none.",
+        "Spec compliance: all 5 ACs mapped; plan widens trigger beyond literal '.mcp.json' AC text to any selected harness, the agreed harness-agnostic direction.",
+        "Doctor deletes --explore/--standard outright (no error-guard) vs T03's hidden error-guard; justified since doctor has no successor binary; §4 states this.",
+        "Plugin impact correct: version bump flagged material; migration entry N/A (read-only); no schema change; no security scan needed.",
+        "Carried advisory: docs/doctor-command-proposal.md will go stale after flag removal; out of sprint scope (item 9), noted as Known Doc Debt."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "PLAN_REVIEW.md",
+      "written_at": "2026-07-20T18:25:48.380Z"
+    },
+    "implementation": {
+      "objective": "Re-keyed `grove doctor` so explore checks run only on `grove-explore` registration, added two-registration drift detection plus stale-layout hint, and removed orphaned `--explore`/`--standard` flags.",
+      "key_changes": [
+        "Re-keyed the explore check group trigger from `mode == McpLlm` to presence of a `grove-explore` registration in any selected harness.",
+        "Added harness-agnostic `has_explore_registration` helper scanning all six harness configs (Claude, Cursor, Codex, Gemini, Windsurf, VS Code).",
+        "Extended per-harness registration checks to validate both structural `grove` and explore `grove-explore` entries against the declared mode.",
+        "Added stale-layout detection that flags any `grove` entry still containing the removed `--explore` argument and hints `grove init --as mcp-llm`.",
+        "Updated `harness_serve_surface` to report Standard/Explore based on explore-registration presence rather than mode inference.",
+        "Removed `--explore`/`--standard` flags and force plumbing from `Cmd::Doctor` in `cli/src/main.rs`.",
+        "Conservatively pruned `ModeChoice` in `core/src/config.rs` to only `None`, keeping `active_mode` for API compatibility.",
+        "Removed obsolete `ModeChoice::ForceExplore`/`ForceStandard` unit tests and renumbered remaining active_mode tests.",
+        "Added unit tests for registration gating, non-Claude multi-harness `mcp-llm` fixtures, stale-layout detection, unexpected explore entries, and missing explore entries.",
+        "Strengthened `cli/tests/cli.rs::doctor_help_documents_verb` to assert removed flags are absent from `--help`."
+      ],
+      "files_changed": [
+        "core/src/doctor.rs",
+        "core/src/config.rs",
+        "cli/src/main.rs",
+        "cli/tests/cli.rs",
+        "engineering/sprints/GROVE-S04/GROVE-S04-T07/PROGRESS.md"
+      ],
+      "verdict": "n/a",
+      "written_at": "2026-07-20T18:33:17.323Z",
+      "artifact_ref": "PROGRESS.md"
+    },
+    "code_review": {
+      "objective": "Reviewed the GROVE-S04-T07 implementation re-keying grove doctor explore checks onto grove-explore registration presence, extending the drift matrix for two-registration + stale-layout, and removing orphaned --explore/--standard flags.",
+      "key_changes": [
+        "AC1 met: explore group gated by has_explore_registration scanning all 6 harnesses; tests pin both gate sides incl. non-Claude Cursor fixture.",
+        "AC2 met: structural checks, --json shape, and exit-code gate byte-identical to pre-T07.",
+        "AC3 met: drift matrix validates grove + grove-explore entries per mode; stale-layout detection short-circuits to grove init --as mcp-llm hint.",
+        "AC4 met: --explore/--standard removed from Cmd::Doctor; ModeChoice pruned to None only; active_mode retained for API compat; all callers pass None.",
+        "AC5 met: clippy -D warnings clean; 15 doctor tests pass (5 new); doctor_help_documents_verb passes; files end with newline.",
+        "Verified dependent harness primitives exist: EXPLORE_SERVER_KEY, expected_explore_args, mcp_format, mcp_config_path_in for all 6 harnesses.",
+        "Conservative ModeChoice pruning avoids touching lib.rs:68 and init.rs:1602/1612 per approved plan section 4.",
+        "Security: read-only, no network, no user-controlled path components; malformed JSON/TOML swallowed to None.",
+        "Advisory: stale-layout hint is mode-blind (returns mcp-llm hint even for mcp-mode downgraded projects); plan-conformant, rare edge case.",
+        "Advisory: pre-existing duplication between check_harness_mcp_json and check_harness_registration extended consistently; DRY refactor out of scope."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "CODE_REVIEW.md",
+      "written_at": "2026-07-20T18:39:03.183Z"
+    },
+    "validation": {
+      "objective": "Validated that grove doctor explore checks are keyed on grove-explore registration across all selected harnesses, the two-registration/stale-layout drift matrix works, force flags are removed, and the workspace is green.",
+      "key_changes": [
+        "AC1 PASS: explore group gated by has_explore_registration scanning all 6 harnesses; tests cover both gate sides including a non-Claude Cursor fixture.",
+        "AC2 PASS: structural checks, --json shape, and exit-code gate preserved; doctor_json_output_is_valid and doctor_fail_exits_nonzero verify this.",
+        "AC3 PASS: drift matrix validates grove + grove-explore entries per mode; stale single-registration layout with --explore is flagged with mcp-llm re-init hint.",
+        "AC4 PASS: --explore/--standard removed from Cmd::Doctor; ModeChoice pruned to None only; doctor_help_documents_verb asserts flags are absent from --help.",
+        "AC5 PASS: cargo test --release --locked passes all 343 tests (139 + 65 + 43 + 42 + 54).",
+        "AC6 PASS: cargo clippy --all-targets --workspace --locked -- -D warnings is clean.",
+        "AC7 PASS: all modified files end with a newline.",
+        "Boundary coverage: malformed JSON/TOML is treated as no registration; mode-blind stale hint matches approved plan; no CLI force semantics remain."
+      ],
+      "verdict": "approved",
+      "artifact_ref": "VALIDATION_REPORT.md",
+      "written_at": "2026-07-20T18:41:19.268Z"
+    },
+    "approve": {
+      "objective": "Approved the GROVE-S04-T07 re-keying of grove doctor explore checks onto grove-explore registration presence, the two-registration/stale-layout drift matrix, and the removal of orphaned --explore/--standard flags.",
+      "key_changes": [
+        "Crate layering preserved: grove-cst (core) gains no grove-explore-core dependency; registration detection uses existing mcp_config_path_in/mcp_format/read_grove_args primitives across all 6 harnesses.",
+        "Conservative ModeChoice pruning: only ForceExplore/ForceStandard dropped; None + active_mode retained, leaving lib.rs:68 and init.rs:1602/1612 untouched per approved plan §4.",
+        "Harness-agnostic re-keying aligns with GROVE-S04-T04 (mcp-llm = register both servers) and GROVE-S04-T03 (flags removed from serve).",
+        "Read-only semantics: doctor only reports/hints; no mutation, no network, no user-controlled paths; malformed JSON/TOML degrades to no-registration.",
+        "All 5 ACs verified PASS; workspace green — 343 tests pass, clippy -D warnings clean, all modified files end with newline.",
+        "No migration, no schema change; version bump flagged material, rides next release train.",
+        "Backwards compat: stale mcp-llm layouts with old --explore arg get a re-init hint, not a hard failure.",
+        "Advisory: stale-layout hint is mode-blind (returns mcp-llm hint even for mcp-mode downgraded projects); plan-conformant, rare edge case.",
+        "Advisory: pre-existing check_harness_mcp_json/check_harness_registration duplication extended consistently; DRY refactor out of scope.",
+        "Follow-up: docs/doctor-command-proposal.md will go stale after flag removal (out of sprint scope, item 9)."
+      ],
+      "verdict": "approved",
+      "written_at": "2026-07-20T18:42:39.258Z",
+      "artifact_ref": "ARCHITECT_APPROVAL.md"
+    }
+  }
+}
