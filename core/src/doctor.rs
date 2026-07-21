@@ -960,11 +960,12 @@ mod tests {
     fn write_explore_mcp_json(dir: &Path) {
         let exe = std::env::current_exe().unwrap();
         let exe_path = exe.display();
-        // grove entry: args ["serve"]; grove-explore entry: args []
+        // McpLlm registers grove-explore ONLY (args []); the structural `grove`
+        // entry must be absent — the surfaces are mutually exclusive (ADR 0005).
         fs::write(
             dir.join(".mcp.json"),
             format!(
-                r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":["serve"]}},"grove-explore":{{"command":"{exe_path}","args":[]}}}}}}"#
+                r#"{{"mcpServers":{{"grove-explore":{{"command":"{exe_path}","args":[]}}}}}}"#
             ),
         )
         .unwrap();
@@ -976,17 +977,24 @@ mod tests {
         let exe_path = exe.display();
         let args_json: Vec<_> = args.iter().map(|a| format!(r#""{a}""#)).collect();
         let args_str = args_json.join(",");
+        // An empty `args` slice means "no structural entry at all" — McpLlm
+        // registers grove-explore alone, so the fixture must omit `grove`
+        // rather than write it with empty args.
+        let grove_entry = if args.is_empty() {
+            String::new()
+        } else {
+            format!(r#""grove":{{"command":"{exe_path}","args":[{args_str}]}}"#)
+        };
         let body = match explore_args {
             Some(exp) => {
                 let exp_json: Vec<_> = exp.iter().map(|a| format!(r#""{a}""#)).collect();
                 let exp_str = exp_json.join(",");
+                let sep = if grove_entry.is_empty() { "" } else { "," };
                 format!(
-                    r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":[{args_str}]}},"grove-explore":{{"command":"{exe_path}","args":[{exp_str}]}}}}}}"#
+                    r#"{{"mcpServers":{{{grove_entry}{sep}"grove-explore":{{"command":"{exe_path}","args":[{exp_str}]}}}}}}"#
                 )
             }
-            None => format!(
-                r#"{{"mcpServers":{{"grove":{{"command":"{exe_path}","args":[{args_str}]}}}}}}"#
-            ),
+            None => format!(r#"{{"mcpServers":{{{grove_entry}}}}}"#),
         };
         fs::create_dir_all(dir.join(".cursor")).unwrap();
         fs::write(dir.join(".cursor").join("mcp.json"), body).unwrap();
@@ -1049,7 +1057,7 @@ mod tests {
                 write_agents_md(dir);
             }
             Mode::McpLlm => {
-                // Both servers: structural grove + grove-explore explore server.
+                // Explore server only — no structural `grove` entry (ADR 0005).
                 write_explore_mcp_json(dir);
                 // CLAUDE.md marker is now in the grove-explore server namespace.
                 write_claude_md(dir, "mcp__grove-explore__explore");
@@ -1231,8 +1239,9 @@ mod tests {
             r#"{"version":1,"mode":"mcp-llm","harnesses":["cursor"],"explore":{"provider":"ollama","base_url":"http://localhost:11434/v1","model":"x","steering":"standard","allowed_tools":[]}}"#,
         )
         .unwrap();
-        // No Claude .mcp.json; only Cursor has the dual-server registration.
-        write_cursor_mcp_json(dir.as_path(), &["serve"], Some(&[]));
+        // No Claude .mcp.json; only Cursor carries the explore registration.
+        // Structural args are None: McpLlm registers grove-explore alone.
+        write_cursor_mcp_json(dir.as_path(), &[], Some(&[]));
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);
