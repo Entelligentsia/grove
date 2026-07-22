@@ -11,3 +11,6 @@ server.pid
 
 # mdBook output (generated into the Pages site by pages.yml)
 /site/docs/
+
+# Forge session transcripts — ephemeral logs that can capture env/secret output; never publish.
+.forge/transcripts/
