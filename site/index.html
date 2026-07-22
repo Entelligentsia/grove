@@ -3,162 +3,154 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>grove — structural sight for coding agents</title>
-  <meta name="description" content="grove gives AI coding agents structural, byte-precise, token-cheap access to any codebase via Tree-sitter AST and WASM grammars. One binary, seven tools, two faces.">
-  
-  <!-- Open Graph / Facebook -->
+  <title>grove — ask where, get exact lines</title>
+  <meta name="description" content="grove gives coding agents structural, byte-precise access to a codebase: seven tree-sitter tools over a CLI and an MCP server, plus grove-explore, a local-LLM code locator that answers 'where is X' with file:line citations.">
+
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://entelligentsia.github.io/grove/">
-  <meta property="og:title" content="grove — structural sight for coding agents">
-  <meta property="og:description" content="grove gives AI coding agents structural, byte-precise, token-cheap access to any codebase via Tree-sitter AST and WASM grammars. One binary, seven tools, two faces.">
+  <meta property="og:title" content="grove — ask where, get exact lines">
+  <meta property="og:description" content="Seven tree-sitter tools over a CLI and an MCP server, plus grove-explore: a local-LLM code locator that returns file:line citations. 27 languages, no recompile.">
   <meta property="og:image" content="https://entelligentsia.github.io/grove/assets/og_banner_1200.png">
 
-  <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="https://entelligentsia.github.io/grove/">
-  <meta property="twitter:title" content="grove — structural sight for coding agents">
-  <meta property="twitter:description" content="grove gives AI coding agents structural, byte-precise, token-cheap access to any codebase via Tree-sitter AST and WASM grammars. One binary, seven tools, two faces.">
+  <meta property="twitter:title" content="grove — ask where, get exact lines">
+  <meta property="twitter:description" content="Seven tree-sitter tools over a CLI and an MCP server, plus grove-explore: a local-LLM code locator that returns file:line citations.">
   <meta property="twitter:image" content="https://entelligentsia.github.io/grove/assets/og_banner_1200.png">
 
-  <!-- Favicon -->
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-  <!-- Header -->
-  <header class="site-header">
-    <div class="container nav-wrap">
-      <a href="#" class="brand">
-        <img src="assets/logo_icon_only.png" alt="Grove" class="brand-img">
-        <span>grove</span>
-      </a>
-      <ul class="nav-menu">
-        <li><a href="#demo">Demo</a></li>
-        <li><a href="#features">Why Grove</a></li>
-        <li><a href="#tools">Tools</a></li>
-        <li><a href="#architecture">Architecture</a></li>
-        <li><a href="#benchmarks">Benchmarks</a></li>
-        <li><a href="#languages">Languages</a></li>
-        <li><a href="docs/">Docs</a></li>
-      </ul>
-      <a href="https://github.com/Entelligentsia/grove" target="_blank" class="github-btn">
-        <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-        GitHub
-      </a>
-    </div>
-  </header>
+<a class="skip" href="#main">Skip to content</a>
 
-  <!-- Hero -->
-  <section class="hero-sec">
-    <div class="container hero-grid">
-      <div>
-        <h1 class="hero-title">Structural sight for <span>coding agents</span></h1>
-        <p class="hero-subtitle">
-          One binary to give any coding agent byte-precise, AST-aware tools for any codebase. Stop burning tokens on whole-file reads and regex grep.
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/grove/">
+      <img src="assets/favicon.png" alt="" width="26" height="26" aria-hidden="true">
+      grove
+    </a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#tools">Tools</a>
+      <a href="#surfaces" data-opt>explore</a>
+      <a href="#model" data-opt>Model</a>
+      <a href="#proof" data-opt>Proof</a>
+      <a href="#start">Start</a>
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/Entelligentsia/grove">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ── Hero: the product's actual output as the thesis ──────────────────── -->
+  <section class="hero">
+    <div class="wrap">
+      <img class="sprout" src="assets/favicon.png" alt="grove" width="76" height="76">
+      <p class="eyebrow">Structural sight for coding agents</p>
+      <h1>Ask where.<span class="dim">Get exact lines.</span></h1>
+      <p class="lede">
+        Agents burn tokens grepping and reading whole files to answer
+        <em>where is this defined, who calls it</em>. grove answers with the
+        exact bytes of one symbol — behind a stable id it reuses across turns.
+      </p>
+      <div class="cta-row">
+        <a class="btn" href="#start">Install</a>
+        <a class="btn btn--ghost" href="https://github.com/Entelligentsia/grove">Source</a>
+      </div>
+
+      <!-- The core loop: skeleton first, then one symbol's exact bytes. -->
+      <div class="xchg reveal">
+        <div class="xchg-bar">
+          <b>grove</b>
+          <span>seven structural tools · no model, no network</span>
+          <span class="right">tree-sitter</span>
+        </div>
+        <div class="xchg-body">
+          <p class="cmdline">grove outline src/server.py</p>
+          <ul class="cites">
+            <li><span class="c-kind">class</span>  Server            <span class="c-lang">py:</span><span class="c-path">src/server.py</span><span class="c-sym">#Server</span><span class="c-line">@12</span></li>
+            <li>  <span class="c-kind">def</span>  __init__          <span class="c-lang">py:</span><span class="c-path">src/server.py</span><span class="c-sym">#Server.__init__</span><span class="c-line">@14</span></li>
+            <li>  <span class="c-kind">def</span>  handle_request    <span class="c-lang">py:</span><span class="c-path">src/server.py</span><span class="c-sym">#Server.handle_request</span><span class="c-line">@31</span></li>
+            <li><span class="c-kind">def</span>    main              <span class="c-lang">py:</span><span class="c-path">src/server.py</span><span class="c-sym">#main</span><span class="c-line">@88</span></li>
+          </ul>
+          <p class="cmdline cmdline--next">grove source "py:src/server.py#Server.handle_request"</p>
+          <pre class="inline-out">def handle_request(self, req: Request) -&gt; Response:
+    """Processes incoming HTTP requests structurally."""
+    handler = self.router.match(req.path)
+    return handler(req)</pre>
+        </div>
+        <div class="xchg-foot">
+          <span>✓ 2 calls</span>
+          <span>one file skeleton</span>
+          <span>one symbol body</span>
+          <span>zero whole-file reads</span>
+        </div>
+      </div>
+      <p class="tiny" style="margin-top:0.8rem">
+        The whole loop: outline a file to a skeleton of ids, then pull one id's
+        exact bytes. Never the whole file.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Signature: anatomy of a citation ─────────────────────────────────── -->
+  <section class="sec" id="citation">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">The unit of exchange</p>
+        <h2>One line, four facts</h2>
+        <p>
+          Every tool — structural or delegated — answers in the same shape. It is
+          the id you pass to the next call, so an agent can carry a location
+          across turns without re-deriving it.
         </p>
-
-        <!-- Install Card with clean tabs & ZERO scrollbars -->
-        <div class="install-card">
-          <div class="install-tabs">
-            <button class="install-tab-btn active" data-tab="npm">npm</button>
-            <button class="install-tab-btn" data-tab="brew">homebrew</button>
-            <button class="install-tab-btn" data-tab="curl">curl | sh</button>
-            <button class="install-tab-btn" data-tab="cargo">cargo</button>
-            <button class="install-tab-btn" data-tab="skill">npx skill</button>
-          </div>
-          <div class="install-body">
-            <span class="install-cmd" id="install-cmd-text">npm install -g @entelligentsia/grove</span>
-            <button class="copy-btn" id="btn-copy-cmd">Copy</button>
-          </div>
-        </div>
-
-        <div class="hero-metrics">
-          <div class="metric-item">
-            <div>~2×</div>
-            <p>Leaner Context, Same Answers</p>
-          </div>
-          <div class="metric-item">
-            <div>27</div>
-            <p>WASM Grammars</p>
-          </div>
-          <div class="metric-item">
-            <div>2 Faces</div>
-            <p>CLI + MCP Server</p>
-          </div>
-        </div>
       </div>
 
-      <div class="hero-art-box">
-        <img src="assets/logo.png" alt="Little Grove Mascot" class="hero-mascot-img">
+      <div class="anatomy reveal">
+        <div class="anatomy-line">
+          <span class="part c-lang">javascript<span class="tag">grammar</span></span>
+          <span class="part part--punct">:</span>
+          <span class="part c-path">routes/user.js<span class="tag">path</span></span>
+          <span class="part part--punct">#</span>
+          <span class="part c-sym">isLoggedIn<span class="tag">symbol</span></span>
+          <span class="part part--punct">@</span>
+          <span class="part c-line">50<span class="tag">line</span></span>
+        </div>
+        <p class="anatomy-note">
+          Lines are 1-based, the <code>grep -n</code> convention. Pass the whole
+          string back to <code>source</code> to read that symbol's body, or to
+          <code>callers</code> to find its call sites.
+        </p>
       </div>
     </div>
   </section>
 
-  <!-- Demo Section (Real Animated GIF) -->
-  <section class="sec-padding" id="demo">
-    <div class="container">
+  <!-- ── The seven tools ──────────────────────────────────────────────────── -->
+  <section class="sec" id="tools">
+    <div class="wrap">
       <div class="sec-head">
-        <h2>Grove in Action</h2>
-        <p>Watch an agent answer structural questions with Grove — zero grep, zero whole-file reads.</p>
+        <p class="eyebrow">The core surface</p>
+        <h2>Seven tools, one working loop</h2>
+        <p>
+          Shaped around what an agent actually does: orient in a repo, find a
+          name, read exactly one thing, trace it, and verify the edit. Every one
+          returns ids you feed to the next.
+        </p>
       </div>
 
-      <div class="terminal-frame">
-        <div class="terminal-header">
-          <div class="mac-dots">
-            <span class="dot dot-red"></span>
-            <span class="dot dot-yellow"></span>
-            <span class="dot dot-green"></span>
-          </div>
-          <div class="terminal-title">grove demo — install + agent workflow</div>
-        </div>
-        <img src="assets/grove_demo.gif" alt="Grove terminal demo animation" class="demo-gif">
-      </div>
-    </div>
-  </section>
-
-  <!-- Features Section -->
-  <section class="sec-padding" id="features">
-    <div class="container">
-      <div class="sec-head">
-        <h2>Why Grove</h2>
-        <p>Agents burn tokens and round-trips grepping and reading whole files to answer structural code questions. Grove replaces that with one symbol at a time.</p>
-      </div>
-
-      <div class="cards-3">
-        <div class="tech-card">
-          <h3>Token-Cheap Access</h3>
-          <p>Outline a 2,000-line file into a compact skeleton. Retrieve exact symbol bodies via <code>source</code> without dumping entire files into context.</p>
-        </div>
-        <div class="tech-card">
-          <h3>Byte-Precise & Stable Handles</h3>
-          <p>Every query carries a stable <code>symbol-id</code> handle (<code>&lt;lang&gt;:&lt;path&gt;#&lt;name&gt;@&lt;line&gt;</code>) that the agent passes forward across turns.</p>
-        </div>
-        <div class="tech-card">
-          <h3>One Engine, Two Faces</h3>
-          <p>The same static Rust binary drives both a developer human CLI (<code>grove &lt;verb&gt;</code>) and an agent MCP server (<code>grove serve</code>).</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Tool Explorer -->
-  <section class="sec-padding" id="tools">
-    <div class="container">
-      <div class="sec-head">
-        <h2>Seven Purpose-Built Tools</h2>
-        <p>Organized around the 6 phases of an agent's working loop: Orient, Find, Read, Locate, Trace, and Verify.</p>
-      </div>
-
-      <div class="tool-box">
-        <div class="tool-nav" id="tool-nav"></div>
+      <div class="tool-box reveal">
+        <div class="tool-nav" id="tool-nav" role="tablist" aria-label="grove tools"></div>
         <div class="tool-view">
           <div class="tool-info">
+            <p class="tool-phase" id="tool-phase">Orient</p>
             <h3 id="tool-name">grove outline &lt;file&gt;</h3>
-            <p id="tool-desc">Generates a file definition skeleton. Gives the agent structural overview without reading whole files.</p>
-            <div class="cmd-badge" id="tool-cmd">grove outline src/server.py</div>
+            <p id="tool-desc">Generates a file definition skeleton (kind · name · parent · signature · id). Gives the agent structural overview without reading whole files.</p>
+            <p class="cmd-badge" id="tool-cmd">grove outline src/server.py</p>
           </div>
-          <div class="code-out">
+          <div class="tool-out">
             <pre><code id="tool-output">class  Server            12:0   py:src/server.py#Server
   def  __init__          14:4   py:src/server.py#Server.__init__
   def  handle_request    31:4   py:src/server.py#Server.handle_request
@@ -166,162 +158,336 @@ def    main              88:0   py:src/server.py#main</code></pre>
           </div>
         </div>
       </div>
+
+      <p class="surfaces-note">
+        Add <code>--json</code> to any command for the agent-facing shape. The
+        same seven are the MCP tool surface, so you and your agent see
+        identically. Full reference: <a href="docs/tools.html">Tools</a>.
+      </p>
     </div>
   </section>
 
-  <!-- Architecture -->
-  <section class="sec-padding" id="architecture">
-    <div class="container arch-box">
+  <!-- ── Surfaces: exclusive, not composed ────────────────────────────────── -->
+  <section class="sec" id="surfaces">
+    <div class="wrap">
       <div class="sec-head">
-        <h2>Architecture & Positioning</h2>
-        <p>Not an LSP. Grove is the cheap syntactic layer beneath where an LSP's semantics begin — complementary, not competitive.</p>
+        <p class="eyebrow">Optional second surface</p>
+        <h2>And when you don't know the name yet</h2>
+        <p>
+          The seven tools want a name. When you don't have one — <em>"which
+          files handle billing?"</em> — there's a second, optional surface:
+          <code>grove-explore</code>, a locator backed by a small local model.
+          A project registers one surface or the other, never both; running both
+          puts eight tools in front of your agent with no rule for choosing.
+        </p>
       </div>
-      <div class="arch-img-frame">
-        <img src="assets/grove_architecture.png" alt="Grove Architecture Diagram">
+
+      <div class="surfaces">
+        <div class="surface surface--primary reveal">
+          <p class="cmd">grove init <span class="flag">--as mcp</span> <span class="tag-default">default</span></p>
+          <h3>Structural</h3>
+          <p>
+            The seven tools above. Deterministic, milliseconds, no model and no
+            network. Your agent navigates by name and reads exact byte ranges.
+            <strong>Start here</strong> — it is what most projects want, and the
+            only surface that costs nothing to run.
+          </p>
+          <ul>
+            <li>outline · symbols · source</li>
+            <li>callers · definition · map</li>
+            <li>check</li>
+          </ul>
+        </div>
+
+        <div class="xor" aria-hidden="true">either / or</div>
+
+        <div class="surface reveal">
+          <p class="cmd">grove init <span class="flag">--as mcp-llm</span></p>
+          <h3>Delegated</h3>
+          <p>
+            One tool. A small local model sweeps the tree with grove's own
+            structural tools plus glob/grep/read, and hands back validated
+            citations. Use it when you don't yet know which file to open.
+          </p>
+          <ul>
+            <li>mcp__grove-explore__explore</li>
+            <li>runs on your machine, not an API</li>
+            <li>read the cited lines yourself</li>
+          </ul>
+        </div>
       </div>
+
+      <p class="surfaces-note">
+        Switching modes swaps the registration — <code>grove init</code> strips
+        the surface you left. The delegated mode needs a local inference server;
+        if it isn't running, <code>explore</code> says so in its reply rather
+        than failing silently.
+      </p>
     </div>
   </section>
 
-  <!-- Benchmarks -->
-  <section class="sec-padding" id="benchmarks">
-    <div class="container">
+  <!-- ── The model ────────────────────────────────────────────────────────── -->
+  <section class="sec" id="model">
+    <div class="wrap">
       <div class="sec-head">
-        <h2>Same answers, a fraction of the context</h2>
-        <p>Grove holds answer quality while carrying <strong>~2× less context</strong> than text search — up to <strong>2.8×</strong> on the hardest cross-cutting traces. Real agent prompts from <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank" rel="noopener"><code>is-grep-enough</code></a>: 50 blind-judged tasks across 10 large repos, three arms. Watch each one roll, metric by metric.</p>
+        <p class="eyebrow">The delegate</p>
+        <h2>grove-explore-base</h2>
+        <p>
+          The locator model, published as GGUF. It is an off-the-shelf
+          <strong>Qwen3.5-4B</strong> base — self-converted and quantized,
+          adopted as grove's delegate. Not a fine-tune, and the model card says
+          so plainly.
+        </p>
       </div>
 
-      <!-- Rolling real-prompt metric roller (populated by app.js) -->
-      <div id="metric-roller" class="roller" aria-live="polite">
-        <!-- Top: metadata strip + prompt pull-quote -->
-        <div class="prompt-head">
-          <span class="ph-tag">▸ agent task</span>
-          <span class="roller-rung" id="rl-rung">L5</span>
-          <span class="ph-level" id="rl-level">Architecture trace</span>
-          <span class="ph-repo">
-            <img class="ph-langicon" id="rl-langicon" src="assets/langs/rust.svg" alt="">
-            <strong id="rl-repo">tokio</strong>
-            <small id="rl-gh">tokio-rs/tokio</small>
-          </span>
-          <span class="ph-count" id="rl-count">01 / 06</span>
-        </div>
-
-        <blockquote class="prompt-quote" id="rl-prompt">…</blockquote>
-
-        <!-- Prompt navigation progress line (0% → 100%) -->
-        <div class="prompt-progress">
-          <div class="pprog-fill" id="rl-pprog"></div>
-          <div class="pprog-segs" id="rl-psegs"></div>
-        </div>
-
-        <!-- Middle row: trophy + metric (33%) | bars (67%) -->
-        <div class="roller-mid">
-          <div class="roller-left">
-            <div class="roller-winner">
-              <span class="rl-trophy">🏆 Overall winner</span>
-              <span class="rl-win-badge" id="rl-winner">grove</span>
-              <small class="rl-win-note" id="rl-winnote">best cost × quality</small>
-            </div>
-            <div class="roller-metriccard">
-              <span class="rl-micon" id="rl-micon">🧠</span>
-              <span class="rl-mword" id="rl-mword">Context</span>
-              <small class="rl-msub" id="rl-msub">fewer is leaner</small>
-            </div>
+      <div class="model-grid">
+        <div class="reveal">
+          <div class="spec-wrap">
+            <table class="spec">
+              <caption class="tiny" style="text-align:left;padding-bottom:0.6rem">
+                Answer-sheet coverage on the 347-episode holdout, 9 repos, 9 languages.
+              </caption>
+              <thead>
+                <tr><th>Quant</th><th>Size</th><th>Coverage</th><th>Role</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Q4_K_M</td><td>2.78 GB</td>
+                  <td class="score">80.6</td>
+                  <td class="pick">default</td>
+                </tr>
+                <tr>
+                  <td>Q8_0</td><td>4.6 GB</td>
+                  <td class="score">82.1</td>
+                  <td>eval baseline</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div class="roller-right">
-            <div class="bars" id="rl-bars">
-              <div class="bar-col" data-arm="baseline">
-                <div class="bar-val" id="rl-val-baseline">—</div>
-                <div class="bar-track"><div class="bar" id="rl-bar-baseline" style="background:#0072B2"></div></div>
-                <div class="bar-foot"><span class="bar-medal" id="rl-medal-baseline"></span><span class="bar-arm">bash-tools</span></div>
-              </div>
-              <div class="bar-col" data-arm="grove">
-                <div class="bar-val" id="rl-val-grove">—</div>
-                <div class="bar-track"><div class="bar" id="rl-bar-grove" style="background:#E69F00"></div></div>
-                <div class="bar-foot"><span class="bar-medal" id="rl-medal-grove"></span><span class="bar-arm">grove</span></div>
-              </div>
-              <div class="bar-col" data-arm="lsp">
-                <div class="bar-val" id="rl-val-lsp">—</div>
-                <div class="bar-track"><div class="bar" id="rl-bar-lsp" style="background:#009E73"></div></div>
-                <div class="bar-foot"><span class="bar-medal" id="rl-medal-lsp"></span><span class="bar-arm">lsp</span></div>
-              </div>
-            </div>
+          <p class="tiny" style="margin-top:1rem">
+            Serve <strong>with thinking on</strong> — with it off the model emits
+            empty tool calls. Context 24,576 · temperature 0.
+            <a href="https://huggingface.co/entelligentsia/grove-explore-base-GGUF">Model card →</a>
+          </p>
+        </div>
+
+        <div class="reveal">
+          <p class="serve-head"><b>llama.cpp</b> — serves the GGUF straight from HuggingFace</p>
+<pre><code>llama serve -hf entelligentsia/grove-explore-base-GGUF:Q4_K_M</code></pre>
+
+          <p class="serve-head"><b>ollama</b> — needs 0.32 or newer</p>
+<pre><code>ollama pull bonigopalan/grove-explore-base:q4_k_m</code></pre>
+
+          <p class="serve-head">Point grove at it</p>
+<pre><code>grove init --as mcp-llm   <span class="c">// opens the config screen</span></code></pre>
+          <p class="tiny">
+            The screen finds a running engine on the usual ports and fills in the
+            endpoint and model for you. Weights live on
+            <a href="https://huggingface.co/entelligentsia/grove-explore-base-GGUF">HuggingFace</a>
+            and <a href="https://ollama.com/bonigopalan/grove-explore-base">ollama</a>;
+            the release surface is in
+            <a href="https://github.com/Entelligentsia/grove-models">grove-models</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Screens ──────────────────────────────────────────────────────────── -->
+  <section class="sec" id="see">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Set up and inspect</p>
+        <h2>You can see what it did</h2>
+        <p>
+          Delegation is only trustworthy if you can audit it. Turn on tracing and
+          every session is recorded — the questions asked, the tools called each
+          turn, the tokens spent, and the answer returned.
+        </p>
+      </div>
+
+      <div class="shots">
+        <div class="shot reveal">
+          <figure>
+            <img src="assets/explore_config_tui.png"
+                 alt="The grove-explore config screen: a list of inference engines with llama.cpp on port 8081 selected and marked '1 model', fields for endpoint URL and model name, a tracing toggle switched on, and a checklist of allowed tools — grove, Grep, Glob, Read.">
+            <figcaption>
+              <b>grove-explore config</b> — probes the usual local ports, shows
+              which engines are up and how many models each serves, then fills
+              the endpoint and model for you. Choose which tools the delegate may
+              use, and whether to record sessions.
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="shots-pair">
+          <div class="shot reveal">
+            <figure>
+              <img src="assets/explore_tap_sessions.png"
+                   alt="A table of recorded trace sessions, each row showing time, the client that connected, the model, the steering level, and totals for calls and tokens.">
+              <figcaption>
+                <b>Sessions</b> — every client that connected, with call and token
+                totals. Cost is visible per session, not guessed at.
+              </figcaption>
+            </figure>
+          </div>
+          <div class="shot reveal">
+            <figure>
+              <img src="assets/explore_tap_calls.png"
+                   alt="The calls inside one session: four questions in plain English, each with its turn count, token total, and wall-clock duration.">
+              <figcaption>
+                <b>Calls</b> — the questions as asked, with turns, tokens and wall
+                time. Expensive questions are obvious at a glance.
+              </figcaption>
+            </figure>
           </div>
         </div>
 
-        <!-- Bottom row: 7 sub-metric dots, bottom-right -->
-        <div class="roller-bottom">
-          <div class="metric-dots" id="rl-mdots"></div>
-        </div>
-      </div>
-
-      <!-- Combined tally: one medal per task, quality + total cost together -->
-      <div class="tally-block">
-        <div class="tally-head">Combined tally <small>one medal per task · quality + total cost together · 50 tasks</small></div>
-        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#0072B2"></span>bash-tools</span><span class="tally-medals">🥇 26 &nbsp; 🥈 16 &nbsp; 🥉 8</span></div>
-        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#E69F00"></span>grove</span><span class="tally-medals">🥇 22 &nbsp; 🥈 15 &nbsp; 🥉 13</span></div>
-        <div class="tally-row"><span class="tally-arm"><span class="arm-dot" style="background:#009E73"></span>lsp</span><span class="tally-medals">🥇 2 &nbsp; 🥈 19 &nbsp; 🥉 29</span></div>
-        <p class="sb-note">n=1 per cell — directional, not significant. Combined score = ½ answer quality (grounding + completeness) + ½ billed cost, ranked per task. Main agent Sonnet, subagents Haiku. <a href="https://entelligentsia.github.io/is-grep-enough/" target="_blank" rel="noopener">Full evaluation & method →</a></p>
-      </div>
-
-      <div class="cards-3">
-        <div class="tech-card">
-          <h3>🥇 Gold on context — where it counts</h3>
-          <p>Grove holds <strong>~2× less context</strong> at tied answer quality — and the lead widens with difficulty: <strong>2.8× leaner on L5</strong> cross-cutting traces (TypeScript L5: 2.43M → 570K tokens). That's the budget that decides whether a trace fits the window at all.</p>
-        </div>
-        <div class="tech-card">
-          <h3>Stays grounded where grep drifts</h3>
-          <p>Quality ties on average, but at <strong>L5</strong> text search drifts — baseline grounding falls to <strong>0.94</strong> (0.80 on the Bitcoin C++ trace). Grove holds <strong>0.98</strong>, parsing the real syntax tree instead of guessing line numbers.</p>
-        </div>
-        <div class="tech-card">
-          <h3>Pick by your binding constraint</h3>
-          <p>Grep wins turns, wall-clock and billed dollars — cache-reads are cheap, so a big transcript isn't a big bill. LSP leads tool-call economy but pays a warm-up (46 min to index Redis). Grove wins the <strong>context budget</strong>, zero-compile.</p>
+        <div class="shot reveal">
+          <figure>
+            <img src="assets/explore_tap_detail.png"
+                 alt="One call expanded: four turns listing the tools called in each — Grep, Grep, then Read, Read — with request and response detail, followed by the final answer as a list of file-path-symbol-line citations.">
+            <figcaption>
+              <b>One call, unfolded</b> — turn by turn, the tools the delegate
+              chose and what came back, ending in the citations it returned. This
+              is the whole loop, not a summary of it.
+            </figcaption>
+          </figure>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Languages with SVG Icons -->
-  <section class="sec-padding" id="languages">
-    <div class="container">
+  <!-- ── Start ────────────────────────────────────────────────────────────── -->
+  <section class="sec" id="start">
+    <div class="wrap">
       <div class="sec-head">
-        <h2>27 Languages Supported</h2>
-        <p>Official Tree-sitter WASM grammars loaded dynamically from a hosted registry.</p>
+        <p class="eyebrow">Start</p>
+        <h2>Three commands</h2>
       </div>
 
-      <div class="langs-flex">
-        <div class="lang-card"><img src="assets/langs/python.svg" alt="Python" class="lang-icon"> Python</div>
-        <div class="lang-card"><img src="assets/langs/rust.svg" alt="Rust" class="lang-icon"> Rust</div>
-        <div class="lang-card"><img src="assets/langs/typescript.svg" alt="TypeScript" class="lang-icon"> TypeScript</div>
-        <div class="lang-card"><img src="assets/langs/go.svg" alt="Go" class="lang-icon"> Go</div>
-        <div class="lang-card"><img src="assets/langs/java.svg" alt="Java" class="lang-icon"> Java</div>
-        <div class="lang-card"><img src="assets/langs/cpp.svg" alt="C++" class="lang-icon"> C++</div>
-        <div class="lang-card"><img src="assets/langs/c.svg" alt="C" class="lang-icon"> C</div>
-        <div class="lang-card"><img src="assets/langs/c_sharp.svg" alt="C#" class="lang-icon"> C#</div>
-        <div class="lang-card"><img src="assets/langs/ruby.svg" alt="Ruby" class="lang-icon"> Ruby</div>
-        <div class="lang-card"><img src="assets/langs/php.svg" alt="PHP" class="lang-icon"> PHP</div>
-        <div class="lang-card"><img src="assets/langs/bash.svg" alt="Bash" class="lang-icon"> Bash</div>
-        <div class="lang-card"><img src="assets/langs/javascript.svg" alt="JavaScript" class="lang-icon"> JavaScript</div>
-        <div class="lang-card"><img src="assets/langs/ocaml.svg" alt="OCaml" class="lang-icon"> OCaml</div>
-        <div class="lang-card"><img src="assets/langs/css.svg" alt="CSS" class="lang-icon"> CSS</div>
-        <div class="lang-card"><img src="assets/langs/html.svg" alt="HTML" class="lang-icon"> HTML</div>
-        <div class="lang-card"><img src="assets/langs/json.svg" alt="JSON" class="lang-icon"> JSON</div>
-        <div class="lang-card"><img src="assets/langs/julia.svg" alt="Julia" class="lang-icon"> Julia</div>
-        <div class="lang-card"><img src="assets/langs/haskell.svg" alt="Haskell" class="lang-icon"> Haskell</div>
+      <div class="steps">
+        <div class="step reveal">
+          <span class="step-n">01</span>
+          <div class="step-body">
+            <h3>Install</h3>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/Entelligentsia/grove/main/install.sh | sh</code></pre>
+            <p>
+              Detects your platform and verifies the checksum. Installs both
+              <code>grove</code> and <code>grove-explore</code>. Homebrew, npm and
+              cargo also work — see <a href="docs/install.html">Install</a>.
+            </p>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="step-n">02</span>
+          <div class="step-body">
+            <h3>Wire it into a project</h3>
+<pre><code>cd your-project &amp;&amp; grove init</code></pre>
+            <p>
+              Detects your languages, fetches their grammars, pins
+              <code>grove.lock</code>, and registers grove with every coding agent
+              it finds — Claude Code, Cursor, Codex, Gemini CLI, Windsurf, VS Code
+              — each at its own config path, plus a steering note so the agent
+              reaches for grove instead of grep.
+            </p>
+          </div>
+        </div>
+
+        <div class="step reveal">
+          <span class="step-n">03</span>
+          <div class="step-body">
+            <h3>Ask a where question</h3>
+            <p>
+              Start a fresh session and ask something locational —
+              <em>"where is <code>provision_project</code> defined, and who calls
+              it?"</em> It routes through grove instead of grep. That's the whole
+              setup.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- Footer -->
-  <footer class="site-foot">
-    <div class="container">
-      <div class="foot-brand">
-        <img src="assets/logo_icon_only.png" alt="Grove" width="22" height="22">
-        <span>grove</span>
+  <!-- ── Proof ────────────────────────────────────────────────────────────── -->
+  <section class="sec" id="proof">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Measured, blind-judged</p>
+        <h2>Same answers, half the context</h2>
+        <p>
+          Three navigation regimes — text search, grove, and an LSP — given the
+          <strong>same agent the same prompt</strong> across 50 tasks: 10 large
+          real repos × 5 rungs of climbing difficulty. One variable.
+        </p>
       </div>
-      <p>© 2026 <a href="https://entelligentsia.in" target="_blank" style="color: inherit; text-decoration: underline;">Entelligentsia</a> • Structural sight for coding agents.</p>
-    </div>
-  </footer>
 
-  <script src="app.js"></script>
+      <a class="curve reveal" href="https://entelligentsia.github.io/is-grep-enough/">
+        <img src="assets/grove_context_curve.svg" alt="Across five rungs of task complexity grove ties on answer quality while carrying about half the context of text search, widening to 2.8 times leaner on the hardest architecture traces.">
+      </a>
+
+      <div class="findings">
+        <div class="finding reveal">
+          <p class="f-num">~2×</p>
+          <p>leaner on context overall — 395K mean tokens against 780K for text search, at tied answer quality.</p>
+        </div>
+        <div class="finding reveal">
+          <p class="f-num">2.8×</p>
+          <p>leaner on the hardest architecture traces, where the lead widens rather than narrows.</p>
+        </div>
+        <div class="finding reveal">
+          <p class="f-num">L1</p>
+          <p>is where grove loses. Locating one symbol, plain text search is cheaper — the structural call overhead is fixed.</p>
+        </div>
+      </div>
+
+      <p class="surfaces-note">
+        Full methodology, per-repo data, blind judgements and every raw
+        transcript:
+        <a href="https://github.com/Entelligentsia/is-grep-enough">is-grep-enough</a>
+        · <a href="https://entelligentsia.github.io/is-grep-enough/">live dashboard</a>.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Languages ────────────────────────────────────────────────────────── -->
+  <section class="sec" id="languages">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Coverage</p>
+        <h2>27 languages, no recompile</h2>
+        <p>
+          Grammars are WASM, fetched at runtime from a hosted registry and pinned
+          in <code>grove.lock</code>. Adding a language is a registry entry, not a
+          new build — so the binary you installed already supports what ships next.
+        </p>
+      </div>
+      <p class="lede" style="font-family:var(--mono);font-size:0.85rem;line-height:2;max-width:none;color:var(--mauve)">
+        bash · c · c++ · c# · go · java · javascript · julia · php · python ·
+        ruby · rust · scala · typescript · tsx · agda · codeql · css ·
+        embedded template · haskell · html · jsdoc · json · ocaml ·
+        ocaml interface · regex · verilog
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <img src="assets/favicon.png" alt="" width="22" height="22" aria-hidden="true">
+    <span>grove — MIT licensed</span>
+    <div class="links">
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/Entelligentsia/grove">GitHub</a>
+      <a href="https://crates.io/crates/grove-cst">crates.io</a>
+      <a href="https://huggingface.co/entelligentsia/grove-explore-base-GGUF">Model</a>
+    </div>
+  </div>
+</footer>
+
+<script src="app.js"></script>
 </body>
 </html>

@@ -1,19 +1,20 @@
 <div align="center">
 
-<img src="docs/assets/favicon.png" width="80" alt="grove favicon">
+<img src="docs/assets/favicon.png" width="88" alt="grove">
 
 # grove
 
-### structural sight for coding agents
+### ask where, get exact lines
 
-One tree-sitter engine&nbsp;·&nbsp;seven tools&nbsp;·&nbsp;a CLI **and** an MCP server&nbsp;·&nbsp;27 languages at runtime
+Two surfaces&nbsp;·&nbsp;one tree-sitter engine&nbsp;·&nbsp;27 languages at runtime
 
-[![release](https://img.shields.io/github/v/release/Entelligentsia/grove?sort=semver&label=release&color=2f7d55)](https://github.com/Entelligentsia/grove/releases)
-[![crates.io](https://img.shields.io/crates/v/grove-cst?label=crates.io&color=2f7d55)](https://crates.io/crates/grove-cst)
-[![CI](https://img.shields.io/github/actions/workflow/status/Entelligentsia/grove/ci.yml?branch=main&label=CI&color=2f7d55)](https://github.com/Entelligentsia/grove/actions)
-[![license: MIT](https://img.shields.io/badge/license-MIT-2f7d55)](LICENSE)
+[![release](https://img.shields.io/github/v/release/Entelligentsia/grove?sort=semver&label=release&color=22c7c7)](https://github.com/Entelligentsia/grove/releases)
+[![crates.io](https://img.shields.io/crates/v/grove-cst?label=crates.io&color=22c7c7)](https://crates.io/crates/grove-cst)
+[![model](https://img.shields.io/badge/model-grove--explore--base-e15fc8)](https://huggingface.co/entelligentsia/grove-explore-base-GGUF)
+[![CI](https://img.shields.io/github/actions/workflow/status/Entelligentsia/grove/ci.yml?branch=main&label=CI&color=22c7c7)](https://github.com/Entelligentsia/grove/actions)
+[![license: MIT](https://img.shields.io/badge/license-MIT-22c7c7)](LICENSE)
 
-[Quick start](#60-second-start)&nbsp;·&nbsp;[How it works](#how-it-works)&nbsp;·&nbsp;[Proof](#proof)&nbsp;·&nbsp;[Tools](#the-seven-tools)&nbsp;·&nbsp;[Languages](#languages)&nbsp;·&nbsp;[Docs](#documentation)
+[Start](#60-second-start)&nbsp;·&nbsp;[The seven tools](#the-seven-tools)&nbsp;·&nbsp;[How it works](#how-it-works)&nbsp;·&nbsp;[Proof](#proof)&nbsp;·&nbsp;[explore](#grove-explore--the-code-locator)&nbsp;·&nbsp;[Model](#the-model--grove-explore-base)&nbsp;·&nbsp;[Docs](#documentation)
 
 <br>
 
@@ -28,6 +29,16 @@ answer *where is this defined, what does it do, who calls it.* grove answers eac
 with **one symbol, by exact bytes** — behind a stable id the agent reuses across
 turns. It's not an LSP; it's the cheap syntactic layer *beneath* one.
 
+Every answer, from either surface, comes back in the same shape:
+
+```
+javascript:routes/user.js#isLoggedIn@50
+└── grammar  └── path      └── symbol  └── line (1-based)
+```
+
+Pass that whole string to `source` to read the symbol's body, or to `callers`
+to find its call sites.
+
 ## 60-second start
 
 ### 1&nbsp;·&nbsp;Install
@@ -36,8 +47,9 @@ turns. It's not an LSP; it's the cheap syntactic layer *beneath* one.
 curl -fsSL https://raw.githubusercontent.com/Entelligentsia/grove/main/install.sh | sh
 ```
 
-One line — detects your platform, verifies the sha256. Prefer Homebrew, npm,
-cargo, or building from source? → **[Install](docs/install.md)**.
+One line — detects your platform, verifies the sha256, installs **both**
+`grove` and `grove-explore`. Prefer Homebrew, npm, cargo, or building from
+source? → **[Install](docs/install.md)**.
 
 ### 2&nbsp;·&nbsp;Wire it into your project
 
@@ -62,6 +74,21 @@ grove, not grep. That's it: your agent now has structural sight.
 > cross-agent skill (Claude Code, Cursor, Codex, Cline, …) and self-installs the
 > binary on first use if it's missing.
 
+## The seven tools
+
+| | Command | What it returns |
+|---|---|---|
+| **outline** | `grove outline <file>` | a file's definition skeleton (kind · name · parent · signature · id) |
+| **symbols** | `grove symbols <dir> --name <n>` | repo-wide symbol search — `--name` is **exact**, `--name-contains` for substring |
+| **source** | `grove source <id>` | one symbol's full source — no whole-file read |
+| **check** | `grove check <file>` | ERROR / MISSING nodes — post-edit syntax check (exit 1 if any) |
+| **callers** | `grove callers <name> -d <dir>` | call sites of a symbol, each with its enclosing function |
+| **map** | `grove map <dir>` | directory dependency graph: definitions + outgoing references, no bodies |
+| **definition** | `grove definition <name>` / `--at <f:l:c>` | go-to-def, by name or from a usage position |
+
+Add `--json` to any command for the agent-facing shape. Full reference +
+examples: **[Tools](docs/tools.md)**.
+
 ## How it works
 
 Every grove result carries a **symbol-id** — a stable handle the agent passes
@@ -71,17 +98,16 @@ from one tool to the next:
 
 `outline` a file to a skeleton of ids → `source` one id for its exact bytes →
 `callers` that id for its call sites. **One symbol at a time, by bytes** — never a
-whole-file read. The same Rust engine answers on **two faces** — a human CLI
-(`grove <verb>`) and an MCP server (`grove serve`) — so you and your agent see
-identically. Grammars load **at runtime from a hosted WASM registry**, so adding a
-language is a registry entry, not a recompile.
+whole-file read. Grammars load **at runtime from a hosted WASM registry**, so
+adding a language is a registry entry, not a recompile.
 
 - **Token-cheap** — `outline` a 1700-line file as a skeleton; `source` one
   symbol's body, not the file. `map` returns a directory's definitions +
   references in a single call.
 - **Byte-precise & stable** — the `symbol-id` above is exact and durable; pass it
   forward across turns instead of re-searching.
-- **One engine, two faces** — the same binary drives the CLI and the MCP server.
+- **One engine, two surfaces** — the same Rust core answers the CLI, the
+  structural MCP server, and the delegate's inner loop.
 - **Runtime grammars** — all 27 official tree-sitter grammars resolve from the
   registry; new languages need no recompile and no toolchain on your machine.
 
@@ -139,24 +165,161 @@ methodology, per-repo data, blind judgements, and every raw transcript:
 
 </details>
 
-## The seven tools
+## The optional second surface
 
-| | Command | What it returns |
+Everything above is `grove` — the structural surface, and the one you want by
+default. The seven tools all want a **name**. When you don't have one yet —
+*"which files handle billing?"* — there is a second, optional surface:
+**`grove-explore`**, a locator backed by a small model running on your machine.
+
+A project registers **one surface or the other**, never both: running both puts
+eight tools in front of your agent with no rule for choosing between them.
+
+| | `grove init --as mcp` *(default)* | `grove init --as mcp-llm` |
 |---|---|---|
-| **outline** | `grove outline <file>` | a file's definition skeleton (kind · name · parent · signature · id) |
-| **symbols** | `grove symbols <dir> --name <n>` | repo-wide symbol search — `--name` is **exact**, `--name-contains` for substring |
-| **source** | `grove source <id>` | one symbol's full source — no whole-file read |
-| **check** | `grove check <file>` | ERROR / MISSING nodes — post-edit syntax check (exit 1 if any) |
-| **callers** | `grove callers <name> -d <dir>` | call sites of a symbol, each with its enclosing function |
-| **map** | `grove map <dir>` | directory dependency graph: definitions + outgoing references, no bodies |
-| **definition** | `grove definition <name>` / `--at <f:l:c>` | go-to-def, by name or from a usage position |
+| **Registers** | `grove` | `grove-explore` |
+| **Tools** | seven structural tools | one — `mcp__grove-explore__explore` |
+| **How** | tree-sitter, deterministic, no model | a small **local** model sweeps the tree |
+| **Ask it** | a name you already know | *"where is X?"* before you know the file |
+| **Costs** | milliseconds, no inference | one local inference run per call |
 
-Add `--json` to any command for the agent-facing shape. Full reference +
-examples: **[Tools](docs/tools.md)**.
+Switching modes swaps the registration — `grove init` strips the surface you
+left. **Start with `--as mcp`** and stay there unless you find yourself sending
+the agent hunting for files it can't name.
+
+## grove-explore — the code locator
+
+`mcp__grove-explore__explore` is **one tool** your agent calls with **one narrow
+"where is X" question**. A small model running on your machine drives a short,
+bounded tool-calling loop — grove's own structural tools plus glob/grep/read —
+and replies with **location lines only**, most relevant first:
+
+```
+? where are admin routes and admin middleware defined?
+
+javascript:routes/admin/adminMiddleware.js#requireAdmin@22
+javascript:routes/admin/adminMiddleware.js#checkNotImpersonating@58
+javascript:app.js#adminMiddleware@106
+javascript:app.js#adminApiUsers@108
+javascript:app.js#adminApiAuth@117
+javascript:app.js#adminJobsMount@517
+
+✓ done · 4 turns · 44,773 tok · 19.3s
+```
+
+It **locates; it does not explain.** Every path is checked against the
+filesystem before it is returned, so hallucinated locations are dropped. Your
+agent then reads the cited lines itself — the line numbers are exact, so it
+reads a window at that offset rather than the whole file.
+
+The outer agent never sees the inner tool calls, and never spends its own
+context on them. That is the trade: one local inference run in exchange for the
+sweep your expensive agent would otherwise do in its own context.
+
+**Keep each question single-focus.** It is a locator, not a research agent —
+ask a few targeted questions and synthesize the results yourself.
+
+### Setting it up
+
+```bash
+grove init --as mcp-llm     # registers grove-explore, opens the config screen
+grove-explore config        # revisit settings at any time
+```
+
+![the grove-explore config screen: inference engines detected on local ports, endpoint and model fields, a tracing toggle, and a checklist of allowed tools](docs/assets/explore_config_tui.png)
+
+The config screen probes the usual local ports, shows which engines are up and
+how many models each is serving, and fills in the endpoint and model for you.
+You choose which tools the delegate may use, and whether to record sessions.
+
+### When the provider is down
+
+`grove-explore` starts anyway and says so where your agent can read it: the
+`explore` tool returns an actionable error naming the endpoint and the fix,
+rather than the server dying at startup and leaving your agent with a bare
+transport error it cannot explain. There is **no silent fallback** to the
+structural tools — if you registered the locator, you get the locator or a
+reason why not.
+
+## The model — grove-explore-base
+
+The locator model, published as GGUF. It is an off-the-shelf **Qwen3.5-4B** base
+— self-converted and quantized, adopted as grove's delegate. **Not a grove
+fine-tune**; the [model card](https://huggingface.co/entelligentsia/grove-explore-base-GGUF)
+says so plainly, with full lineage.
+
+| Quant | Size | Coverage (n=347) | ollama tag | Role |
+|---|---|---|---|---|
+| **Q4_K_M** | 2.78 GB | **80.6** | `q4_k_m` | memory-lean serving default |
+| **Q8_0** | 4.6 GB | **82.1** | `q8_0` | canonical eval baseline |
+
+Answer-sheet coverage on the **grove explore holdout** — 347 episodes across 9
+pinned real-world repos spanning 9 languages, via
+[is-grep-enough](https://github.com/Entelligentsia/is-grep-enough).
+
+**Serve it with llama.cpp:**
+
+```bash
+llama serve -hf entelligentsia/grove-explore-base-GGUF:Q4_K_M
+```
+
+**Or with ollama** (0.32 or newer):
+
+```bash
+ollama pull bonigopalan/grove-explore-base:q4_k_m
+```
+
+> **Serve with thinking ON.** With thinking off these models emit degenerate
+> empty tool-calls. Recommended context **24,576**, temperature **0**. ollama
+> returns chain-of-thought in a separate `reasoning` field and the answer in
+> `content`.
+
+Then run `grove init --as mcp-llm` (or `grove-explore config`) and pick the
+running engine — the screen fills in the endpoint and model for you.
+
+Weights live on
+[HuggingFace](https://huggingface.co/entelligentsia/grove-explore-base-GGUF) and
+[ollama](https://ollama.com/bonigopalan/grove-explore-base); model cards,
+Modelfiles, the quant matrix and provenance are in
+**[grove-models](https://github.com/Entelligentsia/grove-models)**.
+
+## Seeing what the delegate did
+
+Delegation is only trustworthy if you can audit it. Turn on **Tap** — a toggle
+in `grove-explore config`, or just run `grove-explore tap`, which flips it on
+for you — and every session is recorded to a per-session JSONL trace under
+`.grove/traces/`.
+
+```bash
+grove-explore tap              # enable tracing + browse
+grove-explore tap --no-enable  # browse without changing the config
+```
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/explore_tap_sessions.png" alt="A table of recorded trace sessions: time, connecting client, model, steering, call count and token totals."></td>
+<td width="50%"><img src="docs/assets/explore_tap_calls.png" alt="The calls inside one session, each with its question, turn count, token total and duration."></td>
+</tr>
+<tr>
+<td><b>Sessions</b> — every client that connected, with call and token totals.</td>
+<td><b>Calls</b> — the questions as asked. Expensive ones are obvious.</td>
+</tr>
+</table>
+
+![one call expanded: four turns showing the tools called in each — Grep, Grep, then Read, Read — with request and response detail, ending in the returned citations](docs/assets/explore_tap_detail.png)
+
+Drill session → call → turn: which tools the delegate chose, what came back,
+token usage and wall time per turn, and the citations it finally returned. It
+refreshes live, so you can watch a session as it runs. Retention keeps the last
+`trace_retain` sessions (default 50).
+
+> `grove config` / `grove tap` still work as deprecated forwarding shims to
+> `grove-explore config` / `grove-explore tap`. Use the `grove-explore`
+> spelling directly; the shims print a one-line note and forward.
 
 ## Languages
 
-**27 out of the box** — one binary, grammars loaded at runtime from the
+**27 out of the box** — one engine, grammars loaded at runtime from the
 [hosted WASM registry](docs/languages.md):
 
 <table>
@@ -170,86 +333,10 @@ examples: **[Tools](docs/tools.md)**.
 full profile = all tools. `<kbd>` = no official logo. Profiles are data, not
 compiled in. See **[Languages & grammars](docs/languages.md)**.
 
-## Advanced
+## Use grove as a Rust library
 
 <details>
-<summary><b>grove-explore — a second, composable MCP server</b> — one <code>explore</code> tool backed by your own local model (opt-in)</summary>
-
-<br>
-
-> **Opt-in, and a separate server, not a mode.** `grove` (the CLI and the
-> always-structural 7-tool `grove serve`) is unaffected either way.
-> `grove-explore` is its own binary with its own MCP server identity; you
-> register it *alongside* `grove` — never instead of it. `grove init --as
-> mcp-llm` registers both in one step. Configured in `.grove/config.json`; the
-> config format and the `explore` tool contract are covered by semantic
-> versioning as of 0.3.0.
-
-**What it is**: `mcp__grove-explore__explore` is a single MCP tool the outer
-coding agent calls with **one narrow "where is X" question**. Its inner Rust
-explorer agent drives a short, bounded tool-calling loop locally — against your
-configured local / OpenAI-compatible LLM (Ollama, llama.cpp) — and returns a
-short explanation plus **validated `file:line` citations**. It is a *locator*
-(it finds WHERE relevant code lives), not a full-analysis oracle: ask a few
-targeted questions and synthesize the results yourself. The outer agent never
-sees the inner tool calls — and never spends its own context on them.
-
-**Composition, not a mode switch.** A project can register `grove` (structural)
-only, `grove-explore` (locator) only, or both — `grove init --as mcp-llm` gives
-you both, and the written steering tells the agent when to reach for each:
-`mcp__grove-explore__explore` for a broad "where is X" sweep before you know
-which file to look in, then `mcp__grove__source` / `mcp__grove__map` directly on
-the cited `file:line` for precision work.
-
-**Setup**:
-```
-grove init --as mcp-llm    # registers BOTH grove and grove-explore, interactive TUI (requires TTY)
-grove-explore config       # revisit / change explore settings at any time
-```
-
-**Three steering modes** (trade-off in one line each):
-
-| Mode | Trade-off |
-|---|---|
-| `standard` | inner model picks tools naturally — lowest overhead, works well with capable models |
-| `balanced` | two-phase plan → execute — best grounding and lowest hallucination rate, highest wall-clock |
-| `strict` | grove-first steering prompts — cost/quality sweet spot for smaller models |
-
-Change the active mode at any time with `grove-explore config`.
-
-**Health semantics**:
-- Startup: `grove-explore serve` probes the configured provider (`/models`).
-  - **Healthy** → the server starts and exposes `mcp__grove-explore__explore`.
-  - **Unhealthy at startup** → a startup *error* naming the fix — the process
-    exits non-zero rather than silently swapping in a different tool surface.
-    The structural `grove` server (if registered) is unaffected either way.
-- Mid-session loss → `mcp__grove-explore__explore` returns a recoverable
-  `isError` response with a restart hint; the outer agent can retry or fall
-  back to the structural tools it already has registered.
-
-**Debugging — see the inner conversation.** Turn on **Tap** (a `tap` flag in
-`.grove/config.json`'s `explore` section, toggled in `grove-explore config` —
-or just run `grove-explore tap`, which flips it on for you). `grove-explore
-serve` then records each session to a per-session JSONL trace under
-`.grove/traces/`: a header with the calling agent's identity, model and mode,
-then a `call_start` / `turn` / `call_end` stream per `explore` call with
-**token usage and wall time**.
-
-Run **`grove-explore tap`** to browse them in a full-screen TUI — drill
-session → call → turn: the session list shows agent, model, call count, total
-tokens and a live marker; opening a call shows its metrics and each turn's
-request/response. It refreshes live, so you can watch a session as it runs.
-Retention keeps the last `trace_retain` sessions (default 50).
-`grove-explore tap --no-enable` opens the browser without changing the config.
-
-> `grove config` / `grove tap` still work as deprecated forwarding shims to
-> `grove-explore config` / `grove-explore tap` — use the `grove-explore`
-> spelling directly; the shims print a one-line note and forward.
-
-</details>
-
-<details>
-<summary><b>Use grove as a Rust library</b> — embed the engine directly, no CLI, no subprocess</summary>
+<summary>Embed the engine directly — no CLI, no subprocess</summary>
 
 <br>
 
@@ -265,7 +352,7 @@ builds (`grove-core` is taken by an unrelated crate). Alias it so imports stay
 ```toml
 # Cargo.toml
 [dependencies]
-grove_core = { package = "grove-cst", version = "0.3" }
+grove_core = { package = "grove-cst", version = "0.4" }
 ```
 
 ```rust
@@ -311,6 +398,7 @@ point behind `grove init`. Crate overview and full API surface:
 | **[Languages & grammars](docs/languages.md)** | the WASM registry, `fetch`/`lock`, where grammars live, profiles |
 | **[Tools](docs/tools.md)** | the seven tools, `--json`, `symbol-id`, examples |
 | **[MCP server](docs/mcp.md)** | `grove serve`, `.mcp.json`, steering, error model |
+| **[grove-models](https://github.com/Entelligentsia/grove-models)** | the delegate models — cards, quants, Modelfiles, provenance |
 | **[grove-core](core/README.md)** | embed the engine in Rust — no CLI, no subprocess |
 | **[Roadmap & repo layout](docs/roadmap.md)** | what's not done yet, source map |
 | **[FAQ](docs/faq.md)** | *Is grove an LSP?* and other positioning questions |
