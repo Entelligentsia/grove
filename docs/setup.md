@@ -30,38 +30,44 @@ grove has one engine behind three faces: the CLI, the MCP server, and a
 grove init --as mcp      # default — .mcp.json + CLAUDE.md + grove.lock
 grove init --as skill    # grammars + grove.lock only; install the skill separately
 grove init --as both     # MCP wiring and grammars, for skill + MCP side by side
-grove init --as mcp-llm  # both servers: grove (structural) + grove-explore (locator) + CLAUDE.md + AGENTS.md
+grove init --as mcp-llm  # locator only: grove-explore under the grove key + CLAUDE.md + AGENTS.md
 ```
 
 ## Explore-mode — `grove init --as mcp-llm`
 
-> **Opt-in, and a second server, not a mode.** The `.grove/config.json` config
-> format and the `explore` tool contract are covered by semantic versioning as
-> of 0.3.0. The standard `--as mcp|skill|both` targets and the always-structural
-> 7-tool `grove serve` are unaffected either way — `grove-explore` is a
-> separate binary with its own MCP server identity that you register
-> *alongside* `grove`, never instead of it.
+> **Opt-in, and exclusive with the structural surface.** `grove-explore` is a
+> separate binary with its own MCP server; `--as mcp-llm` registers it **instead
+> of** the structural `grove serve`, not alongside it (see
+> [ADR 0005](adr/0005-exclusive-mcp-surfaces.md)). The `.grove/config.json`
+> config format and the `explore` tool contract are covered by semantic
+> versioning as of 0.3.0. The standard `--as mcp|skill|both` targets and the
+> always-structural 7-tool `grove serve` are unaffected either way.
 
-`--as mcp-llm` registers **both servers** in `.mcp.json`: `grove` (the 7-tool
-structural surface, unconditionally) and `grove-explore` (a single `explore`
-tool backed by a local LLM, configured via `.grove/config.json`'s `explore`
-section). The outer agent asks `mcp__grove-explore__explore` narrow *where-is*
-questions and uses `mcp__grove__source` / `mcp__grove__map` directly on the
-cited `file:line` for precision work — the two surfaces compose. If the
-explore provider is unhealthy at startup, `grove-explore serve` fails to start
-with an actionable error; there is no fallback that swaps in a different tool
-surface, and the `grove` structural server is unaffected either way.
+`--as mcp-llm` registers the **locator alone** — the `grove-explore` binary,
+under the `.mcp.json` key `grove`, exposing a single tool `mcp__grove__explore`
+backed by a local LLM (configured via `.grove/config.json`'s `explore`
+section). It replaces the structural surface rather than composing with it: a
+project registers `grove` (structural) **or** the locator, never both (see
+[ADR 0005](adr/0005-exclusive-mcp-surfaces.md)). The outer agent asks
+`mcp__grove__explore` narrow *where-is* questions and reads a window at each
+cited `file:line` itself. If the provider is unreachable, `grove-explore serve`
+starts anyway and the `explore` tool returns an actionable error in-band —
+there is no silent fallback to the structural tools.
+
+The locator uses the `grove` key deliberately, so the tool is
+`mcp__grove__explore` — the historical name and the one the outer agent should
+see; the `grove-explore` binary is a packaging detail. It's safe because the
+surfaces are exclusive, so the key is never contended.
 
 What it writes:
 
-- **`.mcp.json`** — registers **two** MCP servers: `grove` (`grove serve`) and
-  `grove-explore` (`grove-explore serve`).
-- **`CLAUDE.md`** — dual-surface steering block naming both servers
-  (`mcp__grove__*` and `mcp__grove-explore__explore`) and the recommended
-  delegation flow: narrow `explore` question → `source`/`map` on the cited
-  `file:line` → synthesize.
-- **`AGENTS.md`** — the same dual-surface steering, harness-neutral, for
-  non-Claude harnesses (Codex, Cline, etc.).
+- **`.mcp.json`** — one MCP server under the `grove` key, running
+  `grove-explore serve` (any stale two-server-era `grove-explore` key is
+  cleaned up on init).
+- **`CLAUDE.md`** — a locator-framed steering block: ask `mcp__grove__explore`
+  broad *where-is* questions, then read the cited lines.
+- **`AGENTS.md`** — the same steering, harness-neutral, for non-Claude
+  harnesses (Codex, Cline, etc.).
 
 **First-run TUI**: on the first `grove init --as mcp-llm`, `init` shells out to
 `grove-explore config` to collect the provider, base URL, and model (requires

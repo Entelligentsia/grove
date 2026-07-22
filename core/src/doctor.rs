@@ -370,13 +370,18 @@ fn check_harness_mcp_json(root: &Path, mode: Mode) -> Check {
         };
     }
 
-    let expected_args = harness::expected_mcp_args(mode);
-    let actual_args = read_grove_args(&path, format);
-    let expected_explore = harness::expected_explore_args(mode);
-    let actual_explore = read_server_args(&path, format, harness::EXPLORE_SERVER_KEY);
+    // One `grove` key holds whichever surface the mode selects — structural
+    // (args `["serve"]`) in mcp/both, the locator (args `[]`, grove-explore
+    // binary) in mcp-llm, absent otherwise. The surfaces are exclusive and
+    // share the key so the locator tool is `mcp__grove__explore` (ADR 0005), so
+    // there is a single entry to verify: the args a mode expects come from
+    // whichever of the two per-mode functions is `Some`.
+    let expected_grove =
+        harness::expected_mcp_args(mode).or_else(|| harness::expected_explore_args(mode));
+    let actual_grove = read_grove_args(&path, format);
 
     let mut parts = Vec::new();
-    let structural_ok = match (expected_args, actual_args) {
+    let grove_ok = match (expected_grove, actual_grove) {
         (None, None) => {
             parts.push("no grove entry expected and none present".to_string());
             true
@@ -407,38 +412,7 @@ fn check_harness_mcp_json(root: &Path, mode: Mode) -> Check {
         }
     };
 
-    let explore_ok = match (expected_explore, actual_explore) {
-        (None, None) => {
-            parts.push("no grove-explore entry expected and none present".to_string());
-            true
-        }
-        (None, Some(_)) => {
-            parts.push(".mcp.json has a grove-explore entry but none is expected".to_string());
-            false
-        }
-        (Some(expected), None) => {
-            parts.push(format!(
-                ".mcp.json absent or no grove-explore entry; expected args {:?}",
-                expected
-            ));
-            false
-        }
-        (Some(expected), Some(actual)) => {
-            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
-            if expected == actual_refs.as_slice() {
-                parts.push(format!("grove-explore args {:?}", actual));
-                true
-            } else {
-                parts.push(format!(
-                    "expected grove-explore args {:?}, found {:?}",
-                    expected, actual
-                ));
-                false
-            }
-        }
-    };
-
-    if structural_ok && explore_ok {
+    if grove_ok {
         Check {
             group: "universal",
             name: "harness_mcp_json",
@@ -447,7 +421,7 @@ fn check_harness_mcp_json(root: &Path, mode: Mode) -> Check {
             hint: None,
         }
     } else {
-        let hint = if expected_explore.is_some() || mode == Mode::McpLlm {
+        let hint = if mode == Mode::McpLlm {
             "grove init --as mcp-llm".to_string()
         } else {
             format!("grove init --as {}", mode_name(mode))
@@ -486,11 +460,31 @@ fn read_grove_args(path: &Path, format: McpFormat) -> Option<Vec<String>> {
     read_server_args(path, format, harness::MCP_SERVER_KEY)
 }
 
-/// `true` if any selected harness registers a `grove-explore` server.
+/// The `command` of the `grove`-keyed server entry, if present.
+fn read_grove_command(path: &Path, format: McpFormat) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let key = harness::MCP_SERVER_KEY;
+    match format {
+        McpFormat::Json { root_key, .. } => {
+            let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+            doc[root_key][key]["command"].as_str().map(String::from)
+        }
+        McpFormat::Toml { table } => {
+            let doc: toml_edit::DocumentMut = text.parse().ok()?;
+            doc.get(table)?.get(key)?.get("command")?.as_str().map(String::from)
+        }
+    }
+}
+
+/// `true` if any selected harness registers the **locator** — a `grove`-keyed
+/// entry whose command runs the `grove-explore` binary. The locator shares the
+/// `grove` key with the structural server (so its tool is `mcp__grove__explore`),
+/// so a bare key check can't tell them apart — the command basename does.
 fn has_explore_registration(root: &Path, home: &Path, harnesses: &[HarnessId]) -> bool {
     harnesses.iter().any(|&h| {
         let path = h.mcp_config_path_in(root, Some(home));
-        read_server_args(&path, h.mcp_format(), harness::EXPLORE_SERVER_KEY).is_some()
+        read_grove_command(&path, h.mcp_format())
+            .is_some_and(|cmd| cmd.trim_end_matches(".exe").ends_with("grove-explore"))
     })
 }
 
@@ -536,13 +530,13 @@ fn check_harness_registration(root: &Path, home: &Path, h: HarnessId, mode: Mode
         };
     }
 
-    let expected_args = harness::expected_mcp_args(mode);
-    let actual_args = read_grove_args(&path, format);
-    let expected_explore = harness::expected_explore_args(mode);
-    let actual_explore = read_server_args(&path, format, harness::EXPLORE_SERVER_KEY);
+    // One `grove` key per the mode's surface (see check_harness_mcp_json).
+    let expected_grove =
+        harness::expected_mcp_args(mode).or_else(|| harness::expected_explore_args(mode));
+    let actual_grove = read_grove_args(&path, format);
 
     let mut parts = Vec::new();
-    let structural_ok = match (expected_args, actual_args) {
+    let grove_ok = match (expected_grove, actual_grove) {
         (None, None) => {
             parts.push("no grove entry expected and none present".to_string());
             true
@@ -569,38 +563,7 @@ fn check_harness_registration(root: &Path, home: &Path, h: HarnessId, mode: Mode
         }
     };
 
-    let explore_ok = match (expected_explore, actual_explore) {
-        (None, None) => {
-            parts.push("no grove-explore entry expected and none present".to_string());
-            true
-        }
-        (None, Some(_)) => {
-            parts.push(
-                "registration has a grove-explore entry but none is expected".to_string(),
-            );
-            false
-        }
-        (Some(expected), None) => {
-            parts.push(format!(
-                "registration absent or no grove-explore entry; expected args {expected:?}"
-            ));
-            false
-        }
-        (Some(expected), Some(actual)) => {
-            let actual_refs: Vec<&str> = actual.iter().map(String::as_str).collect();
-            if expected == actual_refs.as_slice() {
-                parts.push(format!("grove-explore args {actual:?}"));
-                true
-            } else {
-                parts.push(format!(
-                    "expected grove-explore args {expected:?}, found {actual:?}"
-                ));
-                false
-            }
-        }
-    };
-
-    if structural_ok && explore_ok {
+    if grove_ok {
         Check {
             group: "universal",
             name,
@@ -609,7 +572,7 @@ fn check_harness_registration(root: &Path, home: &Path, h: HarnessId, mode: Mode
             hint: None,
         }
     } else {
-        let hint = if expected_explore.is_some() || mode == Mode::McpLlm {
+        let hint = if mode == Mode::McpLlm {
             "grove init --as mcp-llm".to_string()
         } else {
             format!("grove init --as {}", mode_name(mode))
@@ -958,43 +921,39 @@ mod tests {
     /// Seed a `.mcp.json` that includes both the `grove` structural entry AND the
     /// `grove-explore` explore-server entry, reflecting the dual-server McpLlm layout.
     fn write_explore_mcp_json(dir: &Path) {
+        // The locator registers under the `grove` key (so its tool is
+        // `mcp__grove__explore`), distinguished from the structural server by an
+        // empty args array and a command running the grove-explore binary.
         let exe = std::env::current_exe().unwrap();
-        let exe_path = exe.display();
-        // McpLlm registers grove-explore ONLY (args []); the structural `grove`
-        // entry must be absent — the surfaces are mutually exclusive (ADR 0005).
+        let cmd = exe.parent().unwrap().join("grove-explore");
+        let cmd_path = cmd.display();
         fs::write(
             dir.join(".mcp.json"),
-            format!(
-                r#"{{"mcpServers":{{"grove-explore":{{"command":"{exe_path}","args":[]}}}}}}"#
-            ),
+            format!(r#"{{"mcpServers":{{"grove":{{"command":"{cmd_path}","args":[]}}}}}}"#),
         )
         .unwrap();
     }
 
     /// Seed a Cursor `.cursor/mcp.json` with optional `grove-explore` registration.
+    /// Seed a Cursor `.cursor/mcp.json` with a single `grove` server entry. The
+    /// surfaces share the `grove` key (ADR 0005), so `explore_args = Some(_)`
+    /// means "the locator" (grove-explore command) and `None` with non-empty
+    /// `args` means "the structural server" (grove command). Empty `args` +
+    /// `None` writes an empty `mcpServers`.
     fn write_cursor_mcp_json(dir: &Path, args: &[&str], explore_args: Option<&[&str]>) {
         let exe = std::env::current_exe().unwrap();
-        let exe_path = exe.display();
-        let args_json: Vec<_> = args.iter().map(|a| format!(r#""{a}""#)).collect();
-        let args_str = args_json.join(",");
-        // An empty `args` slice means "no structural entry at all" — McpLlm
-        // registers grove-explore alone, so the fixture must omit `grove`
-        // rather than write it with empty args.
-        let grove_entry = if args.is_empty() {
-            String::new()
-        } else {
-            format!(r#""grove":{{"command":"{exe_path}","args":[{args_str}]}}"#)
+        let grove_cmd = exe.display().to_string();
+        let explore_cmd = exe.parent().unwrap().join("grove-explore").display().to_string();
+        let entry = |cmd: &str, a: &[&str]| {
+            let a_str = a.iter().map(|x| format!(r#""{x}""#)).collect::<Vec<_>>().join(",");
+            format!(r#""grove":{{"command":"{cmd}","args":[{a_str}]}}"#)
         };
         let body = match explore_args {
-            Some(exp) => {
-                let exp_json: Vec<_> = exp.iter().map(|a| format!(r#""{a}""#)).collect();
-                let exp_str = exp_json.join(",");
-                let sep = if grove_entry.is_empty() { "" } else { "," };
-                format!(
-                    r#"{{"mcpServers":{{{grove_entry}{sep}"grove-explore":{{"command":"{exe_path}","args":[{exp_str}]}}}}}}"#
-                )
+            Some(exp) => format!(r#"{{"mcpServers":{{{}}}}}"#, entry(&explore_cmd, exp)),
+            None if !args.is_empty() => {
+                format!(r#"{{"mcpServers":{{{}}}}}"#, entry(&grove_cmd, args))
             }
-            None => format!(r#"{{"mcpServers":{{{grove_entry}}}}}"#),
+            None => r#"{"mcpServers":{}}"#.to_string(),
         };
         fs::create_dir_all(dir.join(".cursor")).unwrap();
         fs::write(dir.join(".cursor").join("mcp.json"), body).unwrap();
@@ -1060,7 +1019,7 @@ mod tests {
                 // Explore server only — no structural `grove` entry (ADR 0005).
                 write_explore_mcp_json(dir);
                 // CLAUDE.md marker is now in the grove-explore server namespace.
-                write_claude_md(dir, "mcp__grove-explore__explore");
+                write_claude_md(dir, "mcp__grove__explore");
                 write_agents_md(dir);
             }
             Mode::Skill => {
@@ -1185,7 +1144,7 @@ mod tests {
         write_config(&dir, "mcp-llm");
         // Pre-split single-server layout: grove carries `--explore`, no grove-explore.
         write_mcp_json(dir.as_path(), &["serve", "--explore"]);
-        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_claude_md(&dir, "mcp__grove__explore");
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1269,7 +1228,7 @@ mod tests {
         write_config(&dir, "mcp-llm");
         // Structural-only registration: no grove-explore anywhere.
         write_mcp_json(dir.as_path(), &["serve"]);
-        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_claude_md(&dir, "mcp__grove__explore");
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1295,7 +1254,7 @@ mod tests {
         write_config(&dir, "mcp-llm");
         // Structural grove entry present but grove-explore missing.
         write_mcp_json(dir.as_path(), &["serve"]);
-        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_claude_md(&dir, "mcp__grove__explore");
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1344,7 +1303,7 @@ mod tests {
         write_config(&dir, "mcp-llm");
         // Dual-server layout: grove with ["serve"], grove-explore with [].
         write_explore_mcp_json(dir.as_path());
-        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_claude_md(&dir, "mcp__grove__explore");
         // AGENTS.md intentionally absent
 
         let report = diagnose(&dir, ModeChoice::None);
@@ -1414,7 +1373,7 @@ mod tests {
         // Use the dual-server layout that init now produces.
         write_config(&dir, "mcp-llm");
         write_explore_mcp_json(&dir);
-        write_claude_md(&dir, "mcp__grove-explore__explore");
+        write_claude_md(&dir, "mcp__grove__explore");
         write_agents_md(&dir);
 
         let report = diagnose(&dir, ModeChoice::None);

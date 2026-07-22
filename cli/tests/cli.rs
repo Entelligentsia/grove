@@ -924,13 +924,20 @@ fn mcp_llm_steering_block_idempotency() {
         &std::fs::read_to_string(&mcp_json_path).unwrap(),
     )
     .expect(".mcp.json must be valid JSON");
-    assert!(
-        mcp["mcpServers"]["grove"].is_null(),
-        "structural grove entry must be absent in mcp-llm (ADR 0005)"
+    // The locator shares the `grove` key (tool `mcp__grove__explore`): present,
+    // empty args, grove-explore binary — and no separate `grove-explore` key.
+    assert_eq!(
+        mcp["mcpServers"]["grove"]["args"],
+        serde_json::json!([]),
+        "grove must be the locator (empty args) after idempotent init"
     );
     assert!(
-        !mcp["mcpServers"]["grove-explore"].is_null(),
-        "grove-explore entry must be present after idempotent init"
+        mcp["mcpServers"]["grove"]["command"].as_str().unwrap_or("").ends_with("grove-explore"),
+        "the grove entry must run the grove-explore binary"
+    );
+    assert!(
+        mcp["mcpServers"]["grove-explore"].is_null(),
+        "no separate grove-explore key — the locator shares the grove key"
     );
 
     std::fs::remove_dir_all(&base).ok();
@@ -1197,17 +1204,16 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
         .as_object()
         .expect("mcpServers must be an object");
 
-    // No "grove" key at all — mcp-llm registers the locator alone (ADR 0005),
-    // and re-running init must not resurrect a structural entry.
+    // Exactly one `grove` key (the locator), and re-running init must not add a
+    // second entry — neither a duplicate `grove` nor a legacy `grove-explore`.
     let grove_count = servers.keys().filter(|k| *k == "grove").count();
-    assert_eq!(grove_count, 0, "expected no 'grove' key, found {grove_count}");
-
-    // Exactly one "grove-explore" key.
+    assert_eq!(grove_count, 1, "expected exactly 1 'grove' key, found {grove_count}");
     let explore_count = servers.keys().filter(|k| *k == "grove-explore").count();
-    assert_eq!(explore_count, 1, "expected exactly 1 'grove-explore' key, found {explore_count}");
-    assert!(
-        !mcp["mcpServers"]["grove-explore"].is_null(),
-        "grove-explore entry must be present"
+    assert_eq!(explore_count, 0, "expected no legacy 'grove-explore' key, found {explore_count}");
+    assert_eq!(
+        mcp["mcpServers"]["grove"]["args"],
+        serde_json::json!([]),
+        "the grove entry must be the locator (empty args)"
     );
 
     std::fs::remove_dir_all(&base).ok();
@@ -1849,18 +1855,21 @@ fn init_first_run_grove_explore_absent_degrades() {
         &std::fs::read_to_string(&mcp_json_path).unwrap(),
     )
     .expect(".mcp.json must be valid JSON");
-    assert!(
-        mcp["mcpServers"]["grove"].is_null(),
-        "structural grove entry must be absent in mcp-llm (ADR 0005)"
-    );
-    assert!(
-        !mcp["mcpServers"]["grove-explore"].is_null(),
-        "grove-explore entry must be present after degrade init"
+    // Locator under the `grove` key; with grove-explore off PATH its command is
+    // the bare fallback name `grove-explore`.
+    assert_eq!(
+        mcp["mcpServers"]["grove"]["args"],
+        serde_json::json!([]),
+        "grove must be the locator (empty args) after degrade init"
     );
     assert_eq!(
-        mcp["mcpServers"]["grove-explore"]["command"].as_str(),
+        mcp["mcpServers"]["grove"]["command"].as_str(),
         Some("grove-explore"),
-        "grove-explore command must be the bare fallback name"
+        "grove command must be the bare grove-explore fallback name"
+    );
+    assert!(
+        mcp["mcpServers"]["grove-explore"].is_null(),
+        "no separate grove-explore key — the locator shares the grove key"
     );
     assert!(
         stdout.contains("grove-explore config") && stdout.contains("finish setup"),

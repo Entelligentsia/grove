@@ -179,7 +179,7 @@ eight tools in front of your agent with no rule for choosing between them.
 | | `grove init --as mcp` *(default)* | `grove init --as mcp-llm` |
 |---|---|---|
 | **Registers** | `grove` | `grove-explore` |
-| **Tools** | seven structural tools | one — `mcp__grove-explore__explore` |
+| **Tools** | seven structural tools | one — `mcp__grove__explore` |
 | **How** | tree-sitter, deterministic, no model | a small **local** model sweeps the tree |
 | **Ask it** | a name you already know | *"where is X?"* before you know the file |
 | **Costs** | milliseconds, no inference | one local inference run per call |
@@ -190,7 +190,7 @@ the agent hunting for files it can't name.
 
 ## grove-explore — the code locator
 
-`mcp__grove-explore__explore` is **one tool** your agent calls with **one narrow
+`mcp__grove__explore` is **one tool** your agent calls with **one narrow
 "where is X" question**. A small model running on your machine drives a short,
 bounded tool-calling loop — grove's own structural tools plus glob/grep/read —
 and replies with **location lines only**, most relevant first:

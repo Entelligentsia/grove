@@ -18,24 +18,26 @@ Project-scoped registration for Claude Code lives in [`.mcp.json`](../.mcp.json)
 rather than defaulting to grep / whole-file reads. `grove init --as mcp` writes
 both — see [Setup](setup.md).
 
-## Two servers, composable
+## Two surfaces, one at a time
 
 `grove` isn't the only MCP server in the family. **`grove-explore`** is a
-separate binary with its own MCP server identity — a single `explore` tool
-that delegates broad "where is X" questions to a local LLM and returns
-validated `file:line` citations (see [Setup — explore-mode](setup.md)). The two
-servers are **composable, not exclusive**:
+separate binary with its own MCP server — a single `explore` tool that
+delegates broad "where is X" questions to a local LLM and returns validated
+`file:line` citations (see [Setup — explore-mode](setup.md)). A project
+registers one surface **or** the other, never both (see
+[ADR 0005](adr/0005-exclusive-mcp-surfaces.md)) — both together would put eight
+tools in front of the agent with no rule for choosing:
 
-| Server identity | MCP key | What it serves |
+| `--as` | Registers under `grove` | Tools |
 |---|---|---|
-| `grove` | `mcp__grove__*` | the 7 structural tools — always, unconditionally |
-| `grove-explore` | `mcp__grove-explore__explore` | one delegating locator tool, backed by your configured LLM |
+| `mcp` *(default)* | `grove serve` | `mcp__grove__*` — the 7 structural tools |
+| `mcp-llm` | `grove-explore serve` | `mcp__grove__explore` — one delegating locator |
 
-A project can register `grove` only, `grove-explore` only, or both.
-`grove init --as mcp-llm` registers both in one step and writes steering
-naming both server identities and the recommended flow (narrow `explore`
-question → `source`/`map` on the cited `file:line` → synthesize) — see
-[Setup](setup.md) for the full `--as mcp-llm` wiring.
+Both surfaces register under the **same `grove` key**, so the locator's tool is
+`mcp__grove__explore` — the historical name, and one the outer agent reads as
+"grove", not as a binary. Switching modes swaps the entry;
+`grove init` strips the surface you left. See [Setup](setup.md) for the full
+`--as mcp-llm` wiring.
 
 ## Tool schemas
 

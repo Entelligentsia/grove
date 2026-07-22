@@ -29,8 +29,24 @@ pub const GROVE_END: &str = "<!-- grove:end -->";
 pub const MCP_SERVER_KEY: &str = "grove";
 
 /// The key the `grove-explore` server registers under in `.mcp.json` when
-/// `Mode::McpLlm` is active. Yields the `mcp__grove-explore__` tool prefix.
-pub const EXPLORE_SERVER_KEY: &str = "grove-explore";
+/// `Mode::McpLlm` is active — deliberately the **same** `"grove"` key as the
+/// structural server, so the locator tool resolves as `mcp__grove__explore`:
+/// the historical name (pre-split `grove serve --explore` served exactly that)
+/// and the one the outer agent should see — "grove" is the product; the
+/// `grove-explore` binary is a packaging detail. This is safe *because* ADR
+/// 0005 made the surfaces mutually exclusive: a project registers structural
+/// **or** locator under `"grove"`, never both, so the single key is never
+/// contended. The two constants are kept distinct in name (not value) so call
+/// sites read as either "the structural registration" or "the locator
+/// registration".
+pub const EXPLORE_SERVER_KEY: &str = MCP_SERVER_KEY;
+
+/// The key the locator server registered under through **0.4.x**, when the two
+/// surfaces were registered side by side. Superseded by [`EXPLORE_SERVER_KEY`]
+/// (`"grove"`). `init` strips any entry lingering under this key when it
+/// reconciles a project, so an upgrade from the two-server era doesn't leave a
+/// stale duplicate `grove-explore` registration behind.
+pub const LEGACY_EXPLORE_SERVER_KEY: &str = "grove-explore";
 
 // ── Harness adapters ──────────────────────────────────────────────────────
 //
@@ -298,7 +314,7 @@ pub fn expected_explore_args(mode: Mode) -> Option<&'static [&'static str]> {
 /// block must be **absent**.
 pub fn expected_claude_marker(mode: Mode) -> Option<&'static str> {
     match mode {
-        Mode::McpLlm => Some("mcp__grove-explore__explore"),
+        Mode::McpLlm => Some("mcp__grove__explore"),
         Mode::Mcp | Mode::Both => Some("mcp__grove__outline"),
         Mode::Skill => Some("grove skill"),
         Mode::Grammars => None,
@@ -351,7 +367,7 @@ mod tests {
         // McpLlm: marker is the explore tool in the grove-explore server.
         assert_eq!(
             expected_claude_marker(Mode::McpLlm),
-            Some("mcp__grove-explore__explore")
+            Some("mcp__grove__explore")
         );
         assert_eq!(
             expected_claude_marker(Mode::Mcp),
