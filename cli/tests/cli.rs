@@ -393,6 +393,10 @@ fn init_provisions_and_wires_harness_per_target() {
             .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
             .env("XDG_CACHE_HOME", &cache)
             .env("HOME", &cache)
+            // Empty PATH: agent auto-detection (`which`) must not pick up whatever
+            // coding-agent CLIs (codex, code, cursor, …) happen to be installed on
+            // the machine running the tests — it should fall back to Claude Code.
+            .env("PATH", "")
             .output()
             .expect("running grove init")
     };

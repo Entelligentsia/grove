@@ -38,12 +38,19 @@ Homebrew formula all verify against it.
 
 - **`install.sh`** (`curl | sh`) — platform detection, checksum-verified, installs
   to `$GROVE_INSTALL_DIR` (default `~/.local/bin`). `GROVE_VERSION` pins a tag.
+  Honors `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY` via `curl`/`wget`.
+- **`install.ps1`** (PowerShell, Windows) — checksum-verified, installs to
+  `$env:GROVE_INSTALL_DIR` (default `$env:LOCALAPPDATA\grove\bin`).
+  `$env:GROVE_VERSION` pins a tag. Honors `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY`/
+  `NO_PROXY` from the environment, or an explicit `-Proxy` when run as a
+  downloaded script.
 - **Homebrew** — `dist/homebrew/grove.rb` template, published to the live tap
   [`Entelligentsia/homebrew-grove`](https://github.com/Entelligentsia/homebrew-grove)
   (`brew install Entelligentsia/grove/grove`).
 - **npm** — `dist/npm/` thin wrapper, published as
   [`@entelligentsia/grove`](https://www.npmjs.com/package/@entelligentsia/grove);
-  `bin/grove.js` execs the vendored prebuilt that `install.js` downloads.
+  `bin/grove.js` execs the vendored prebuilt that `install.js` downloads
+  (proxy-aware via `undici`'s `EnvHttpProxyAgent`).
 - **`cargo install --git`** — builds from source. `grove` is taken on crates.io,
   so there is no published crate; install straight from the repo.
 

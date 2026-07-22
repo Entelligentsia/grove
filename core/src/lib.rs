@@ -47,6 +47,9 @@ pub mod harness;
 pub mod ingest;
 pub mod init;
 pub mod ops;
+/// Shared proxy resolution for grove's `ureq` HTTP clients — used by
+/// [`fetch`] here and by the `grove-explore-core` crate's chat/health clients.
+pub mod proxy;
 pub mod registry;
 pub mod render;
 

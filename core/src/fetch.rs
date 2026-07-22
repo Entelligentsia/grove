@@ -5,7 +5,7 @@
 //! tags.scm, manifest.json}`. Each wasm's sha256 is verified against the catalog
 //! before it lands in the cache. Override the host with `GROVE_REGISTRY_URL`.
 
-use std::io::Read;
+use std::{io::Read, time::Duration};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
@@ -79,12 +79,20 @@ fn host() -> String {
         .to_string()
 }
 
+fn build_agent() -> ureq::Agent {
+    crate::proxy::default_config()
+        .timeout_connect(Some(Duration::from_secs(30)))
+        .timeout_global(Some(Duration::from_secs(300)))
+        .build()
+        .new_agent()
+}
+
 pub(crate) fn get_bytes(url: &str) -> Result<Vec<u8>> {
-    let resp = ureq::get(url)
-        .call()
-        .map_err(|e| anyhow!("GET {url}: {e}"))?;
+    let agent = build_agent();
+    let resp = agent.get(url).call().map_err(|e| anyhow!("GET {url}: {e}"))?;
     let mut buf = Vec::new();
-    resp.into_reader()
+    resp.into_body()
+        .into_reader()
         .read_to_end(&mut buf)
         .with_context(|| format!("reading {url}"))?;
     Ok(buf)
@@ -186,7 +194,11 @@ pub fn run(langs: &[String], force: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{host, safe_segment, sha256, Catalog, DEFAULT_HOST};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use super::{build_agent, host, safe_segment, sha256, Catalog, DEFAULT_HOST};
+    use crate::proxy::PROXY_ENV_TEST_LOCK;
 
     #[test]
     fn host_defaults_and_honors_env_override() {
@@ -241,6 +253,61 @@ mod tests {
             "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
         assert_eq!(sha256(b"abc"), crate::registry::sha256(b"abc"));
+    }
+
+    #[test]
+    fn build_agent_honors_http_proxy_environment() {
+        let _guard = PROXY_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let proxy_addr = addr.to_string();
+
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+
+            // A single `read()` can return a partial request, so drain the
+            // stream until the header terminator shows up (mirrors the
+            // round-trip test in proxy.rs).
+            fn read_headers(stream: &mut std::net::TcpStream) -> String {
+                let mut acc = String::new();
+                let mut buf = [0u8; 512];
+                while !acc.contains("\r\n\r\n") {
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0, "peer closed before sending a full request");
+                    acc.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+                acc
+            }
+
+            loop {
+                let raw = read_headers(&mut stream);
+                if raw.starts_with("CONNECT") {
+                    // ureq tunnels through an HTTP proxy via CONNECT even for a
+                    // plain `http://` target; acknowledge the tunnel and keep
+                    // reading the real request on the same connection.
+                    stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").unwrap();
+                    continue;
+                }
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                    .unwrap();
+                return;
+            }
+        });
+
+        std::env::set_var("HTTP_PROXY", format!("http://{proxy_addr}"));
+        std::env::remove_var("HTTPS_PROXY");
+        std::env::remove_var("ALL_PROXY");
+        std::env::remove_var("NO_PROXY");
+
+        let agent = build_agent();
+        let mut response = agent.get("http://example.test/ok").call().unwrap();
+        let body = response.body_mut().read_to_string().unwrap();
+        assert_eq!(body, "ok");
+
+        std::env::remove_var("HTTP_PROXY");
+        handle.join().unwrap();
     }
 
     #[test]

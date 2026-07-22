@@ -84,23 +84,33 @@ pub fn health_probe(cfg: &ExploreConfig) -> Result<(), HealthError> {
     let base = cfg.base_url.trim_end_matches('/');
     let url = format!("{base}/models");
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(CONNECT_TIMEOUT)
-        .timeout(PROBE_TIMEOUT)
-        .build();
+    let agent: ureq::Agent = grove_core::proxy::default_config()
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_global(Some(PROBE_TIMEOUT))
+        // Disabled so a non-2xx status comes back as `Ok(response)` with its
+        // body intact (for the diagnostic message below) instead of
+        // `Err(Error::StatusCode)`, which drops the body.
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
 
-    let resp = agent.get(&url).call().map_err(|e| match e {
-        ureq::Error::Status(status, r) => HealthError::Unreachable {
+    let mut resp = agent
+        .get(&url)
+        .call()
+        .map_err(|e| HealthError::Unreachable { url: url.clone(), detail: e.to_string() })?;
+
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        let body = resp.body_mut().read_to_string().unwrap_or_default();
+        return Err(HealthError::Unreachable {
             url: url.clone(),
-            detail: format!("HTTP {status}: {}", truncate(&r.into_string().unwrap_or_default())),
-        },
-        ureq::Error::Transport(t) => {
-            HealthError::Unreachable { url: url.clone(), detail: t.to_string() }
-        }
-    })?;
+            detail: format!("HTTP {status}: {}", truncate(&body)),
+        });
+    }
 
     let raw = resp
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| HealthError::Unreachable { url: url.clone(), detail: e.to_string() })?;
 
     let listing: ModelsResponse = serde_json::from_str(&raw).map_err(|e| {
@@ -126,29 +136,36 @@ pub fn health_probe(cfg: &ExploreConfig) -> Result<(), HealthError> {
 /// error so the caller can fall back to free-text entry without blocking on a
 /// hard dependency (the local server may simply not be running yet).
 pub fn list_models(cfg: &ExploreConfig) -> Result<Vec<String>, String> {
-    fetch_models_at(&cfg.base_url, CONNECT_TIMEOUT, PROBE_TIMEOUT)
+    fetch_models_at(&cfg.base_url, CONNECT_TIMEOUT, PROBE_TIMEOUT, grove_core::proxy::configured_proxy())
 }
 
 /// GET `{base_url}/models` with explicit timeouts, returning the served model
-/// ids. Shared by [`list_models`] (inference-grade deadline) and
-/// [`discover_engines`](super::discovery::discover_engines) (a short deadline so
-/// a dead local port can't stall the caller). Any transport / parse failure
+/// ids. Shared by [`list_models`] (inference-grade deadline, proxy-aware) and
+/// [`discover_engines`](super::discovery::discover_engines) (a short deadline
+/// and **no proxy** — it only ever probes fixed `localhost` ports, which must
+/// never be routed through a corporate proxy). Any transport / parse failure
 /// yields a `String` error.
 pub(crate) fn fetch_models_at(
     base_url: &str,
     connect: Duration,
     overall: Duration,
+    proxy: Option<ureq::Proxy>,
 ) -> Result<Vec<String>, String> {
     let base = base_url.trim_end_matches('/');
     let url = format!("{base}/models");
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(connect)
-        .timeout(overall)
-        .build();
+    let agent: ureq::Agent = grove_core::proxy::default_config()
+        .timeout_connect(Some(connect))
+        .timeout_global(Some(overall))
+        // Overrides `default_config`'s proxy — discovery passes `None` here
+        // because it only ever probes fixed `localhost` ports, which must
+        // never be routed through a corporate proxy.
+        .proxy(proxy)
+        .build()
+        .new_agent();
 
-    let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
-    let raw = resp.into_string().map_err(|e| e.to_string())?;
+    let mut resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+    let raw = resp.body_mut().read_to_string().map_err(|e| e.to_string())?;
     let listing: ModelsResponse =
         serde_json::from_str(&raw).map_err(|e| format!("unparseable /models response: {e}"))?;
     Ok(listing

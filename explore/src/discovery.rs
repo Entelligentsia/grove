@@ -87,7 +87,11 @@ pub fn discover_engines() -> Vec<DiscoveredEngine> {
         .into_iter()
         .map(|(label, base_url)| {
             std::thread::spawn(move || {
-                match fetch_models_at(&base_url, DISCOVER_CONNECT_TIMEOUT, DISCOVER_PROBE_TIMEOUT) {
+                // `None`: local engine auto-detection probes fixed `localhost`
+                // ports only and must never be routed through a proxy, even if
+                // one is configured in the environment.
+                match fetch_models_at(&base_url, DISCOVER_CONNECT_TIMEOUT, DISCOVER_PROBE_TIMEOUT, None)
+                {
                     Ok(models) => DiscoveredEngine { label, base_url, alive: true, models },
                     Err(_) => DiscoveredEngine { label, base_url, alive: false, models: Vec::new() },
                 }
