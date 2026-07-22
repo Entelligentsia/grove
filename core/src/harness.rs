@@ -268,10 +268,17 @@ impl<'de> Deserialize<'de> for HarnessId {
 /// The `.mcp.json` `args` array that grove should register under
 /// [`MCP_SERVER_KEY`] for `mode`.  Returns `None` when the mode must have
 /// **no** grove MCP entry.
+///
+/// `McpLlm` returns `None`: the two servers are **mutually exclusive** in the
+/// outer harness. The explore delegate's inner harness already carries the six
+/// structural tools plus Glob/Grep/Read, and an outer agent dereferences the
+/// `lang:path#symbol@line` citations it returns with its own offset-limited
+/// read — so registering `grove` alongside it adds routing ambiguity across
+/// eight tools rather than capability. See ADR 0005 (supersedes ADR 0004 §2).
 pub fn expected_mcp_args(mode: Mode) -> Option<&'static [&'static str]> {
     match mode {
-        Mode::Mcp | Mode::Both | Mode::McpLlm => Some(&["serve"]),
-        Mode::Skill | Mode::Grammars => None,
+        Mode::Mcp | Mode::Both => Some(&["serve"]),
+        Mode::McpLlm | Mode::Skill | Mode::Grammars => None,
     }
 }
 
@@ -321,9 +328,10 @@ mod tests {
     fn expected_mcp_args_coverage() {
         assert_eq!(expected_mcp_args(Mode::Mcp), Some(["serve"].as_slice()));
         assert_eq!(expected_mcp_args(Mode::Both), Some(["serve"].as_slice()));
-        // McpLlm: structural grove server takes same args as Mcp/Both; the
-        // explore server is tracked separately via expected_explore_args.
-        assert_eq!(expected_mcp_args(Mode::McpLlm), Some(["serve"].as_slice()));
+        // McpLlm registers the explore server ONLY — the two surfaces are
+        // mutually exclusive in the outer harness (ADR 0005). The structural
+        // server must be absent, and stripped on an Mcp→McpLlm transition.
+        assert_eq!(expected_mcp_args(Mode::McpLlm), None);
         assert_eq!(expected_mcp_args(Mode::Skill), None);
         assert_eq!(expected_mcp_args(Mode::Grammars), None);
     }

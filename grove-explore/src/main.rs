@@ -132,19 +132,38 @@ fn serve_main(path: PathBuf) {
         process::exit(1);
     });
 
-    // Step 3: confirm the provider is reachable before starting the loop.
-    if let Err(e) = health_probe(&cfg) {
-        eprintln!("grove-explore: provider unhealthy — {e}");
-        process::exit(1);
-    }
+    // Step 3: probe the provider, but do NOT exit on failure.
+    //
+    // Exiting here kills the process before it answers `initialize`, so the MCP
+    // client has nothing to render but a synthesized transport error — Claude
+    // Code shows `Failed to reconnect to grove-explore: -32000` and the agent
+    // never learns the tool existed, let alone why it failed. It then degrades
+    // silently to grepping.
+    //
+    // Serving anyway is NOT a fallback to the structural surface: the only tool
+    // is still `explore`, and a call against a down provider returns an
+    // actionable `isError` (ExploreError::ProviderDown) that reaches the model
+    // in-band. This also makes the behaviour timing-independent — a provider
+    // that is down at startup now reports exactly as one that dies mid-session.
+    // The warning below keeps the human-facing signal in the client's log.
+    let provider_down = match health_probe(&cfg) {
+        Ok(()) => None,
+        Err(e) => {
+            eprintln!(
+                "grove-explore: warning — provider not reachable at startup ({e}); \
+                 serving anyway, `explore` calls will return an error until it is up"
+            );
+            Some(e.to_string())
+        }
+    };
 
-    // All gates passed — enter the MCP stdio loop.
-    serve_explore(&cfg, &root);
+    // Config is loadable and well-formed — enter the MCP stdio loop.
+    serve_explore(&cfg, &root, provider_down);
 }
 
 // ── MCP stdio loop ────────────────────────────────────────────────────────────
 
-fn serve_explore(cfg: &ExploreConfig, root: &Path) {
+fn serve_explore(cfg: &ExploreConfig, root: &Path, provider_down: Option<String>) {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     eprintln!("grove-explore mcp: ready on stdio");
@@ -181,7 +200,7 @@ fn serve_explore(cfg: &ExploreConfig, root: &Path) {
             trace_writer = open_session_trace(cfg, root, &params);
         }
 
-        let response = match handle(method, &params, cfg, root, trace_writer.as_ref()) {
+        let response = match handle(method, &params, cfg, root, trace_writer.as_ref(), provider_down.as_deref()) {
             Outcome::Notify => continue,
             Outcome::Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Outcome::Err { code, message } => json!({
@@ -213,6 +232,7 @@ fn handle(
     cfg: &ExploreConfig,
     root: &Path,
     trace: Option<&TraceWriter>,
+    provider_down: Option<&str>,
 ) -> Outcome {
     match method {
         "initialize" => {
@@ -229,7 +249,7 @@ fn handle(
                     "title": "grove-explore",
                     "version": SERVER_VERSION
                 },
-                "instructions": explore_instructions(cfg),
+                "instructions": explore_instructions(cfg, provider_down),
             }))
         }
         "notifications/initialized" | "notifications/cancelled" => Outcome::Notify,
@@ -245,8 +265,27 @@ fn handle(
 
 // ── Server instructions ───────────────────────────────────────────────────────
 
-fn explore_instructions(cfg: &ExploreConfig) -> String {
-    format!(
+/// Server instructions, read by the model at session start.
+///
+/// When the startup probe failed, lead with that fact. The model otherwise has
+/// no way to know the provider is down until it spends a call discovering it —
+/// observed in the wild costing two `explore` calls before the agent concluded
+/// the backend was unreachable.
+fn explore_instructions(cfg: &ExploreConfig, provider_down: Option<&str>) -> String {
+    let mut s = String::new();
+    if let Some(detail) = provider_down {
+        s.push_str(&format!(
+            "PROVIDER UNAVAILABLE: the inference server backing this tool was unreachable \
+             at startup ({base_url}: {detail}). `explore` calls will return an error until \
+             it is running — do not spend calls probing it. Tell the user the provider at \
+             {base_url} is down and that `grove-explore config` / restarting the server \
+             will fix it; use your own search tools meanwhile. If it comes back up, \
+             `explore` starts working without a restart.\n\n",
+            base_url = cfg.base_url,
+            detail = detail,
+        ));
+    }
+    s.push_str(&format!(
         "grove is in explore mode: the `explore` tool is a code LOCATOR backed by a small \
          local model ({model} at {base_url}) driving tree-sitter + text search. Ask it \
          targeted where-is / which-file / who-calls questions and it returns validated \
@@ -259,7 +298,8 @@ fn explore_instructions(cfg: &ExploreConfig) -> String {
          isError result; restart `grove-explore` to reconnect.",
         model = cfg.model,
         base_url = cfg.base_url,
-    )
+    ));
+    s
 }
 
 // ── Tool spec ─────────────────────────────────────────────────────────────────

@@ -920,10 +920,9 @@ fn mcp_llm_steering_block_idempotency() {
         &std::fs::read_to_string(&mcp_json_path).unwrap(),
     )
     .expect(".mcp.json must be valid JSON");
-    assert_eq!(
-        mcp["mcpServers"]["grove"]["args"],
-        serde_json::json!(["serve"]),
-        "grove entry must have args [serve]"
+    assert!(
+        mcp["mcpServers"]["grove"].is_null(),
+        "structural grove entry must be absent in mcp-llm (ADR 0005)"
     );
     assert!(
         !mcp["mcpServers"]["grove-explore"].is_null(),
@@ -1194,17 +1193,10 @@ fn mcp_llm_mcp_json_no_duplicate_grove_entry() {
         .as_object()
         .expect("mcpServers must be an object");
 
-    // Exactly one "grove" key with args == ["serve"].
+    // No "grove" key at all — mcp-llm registers the locator alone (ADR 0005),
+    // and re-running init must not resurrect a structural entry.
     let grove_count = servers.keys().filter(|k| *k == "grove").count();
-    assert_eq!(grove_count, 1, "expected exactly 1 'grove' key, found {grove_count}");
-
-    let args = mcp["mcpServers"]["grove"]["args"]
-        .as_array()
-        .expect("grove entry must have an args array");
-    let arg_strs: Vec<&str> = args.iter()
-        .map(|v| v.as_str().expect("arg must be string"))
-        .collect();
-    assert_eq!(arg_strs, vec!["serve"], "grove args must be [serve]");
+    assert_eq!(grove_count, 0, "expected no 'grove' key, found {grove_count}");
 
     // Exactly one "grove-explore" key.
     let explore_count = servers.keys().filter(|k| *k == "grove-explore").count();
@@ -1846,10 +1838,9 @@ fn init_first_run_grove_explore_absent_degrades() {
         &std::fs::read_to_string(&mcp_json_path).unwrap(),
     )
     .expect(".mcp.json must be valid JSON");
-    assert_eq!(
-        mcp["mcpServers"]["grove"]["args"],
-        serde_json::json!(["serve"]),
-        "grove entry must have args [serve]"
+    assert!(
+        mcp["mcpServers"]["grove"].is_null(),
+        "structural grove entry must be absent in mcp-llm (ADR 0005)"
     );
     assert!(
         !mcp["mcpServers"]["grove-explore"].is_null(),

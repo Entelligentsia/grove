@@ -45,12 +45,12 @@ impl fmt::Display for HealthError {
             HealthError::Unreachable { url, detail } => write!(
                 f,
                 "inference server unreachable at {url}: {detail} \
-                 — is the server running? check `base_url` in .grove/explore.json"
+                 — is the server running? check `base_url` in .grove/config.json (explore section)"
             ),
             HealthError::ModelMissing { model, url, available } => write!(
                 f,
                 "model `{model}` is not served by {url} (available: {}) \
-                 — pull/load it, or fix `model` in .grove/explore.json",
+                 — pull/load it, or fix `model` in .grove/config.json (explore section)",
                 if available.is_empty() { "none reported".to_string() } else { available.join(", ") }
             ),
         }

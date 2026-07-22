@@ -20,3 +20,4 @@
 - [ADR 0002 — Declared project mode](adr/0002-grove-project-config-and-declared-mode.md)
 - [ADR 0003 — Shared verb rendering in core](adr/0003-shared-verb-rendering-in-core.md)
 - [ADR 0004 — Explore split into grove-explore](adr/0004-explore-split-into-grove-explore.md)
+- [ADR 0005 — Exclusive MCP surfaces](adr/0005-exclusive-mcp-surfaces.md)
