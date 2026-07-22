@@ -14,3 +14,9 @@ server.pid
 
 # Forge session transcripts — ephemeral logs that can capture env/secret output; never publish.
 .forge/transcripts/
+
+# Forge run/debug logs — also capture command output verbatim (same leak risk).
+.forge/cache/run-task-debug-*.jsonl
+.forge/cache/FRICTION-*.jsonl
+.forge/cache/run-sprint-state-*.json
+.forge/cache/run-task-state-*.json
