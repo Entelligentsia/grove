@@ -39,4 +39,4 @@ sha2 = "0.10"
 dirs = "5"
 
 # HTTP client for grammar fetch (blocking, rustls)
-ureq = "2"
+ureq = "3"

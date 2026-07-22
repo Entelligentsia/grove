@@ -4,12 +4,21 @@
 // vendor/. The bin shim (bin/grove.js) execs whatever lands there.
 "use strict";
 
-const https = require("https");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
+const { Readable } = require("stream");
+// Use undici's own `fetch`, not Node's global one: the global `fetch` is
+// powered by whichever undici version ships inside that Node binary, and
+// passing an `EnvHttpProxyAgent` built by a *different* (newer) standalone
+// undici as its dispatcher can break on a handler-protocol mismatch between
+// the two versions. Importing both from the same package keeps them in sync.
+const { fetch, EnvHttpProxyAgent } = require("undici");
+// Honors HTTP_PROXY/HTTPS_PROXY/ALL_PROXY + NO_PROXY from the environment for
+// every fetch below — the standard proxy env vars work the same way curl/wget
+// (install.sh) and Homebrew already do for this project.
+const dispatcher = new EnvHttpProxyAgent();
 
 const REPO = "Entelligentsia/grove";
 const { version } = require("./package.json");
@@ -27,33 +36,34 @@ function fail(msg) {
   process.exit(1);
 }
 
-function get(url, dest) {
-  return new Promise((resolve, reject) => {
-    https
-      .get(url, { headers: { "User-Agent": "grove-npm-installer" } }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          return resolve(get(res.headers.location, dest));
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-        }
-        const out = fs.createWriteStream(dest);
-        res.pipe(out);
-        out.on("finish", () => out.close(resolve));
-        out.on("error", reject);
-      })
+async function download(url, dest) {
+  // fetch follows redirects by default, so the GitHub Release → CDN hop the
+  // old https.get handled manually is transparent here.
+  const res = await fetch(url, {
+    dispatcher,
+    headers: { "User-Agent": "grove-npm-installer" },
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
+  const out = fs.createWriteStream(dest);
+  await new Promise((resolve, reject) => {
+    Readable.fromWeb(res.body)
+      .pipe(out)
+      .on("finish", resolve)
       .on("error", reject);
   });
 }
 
 async function getText(url) {
-  const tmp = path.join(os.tmpdir(), `grove-sha-${process.pid}`);
-  await get(url, tmp);
-  const t = fs.readFileSync(tmp, "utf8");
-  fs.unlinkSync(tmp);
-  return t;
+  const res = await fetch(url, {
+    dispatcher,
+    headers: { "User-Agent": "grove-npm-installer" },
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
+  return res.text();
 }
 
 async function main() {
@@ -74,7 +84,7 @@ async function main() {
   const archive = path.join(vendor, asset);
 
   console.error(`grove: downloading ${asset} (v${version})`);
-  await get(url, archive);
+  await download(url, archive);
 
   // Verify checksum when the sidecar is present.
   try {

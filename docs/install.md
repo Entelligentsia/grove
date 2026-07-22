@@ -13,13 +13,37 @@ Every install channel below places both on your PATH from **v0.4.1** onward.
 `grove-explore` is inert until configured, so installing it costs you nothing if
 you never opt in; see [Setup](setup.md) for `grove init --as mcp-llm`.
 
-## curl | sh
+## curl | sh (Linux / macOS)
 
 Detects your platform, verifies the sha256, installs to `~/.local/bin`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Entelligentsia/grove/main/install.sh | sh
 ```
+
+Honors `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` + `NO_PROXY` via `curl`/`wget`.
+
+## PowerShell (Windows)
+
+Verifies the sha256, installs to `$env:LOCALAPPDATA\grove\bin`:
+
+```powershell
+irm https://raw.githubusercontent.com/Entelligentsia/grove/main/install.ps1 | iex
+```
+
+Honors `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` + `NO_PROXY` from the environment
+(set them before running the one-liner). For an explicit `-Proxy`, download the
+script first — piping into `iex` doesn't accept parameters:
+
+```powershell
+iwr https://raw.githubusercontent.com/Entelligentsia/grove/main/install.ps1 -OutFile install.ps1
+./install.ps1 -Proxy "http://proxy.corp:8080"
+```
+
+`-InstallDir` and `-Version` (or `$env:GROVE_INSTALL_DIR` / `$env:GROVE_VERSION`)
+override the defaults, mirroring `install.sh`'s env vars. Only the
+`x86_64-pc-windows-msvc` prebuilt is published today; other Windows archs fall
+back to `cargo install`.
 
 ## Homebrew (macOS / Linux)
 
@@ -37,6 +61,9 @@ checksum-verified prebuilt:
 ```bash
 npm install -g @entelligentsia/grove
 ```
+
+The postinstall download honors `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` +
+`NO_PROXY` from the environment.
 
 ## From source
 

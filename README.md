@@ -48,8 +48,9 @@ curl -fsSL https://raw.githubusercontent.com/Entelligentsia/grove/main/install.s
 ```
 
 One line — detects your platform, verifies the sha256, installs **both**
-`grove` and `grove-explore`. Prefer Homebrew, npm, cargo, or building from
-source? → **[Install](docs/install.md)**.
+`grove` and `grove-explore`, and honors `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`.
+Prefer Homebrew, npm, cargo, PowerShell, or building from source? →
+**[Install](docs/install.md)**.
 
 ### 2&nbsp;·&nbsp;Wire it into your project
 
@@ -195,7 +196,7 @@ bounded tool-calling loop — grove's own structural tools plus glob/grep/read �
 and replies with **location lines only**, most relevant first:
 
 ```
-? where are admin routes and admin middleware defined?
+where are admin routes and admin middleware defined?
 
 javascript:routes/admin/adminMiddleware.js#requireAdmin@22
 javascript:routes/admin/adminMiddleware.js#checkNotImpersonating@58

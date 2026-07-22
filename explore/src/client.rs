@@ -140,10 +140,15 @@ impl OpenAiCompatClient {
     /// Build a client from config. The base URL's trailing slash is trimmed so
     /// `{base_url}/chat/completions` is well-formed for both providers.
     pub fn new(cfg: &ExploreConfig) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(CONNECT_TIMEOUT)
-            .timeout(CHAT_TIMEOUT)
-            .build();
+        let agent: ureq::Agent = grove_core::proxy::default_config()
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_global(Some(CHAT_TIMEOUT))
+            // Disabled so a 4xx/5xx status is returned as `Ok(response)` with
+            // its body intact, rather than `Err(Error::StatusCode)` (which
+            // drops the body) — `chat()` below classifies it manually.
+            .http_status_as_error(false)
+            .build()
+            .new_agent();
         OpenAiCompatClient {
             base_url: cfg.base_url.trim_end_matches('/').to_string(),
             model: cfg.model.clone(),
@@ -162,25 +167,22 @@ impl ChatClient for OpenAiCompatClient {
         let url = format!("{}/chat/completions", self.base_url);
         let body = serde_json::to_string(&req).map_err(|e| ClientError::Encode(e.to_string()))?;
 
-        let resp = self
+        let mut resp = self
             .agent
             .post(&url)
-            .set("Content-Type", "application/json")
-            .send_string(&body);
+            .header("Content-Type", "application/json")
+            .send(&body)
+            .map_err(|e| ClientError::Connection { url: url.clone(), detail: e.to_string() })?;
 
-        let resp = match resp {
-            Ok(r) => r,
-            Err(ureq::Error::Status(status, r)) => {
-                let body = r.into_string().unwrap_or_default();
-                return Err(ClientError::Http { url, status, body });
-            }
-            Err(ureq::Error::Transport(t)) => {
-                return Err(ClientError::Connection { url, detail: t.to_string() });
-            }
-        };
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let body = resp.body_mut().read_to_string().unwrap_or_default();
+            return Err(ClientError::Http { url, status, body });
+        }
 
         let raw = resp
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .map_err(|e| ClientError::Connection { url: url.clone(), detail: e.to_string() })?;
 
         serde_json::from_str(&raw).map_err(|e| ClientError::Protocol {

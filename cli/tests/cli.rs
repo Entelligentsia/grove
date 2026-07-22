@@ -393,6 +393,10 @@ fn init_provisions_and_wires_harness_per_target() {
             .env("GROVE_REGISTRY_URL", "http://127.0.0.1:1")
             .env("XDG_CACHE_HOME", &cache)
             .env("HOME", &cache)
+            // Empty PATH: agent auto-detection (`which`) must not pick up whatever
+            // coding-agent CLIs (codex, code, cursor, …) happen to be installed on
+            // the machine running the tests — it should fall back to Claude Code.
+            .env("PATH", "")
             .output()
             .expect("running grove init")
     };
@@ -1546,16 +1550,21 @@ fn grove_explore_single_tool_surface_and_identity() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// GROVE-S04-T02 (AC2 + AC6): `grove-explore` exits non-zero when the provider
-/// is unreachable — the startup health gate must fire before the MCP loop.
+/// ADR 0005: an unreachable provider does NOT exit at startup. Exiting killed
+/// the process before it answered `initialize`, so the client rendered only a
+/// synthesized transport error and the agent never learned the tool existed.
+/// Now grove-explore warns to stderr and serves anyway; a call against the down
+/// provider returns an actionable `isError` in-band. (Supersedes the original
+/// GROVE-S04-T02 hard-exit assertion.)
 ///
 /// Port 1 is IANA-reserved and guaranteed to refuse connections immediately.
+/// stdin is null, so the serve loop reads EOF and exits 0 without a call.
 #[test]
-fn grove_explore_startup_fails_on_unhealthy_provider() {
+fn grove_explore_startup_warns_but_serves_on_unhealthy_provider() {
     use std::process::Stdio;
 
     let dir = std::env::temp_dir().join(format!(
-        "grove_explore_cli_{}_startup_fail",
+        "grove_explore_cli_{}_startup_warn",
         std::process::id()
     ));
     std::fs::create_dir_all(dir.join(".grove")).unwrap();
@@ -1578,7 +1587,8 @@ fn grove_explore_startup_fails_on_unhealthy_provider() {
     )
     .unwrap();
 
-    // Start grove-explore — it must fail during the health gate, before the loop.
+    // Start grove-explore. The health probe fails but must NOT abort startup —
+    // stdin is null, so the loop reads EOF and exits 0 after serving.
     let output = std::process::Command::new(grove_explore_bin())
         .arg("serve")
         .arg(dir.to_str().unwrap())
@@ -1589,29 +1599,30 @@ fn grove_explore_startup_fails_on_unhealthy_provider() {
         .output()
         .expect("grove-explore to run");
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
     let stderr_str = String::from_utf8_lossy(&output.stderr);
 
-    // Must exit non-zero.
+    // Must NOT exit non-zero: the server starts despite the down provider.
     assert!(
-        !output.status.success(),
-        "grove-explore must exit non-zero when provider is unreachable; \
+        output.status.success(),
+        "grove-explore must serve (exit 0) when the provider is down, not abort; \
          exit={:?}; stderr={stderr_str}",
         output.status.code()
     );
 
-    // Stderr must contain a HealthError fix hint.
+    // Stderr must carry the startup warning with the fix hint, and say it is
+    // serving anyway — the human-facing half of the ADR 0005 contract.
     assert!(
-        stderr_str.contains("is the server running")
-            || stderr_str.contains("base_url")
-            || stderr_str.contains("provider unhealthy"),
+        stderr_str.contains("is the server running") || stderr_str.contains("base_url"),
         "stderr must contain a fix hint; got: {stderr_str}"
     );
-
-    // Stdout must be empty — the server never entered the loop.
     assert!(
-        stdout_str.trim().is_empty(),
-        "stdout must be empty when startup fails; got: {stdout_str}"
+        stderr_str.contains("serving anyway"),
+        "stderr must say it serves despite the down provider; got: {stderr_str}"
+    );
+    // And the loop must actually have started (it printed its ready line).
+    assert!(
+        stderr_str.contains("ready on stdio"),
+        "the MCP loop must start despite the down provider; got: {stderr_str}"
     );
 
     std::fs::remove_dir_all(&dir).ok();
