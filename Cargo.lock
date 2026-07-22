@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "grove-cst"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "grove-cst-cli"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -655,7 +655,7 @@ dependencies = [
 
 [[package]]
 name = "grove-explore-bin"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "grove-explore-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "dirs",

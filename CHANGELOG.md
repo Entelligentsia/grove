@@ -4,6 +4,56 @@ All notable changes to grove are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and grove adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-22
+
+### Added — the explore delegate is its own binary (`grove-explore`)
+
+The LLM-delegating `explore` surface is split out of the `grove` binary into a
+second binary, **`grove-explore`**, with its own MCP server identity (ADR 0004,
+0005). The two servers are now **composable, mutually exclusive registrations** —
+a project wires `grove` (always the 7-tool structural surface), `grove-explore`
+(always the locator), or both — never a mode switch on one server.
+
+- **Workspace grew to four published crates.** The inner explorer engine moved
+  wholesale out of `core/src/explore/` into a new `grove-explore-core` crate
+  (`explore/`), and the config/trace TUIs + `tap` moved into the new
+  `grove-explore-bin` crate (`grove-explore/`). The `grove` binary no longer
+  links the explore crate at all. crates.io ids: `grove-cst`,
+  `grove-explore-core`, `grove-cst-cli`, `grove-explore-bin`.
+- **`grove serve` is unconditionally the 7-tool structural surface.** The
+  `Surface` enum, `determine_surface`, and the health-fallback path are gone; the
+  hidden `--explore`/`--standard` flags now `bail!` and name `grove-explore serve`
+  as the replacement.
+- **`grove-explore serve` gates on provider health at startup** — config load →
+  explore deserialize → `health_probe`, each `exit(1)` before the serve loop; it
+  never silently falls back.
+- **`grove init --as mcp-llm` registers both servers** (JSON/TOML) for every
+  selected agent, and shells out to `grove-explore config` for the first-run TUI
+  with a PATH-aware graceful degrade. `grove config` / `grove tap` remain as
+  deprecated shims that forward to the sibling binary.
+- **Dual-binary release packaging.** Each release archive now contains **both**
+  `grove` and `grove-explore`; the npm wrapper exposes both bins; a new
+  `install.ps1` covers Windows.
+
+### Added — the locator registers under the `grove` key
+
+`grove init` now registers the explore delegate under the `grove` MCP key, so the
+tool surfaces as **`mcp__grove__explore`** to the outer agent (consistent with the
+structural tools' `mcp__grove__*` namespace).
+
+### Added — HTTP proxy support (#63)
+
+grove's HTTP clients (grammar `fetch`/`ingest` and the explore transport) now
+honor standard proxy configuration, so grove works behind a corporate proxy.
+
+### Changed
+
+- **grove and grove-explore are mutually exclusive at init** (ADR 0005): a
+  project registers one structural surface, not overlapping ones.
+- Doctor's explore checks are re-keyed onto the `grove-explore` registration.
+- README, docs site, and the ADR index promote `grove-explore` to a first-class
+  surface and cover the two-binary install / FAQ story.
+
 ## [0.4.1] - 2026-07-15
 
 ### Added — `grove config` auto-detects local inference engines
